@@ -1,2 +1,6 @@
 # rno-g-ice-software
-daemons running on RNO-G SBC's
+
+Programs running on RNO-G SBCs to take data. 
+
+Depends on librno-g (librno-g.so and libradiant.so) and libconfig
+
