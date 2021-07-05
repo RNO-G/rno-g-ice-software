@@ -26,7 +26,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->runtime
 
-  SECT.status_shmem_file = "/rno-g/run/thresholds.dat" ; 
+  SECT.status_shmem_file = "/rno-g/run/daqstatus.dat" ; 
   SECT.acq_buf_size = 256; 
   SECT.mon_buf_size = 128; 
 
@@ -414,6 +414,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
 */
 
+  return 0;
 
 }
 

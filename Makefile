@@ -1,11 +1,11 @@
 BUILD_DIR=build
 PREFIX?=/rno-g
-CFLAGS=-fPIC -Og -Wall -Wextra -g -std=gnu11 -I$(PREFIX)/include
+CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(PREFIX)/include 
 BINDIR=bin
 
 
-LDFLAGS=-shared -L$(PREFIX)/lib
-LIBS=-lz -pthread -lrno-g -lradiant
+LDFLAGS=-L$(PREFIX)/lib
+LIBS=-lz -pthread -lrno-g -lradiant -lconfig -lflower -lm
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h 
 
@@ -36,3 +36,8 @@ $(BINDIR):
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf $(BINDIR)
+
+setup:
+	mkdir $(PREFIX)/run
+	mkdir $(PREFIX)/var
+

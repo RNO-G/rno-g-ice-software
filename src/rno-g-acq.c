@@ -553,8 +553,9 @@ int radiant_initial_setup()
  * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock. 
  *
  **/ 
-void * acq_thread(void*) 
+void * acq_thread(void* v) 
 {
+  (void) v; 
   while(!quit) 
   {
 
@@ -746,8 +747,10 @@ double calc_next_sw_trig(float now)
  *  This is responsible for force triggers and servoing. 
  *
  * */ 
-static void * mon_thread(void*) 
+static void * mon_thread(void* v) 
 {
+  (void) v;
+
   //start time
   struct timespec start; 
   clock_gettime(CLOCK_MONOTONIC, &start); 
@@ -764,7 +767,6 @@ static void * mon_thread(void*)
 
   //last output time 
   double last_daqstatus_out = 0; 
-  double last_printout = 0; 
   static int last_cfg_counter = -1; 
 
   double next_sw_trig = -1; 
@@ -782,7 +784,6 @@ static void * mon_thread(void*)
     float diff_servo_radiant = nowf - last_servo_radiant; 
     float diff_servo_lt = nowf - last_servo_lt;
     float diff_last_daqstatus_out = nowf - last_daqstatus_out; 
-    float diff_last_printout = nowf - last_printout; 
 
     if (next_sw_trig  < 0) 
     {
@@ -801,7 +802,7 @@ static void * mon_thread(void*)
     pthread_rwlock_rdlock(&cfg_lock);
 
     //do we need radiant scalers? 
-    if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval > diff_scalers_radiant)  
+    if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
     {
       int ok = radiant_read_daqstatus(radiant, ds); 
       if (!ok) fprintf(stderr,"Problem reading daqstatust"); 
@@ -813,7 +814,7 @@ static void * mon_thread(void*)
 
     // do we need to servo radiant? 
     if (cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
-        && cfg.radiant.servo.scaler_update_interval > diff_servo_radiant)  
+        && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)  
     {
       for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++) 
       {
@@ -837,7 +838,7 @@ static void * mon_thread(void*)
 
 
     // do we need LT scalers? 
-    if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval > diff_scalers_lt)  
+    if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt)  
     {
       flower_fill_daqstatus(flower, ds); 
       update_flower_servo_state(&flwr_servo_state, ds); 
@@ -847,7 +848,7 @@ static void * mon_thread(void*)
     // do we need to servo LT? 
 
     if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
-        && cfg.lt.servo.scaler_update_interval > diff_servo_lt)  
+        && cfg.lt.servo.scaler_update_interval < diff_servo_lt)  
     {
       for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
       {
@@ -866,7 +867,7 @@ static void * mon_thread(void*)
 
     //do we need to write out the DAQ status? 
 
-    if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval >  diff_last_daqstatus_out)  
+    if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval < diff_last_daqstatus_out)  
     {
       mon_buffer_item_t * mem = ice_buf_getmem(mon_buffer); 
       memcpy(&mem->ds,ds, sizeof(rno_g_daqstatus_t)); 
@@ -883,15 +884,6 @@ static void * mon_thread(void*)
       next_sw_trig = calc_next_sw_trig(nowf); 
     }
 
-    //do we need to dump out the DAQ status? 
-
-    if (cfg.output.print_interval && cfg.output.print_interval > diff_last_printout)
-    {
-      rno_g_daqstatus_dump(stdout,ds); 
-
-    }
-   
-    
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock); 
 
@@ -954,8 +946,9 @@ int do_close(rno_g_file_handle_t h, char *path)
 }
 
 
-static void * wri_thread(void*) 
+static void * wri_thread(void* v) 
 {
+  (void) v; 
   time_t start_time = time(0); 
   time_t last_print_out = start_time; 
 
@@ -1040,6 +1033,7 @@ static void * wri_thread(void*)
       printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
       num_events_this_cycle = 0; 
       rno_g_daqstatus_dump(stdout, ds); 
+      last_print_out = now; 
     }
 
     if (!have_data && !have_status) 
@@ -1095,6 +1089,7 @@ static void * wri_thread(void*)
      
       {
 
+    
         if (ds_file_name) do_close(ds_handle, ds_file_name); 
         snprintf(bigbuf,bigbuflen,"%s/status/%d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix ); 
         ds_handle.type = RNO_G_GZIP; 
@@ -1108,6 +1103,7 @@ static void * wri_thread(void*)
       memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t)); 
 
       if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC); 
+
 
       ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds); 
       ds_file_N++; 
@@ -1126,8 +1122,10 @@ static void * wri_thread(void*)
 }
 
 
-static void signal_handler(int signal,  siginfo_t *, void *) 
+static void signal_handler(int signal,  siginfo_t * sinfo, void * v) 
 {
+  (void) sinfo; 
+  (void) v; 
   if (signal == SIGUSR1) 
   {
     cfg_reread = 1; 
@@ -1165,15 +1163,23 @@ static int initial_setup()
 
   //Read the runfile, and update it.  
   FILE * frun = fopen(cfg.output.runfile,"r"); 
-  fscanf(frun,"%d\n", &run_number); 
-  fclose(frun); 
+  if (!frun) 
+  {
+    fprintf(stderr,"NO RUN FILE FOUND at %s, setting run to 0\n", cfg.output.runfile); 
+    run_number = 0; 
+  }
+  else
+  {
+    fscanf(frun,"%d\n", &run_number); 
+    fclose(frun); 
 
-  //TODO: make sure we don't run out of disk space here
-  const char * tmp_run_file = "/tmp/tmprunfile"; 
-  frun = fopen("/tmp/tmprunfile","w"); 
-  fprintf(frun,"%d\n", run_number+1); 
-  fclose(frun); 
-  rename(tmp_run_file, cfg.output.runfile); 
+    //TODO: make sure we don't run out of disk space here
+    const char * tmp_run_file = "/tmp/tmprunfile"; 
+    frun = fopen("/tmp/tmprunfile","w"); 
+    fprintf(frun,"%d\n", run_number+1); 
+    fclose(frun); 
+    rename(tmp_run_file, cfg.output.runfile); 
+  }
 
   //our output dir is going to be the base_dir + run%d/ 
   asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
@@ -1197,7 +1203,7 @@ static int initial_setup()
   {
     shared_ds_fd = open(cfg.runtime.status_shmem_file, O_CREAT | O_RDWR,0755);
 
-    if (shared_ds_fd > 0) 
+    if (shared_ds_fd <= 0) 
     {
       fprintf(stderr, "Could not open %s\n", cfg.runtime.status_shmem_file); 
       shared_ds_fd = 0; 
@@ -1248,8 +1254,15 @@ static int initial_setup()
   //now let's dump the configuration file to the cfg dir 
   sprintf(strbuf,"%s/cfg/acq.cfg", output_dir); 
   FILE * of = fopen(strbuf,"w"); 
-  dump_acq_config(of,&cfg); 
-  fclose(of); 
+  if (!of) 
+  {
+    fprintf(stderr,"Could not open %s\n", strbuf); 
+  }
+  else
+  {
+    dump_acq_config(of,&cfg); 
+    fclose(of); 
+  }
   free(strbuf); 
 
   //initialie the radiant lock
