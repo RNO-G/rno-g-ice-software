@@ -6,6 +6,7 @@
 /** Configuration structs */ 
 
 #define NUM_SERVO_PERIODS 3
+#define NUM_SERVO_PERIODS_STR "3" 
 
 
 /** The acquisition config 
@@ -147,6 +148,8 @@ typedef struct acq_config
       int min_coincidence; 
       int window; 
     } trigger; 
+
+
 
     struct
     {
