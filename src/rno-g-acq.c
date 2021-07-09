@@ -359,6 +359,11 @@ int flower_configure()
   ltcfg.num_coinc =cfg.lt.trigger.enable ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   int ret = flower_configure_trigger(flower, ltcfg); 
 
+  if (!cfg.lt.gain.auto_gain) 
+  {
+    flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes); 
+  }
+
   pthread_rwlock_unlock(&cfg_lock); 
   pthread_rwlock_unlock(&flower_lock); 
 
@@ -372,10 +377,57 @@ static float clamp(float val, float min, float max)
   if (val < min) return min; 
   return val; 
 }
+
+double getrms(int N, uint8_t* X) 
+{
+  double sum = 0; 
+  double sum2 = 0; 
+  for (int i = 0; i < N ; i++) 
+  {
+    sum+=X[i]; 
+    sum2+=X[i]*X[i]; 
+  }
+
+  double mean = sum/N; 
+  return sqrt(sum2/N - mean*mean); 
+}
+
 int flower_initial_setup() 
 {
   flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
   if (!flower) return -1; 
+
+  //do the auto gain if asked to 
+  if (cfg.lt.gain.auto_gain) 
+  {
+    float target = cfg.lt.gain.target_rms; 
+    float rms[RNO_G_NUM_LT_CHANNELS] = {0};
+    uint8_t data[RNO_G_NUM_LT_CHANNELS][256]; 
+    uint8_t gain_codes[RNO_G_NUM_LT_CHANNELS] = {0}; 
+    uint8_t done = 0;
+
+    while(done != (1<<RNO_G_NUM_LT_CHANNELS)-1) 
+    {
+      flower_set_gains(flower, gain_codes); 
+      flower_read_waveforms(flower, 256, (uint8_t**) data); 
+      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+      {
+        if (done & ( 1 << i)) continue; 
+
+        rms[i] = getrms(256, data[i]); 
+        if (rms[i] < target && gain_codes[i] < FLOWER_GAIN_TOO_HIGH) 
+        {
+          gain_codes[i]++; 
+        }
+        else 
+        {
+          done |= (1 << i); 
+        }
+      }
+    }
+  }
+  
+
   //then the rest of the configuration; 
   flower_configure(); 
   return 0; 
@@ -670,16 +722,16 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
   float fw = cfg.lt.servo.fast_scaler_weight; 
 
 
-  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_100mHz;
-  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_1Hz;
-  const rno_g_lt_scaler_group_t * fast_gated = &ds->lt_scalers.s_1Hz_gated;
+  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
+  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
+  const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
 
   int sub = cfg.lt.servo.subtract_gated; 
   
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
 
-    float val =  sw * slow->servo_per_chan[i]+ fw *(fast->servo_per_chan[i]-sub*fast_gated->servo_per_chan[i]);
+    float val =  fw * fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
     st->last_value[i] = st->value[i]; 
     st->value[i] = val; 
     st->last_error[i] = st->error[i]; 
@@ -1222,7 +1274,7 @@ static int initial_setup()
        if (cfg.radiant.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
          need_to_copy_radiant_thresholds = 0; 
 
-       if (cfg.lt.servo.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
+       if (cfg.lt.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
          need_to_copy_lt_thresholds = 0; 
     }
   }
@@ -1244,9 +1296,9 @@ static int initial_setup()
   { 
     for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++) 
     {
-      ds->lt_trigger_thresholds[i] = cfg.lt.servo.initial_trigger_thresholds[i]; 
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial[i]; 
       ds->lt_servo_thresholds[i] = 
-        clamp(cfg.lt.servo.initial_trigger_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
+        clamp(cfg.lt.thresholds.initial[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
     }
   }
   pthread_rwlock_init(&ds_lock,NULL); 
