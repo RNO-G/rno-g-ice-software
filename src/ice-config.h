@@ -150,13 +150,16 @@ typedef struct acq_config
     } trigger; 
 
 
+    struct 
+    {
+      int load_from_threshold_file; 
+      uint8_t initial[RNO_G_NUM_LT_CHANNELS];
+    } thresholds; 
 
     struct
     {
       int enable; 
-      int load_from_threshold_file; 
       int subtract_gated; 
-      uint8_t initial_trigger_thresholds[RNO_G_NUM_LT_CHANNELS];
       uint16_t scaler_goals[RNO_G_NUM_LT_CHANNELS]; 
 
       float servo_thresh_frac; 
@@ -177,6 +180,13 @@ typedef struct acq_config
       const char * spi_device; 
       int spi_enable_gpio; 
     } device; 
+
+    struct
+    {
+      int auto_gain; 
+      float target_rms; 
+      uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS]; 
+    } gain; 
 
 
   } lt; 

@@ -35,6 +35,14 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256; 
   SECT.mon_buf_size = 128; 
 
+#undef SECT
+#define SECT cfg->lt.gain
+  SECT.auto_gain=1; 
+  SECT.target_rms=3; 
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+  {
+    SECT.fixed_gain_codes[i] =5;
+  }
 
   //lt 
   //
@@ -52,13 +60,19 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable = 1; 
 
 #undef SECT
-#define SECT cfg->lt.servo
-  SECT.enable = 1; 
+#define SECT cfg->lt.thresholds
+
   SECT.load_from_threshold_file = 1; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    SECT.initial_trigger_thresholds[i] = 30; 
-    SECT.scaler_goals[i] = 1000; 
+    SECT.initial[i] = 30; 
+  }
+#undef SECT
+#define SECT cfg->lt.servo
+  SECT.enable = 1; 
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+  {
+    SECT.scaler_goals[i] = 30; 
   }
   SECT.servo_thresh_frac = 0.67; 
   SECT.servo_thresh_offset = -10; 
@@ -373,10 +387,12 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.trigger.min_coincidence);
   LOOKUP_INT(lt.trigger.window);
 
-  LOOKUP_INT(lt.servo.load_from_threshold_file);
+  LOOKUP_INT(lt.thresholds.load_from_threshold_file);
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    LOOKUP_INT_ELEM(lt.servo.initial_trigger_thresholds,i);
+    LOOKUP_INT_ELEM(lt.thresholds.initial,i);
+    LOOKUP_INT_ELEM(lt.servo.scaler_goals,i);
+    LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i); 
   }
   LOOKUP_FLOAT(lt.servo.servo_thresh_frac);
   LOOKUP_FLOAT(lt.servo.servo_thresh_offset);
@@ -391,6 +407,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   {
     LOOKUP_STRING(lt.device, spi_device); 
   }
+
+  LOOKUP_INT(lt.gain.auto_gain);
+  LOOKUP_FLOAT(lt.gain.target_rms); 
+
 
   config_destroy(&config); 
   return 0; 
@@ -425,7 +445,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
    UNSECT(); 
    SECT(thresholds,"Threshold initialization configuration"); 
     WRITE_INT(radiant.thresholds, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used"); 
-    WRITE_ARR(radiant.thresholds,initial,"Initial thresholds if not loaded from file", RNO_G_NUM_LT_CHANNELS, "%g"); 
+    WRITE_ARR(radiant.thresholds,initial,"Initial thresholds if not loaded from file (in V)", RNO_G_NUM_LT_CHANNELS, "%g"); 
    UNSECT(); 
 
    SECT(servo, "Threshold servo configuration"); 
@@ -522,7 +542,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
     SECT(thresholds,"Threshold settings for the low-threshold board"); 
        WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)"); 
-       WRITE_ARR(lt.thresholds,initial_trigger_thresholds,"Initial thresholds if not loaded from file",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.thresholds,initial,"Initial thresholds if not loaded from file (in adc)",RNO_G_NUM_LT_CHANNELS,"%u"); 
     UNSECT(); 
     SECT(servo, "Servo setings for the low-threshold board"); 
        WRITE_INT(lt.servo,enable,"Enable servoing"); 
@@ -537,6 +557,11 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_FLT(lt.servo,P,"");
        WRITE_FLT(lt.servo,I,"");
        WRITE_FLT(lt.servo,D,"");
+    UNSECT(); 
+    SECT(gain,""); 
+      WRITE_INT(lt.gain,auto_gain,""); 
+      WRITE_FLT(lt.gain,target_rms,""); 
+      WRITE_ARR(lt.gain,fixed_gain_codes,"", RNO_G_NUM_LT_CHANNELS, "%u"); 
     UNSECT(); 
     SECT(device,""); 
       WRITE_STR(lt.device,spi_device,"");
