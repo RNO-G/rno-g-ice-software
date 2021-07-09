@@ -403,13 +403,14 @@ int flower_initial_setup()
     float target = cfg.lt.gain.target_rms; 
     float rms[RNO_G_NUM_LT_CHANNELS] = {0};
     uint8_t data[RNO_G_NUM_LT_CHANNELS][256]; 
+    uint8_t * data_ptrs[RNO_G_NUM_LT_CHANNELS] = { data[0], data[1], data[2], data[3] }; 
     uint8_t gain_codes[RNO_G_NUM_LT_CHANNELS] = {0}; 
     uint8_t done = 0;
 
     while(done != (1<<RNO_G_NUM_LT_CHANNELS)-1) 
     {
       flower_set_gains(flower, gain_codes); 
-      flower_read_waveforms(flower, 256, (uint8_t**) data); 
+      flower_read_waveforms(flower, 256, data_ptrs); 
       for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
       {
         if (done & ( 1 << i)) continue; 
