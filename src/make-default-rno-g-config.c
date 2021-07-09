@@ -14,6 +14,7 @@ int main(int nargs, char ** args)
   if (!strcmp(args[1],"acq"))
   {
     char *of = nargs > 2 ? args[2] : "acq.cfg"; 
+    printf("Writing to %s\n", of); 
     FILE * f = fopen(of,"w"); 
     acq_config_t cfg; 
     init_acq_config(&cfg); 
@@ -22,6 +23,6 @@ int main(int nargs, char ** args)
     return 0; 
   }
 
-  fprintf(stderr,"I don't know how to make a %s config", args[1] ); 
+  fprintf(stderr,"I don't know how to make a %s config\n", args[1] ); 
   return 1; 
 }
