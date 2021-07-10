@@ -429,6 +429,7 @@ int flower_initial_setup()
   }
   
 
+  flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 7); 
   //then the rest of the configuration; 
   flower_configure(); 
   return 0; 
@@ -586,6 +587,9 @@ int radiant_initial_setup()
   }
 
 
+
+  //set thresholds 
+  radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds); 
 
   //set up DMA correctly 
   radiant_reset_counters(radiant); 
@@ -1291,7 +1295,7 @@ static int initial_setup()
   {
     for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
     {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 4096/3.3;   
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 16777215/2.5;   
     }
   }
 
