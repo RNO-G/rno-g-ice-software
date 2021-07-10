@@ -864,7 +864,7 @@ static void * mon_thread(void* v)
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
     {
       int ok = radiant_read_daqstatus(radiant, ds); 
-      if (!ok) fprintf(stderr,"Problem reading daqstatust"); 
+      if (ok) fprintf(stderr,"Problem reading daqstatus\n"); 
 
       //update the running averages for the radiant 
       update_radiant_servo_state(&rad_servo_state, ds); 
@@ -1119,7 +1119,7 @@ static void * wri_thread(void* v)
       {
         if (wf_file_name) do_close(wf_handle, wf_file_name); 
 
-         snprintf(bigbuf,bigbuflen,"%s/waveforms/%u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+         snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
          wf_handle.type = RNO_G_GZIP; 
          wf_handle.handle.gz = gzopen(bigbuf,"w"); 
          wf_file_name = strdup(bigbuf); 
@@ -1129,7 +1129,7 @@ static void * wri_thread(void* v)
 
 
          if (hd_file_name) do_close(hd_handle, hd_file_name); 
-         snprintf(bigbuf,bigbuflen,"%s/header/%u.hd.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+         snprintf(bigbuf,bigbuflen,"%s/header/%06u.hd.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
          hd_handle.type = RNO_G_GZIP; 
          hd_handle.handle.gz = gzopen(bigbuf,"w"); 
          hd_file_name = strdup(bigbuf); 
@@ -1246,13 +1246,7 @@ static int initial_setup()
   //let's make the output directories
   mkdir_if_needed(output_dir); 
 
-  const char * subdirs[] = {"event","header","daqstatus","aux","cfg"}; 
   char * strbuf = malloc(strlen(output_dir)+100); //long enough for our purposes; 
-  for (unsigned i = 0; i < sizeof(subdirs)/sizeof(*subdirs); i++) 
-  {
-    sprintf(strbuf, "%s/%s", output_dir, subdirs[i]); 
-    mkdir_if_needed(strbuf); 
-  }
 
   int need_to_copy_radiant_thresholds = 1; 
   int need_to_copy_lt_thresholds = 1; 
