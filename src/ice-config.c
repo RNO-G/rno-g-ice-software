@@ -467,7 +467,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
    UNSECT(); 
    SECT(thresholds,"Threshold initialization configuration"); 
     WRITE_INT(radiant.thresholds, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used"); 
-    WRITE_ARR(radiant.thresholds,initial,"Initial thresholds if not loaded from file (in V)", RNO_G_NUM_LT_CHANNELS, "%g"); 
+    WRITE_ARR(radiant.thresholds,initial,"Initial thresholds if not loaded from file (in V)", RNO_G_NUM_RADIANT_CHANNELS, "%g"); 
    UNSECT(); 
 
    SECT(servo, "Threshold servo configuration"); 
