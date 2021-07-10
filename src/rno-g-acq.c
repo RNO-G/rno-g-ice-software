@@ -757,7 +757,10 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
   {
 
     if (state->max_periods) 
+    {
       free(state->scaler_v_mem); 
+      memset(state,0, sizeof(*state)); 
+    }
     state->scaler_v_mem = malloc(sizeof(int) * max_periods * RNO_G_NUM_RADIANT_CHANNELS); 
     state->max_periods = max_periods; 
     for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
@@ -767,7 +770,6 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
   }
 
 
-  memset(state,0, sizeof(*state)); 
   memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(*state->nscaler_periods_per_servo_period)); 
   memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(*state->period_weights)); 
 
