@@ -80,6 +80,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.slow_scaler_weight = 0.3; 
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
+  SECT.subtract_gated = 1; 
   SECT.P = 0.5; 
   SECT.I = 0.5; 
   SECT.D = 0; 
@@ -141,6 +142,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->radiant.trigger
   SECT.clear_mode = 0; 
+  SECT.output_enabled =1; 
 
   //SURFACE TRIGGER? 
   SECT.RF[0].enabled = 1; 
@@ -215,6 +217,11 @@ int init_acq_config(acq_config_t * cfg)
 #define LOOKUP_INT(X) \
  config_lookup_int(&config, #X, &cfg->X);  
 
+#define LOOKUP_INT_RENAME(X,Y) \
+ config_lookup_int(&config, #Y, &cfg->X);  
+
+
+
 #define LOOKUP_INT_ELEM(X,i) \
   cfg->X[i] = config_setting_get_int_elem(config_lookup(&config,#X),i);
 
@@ -230,6 +237,10 @@ static int dummy_ival;
  config_lookup_int(&config, #X, &dummy_ival); \
  cfg->X = (uint32_t) dummy_ival; 
 
+#define LOOKUP_UINT_RENAME(X,Y) \
+ config_lookup_int(&config, #Y, &dummy_ival); \
+ cfg->X = (uint32_t) dummy_ival; 
+
 
 static const char * dummy_str; 
 #define LOOKUP_STRING(PATH,X) \
@@ -243,6 +254,12 @@ static double dummy_val;
 #define LOOKUP_FLOAT(X) \
   config_lookup_float(&config,#X, &dummy_val); \
   cfg->X = dummy_val;
+
+#define LOOKUP_FLOAT_RENAME(X,Y) \
+  config_lookup_float(&config,#Y, &dummy_val); \
+  cfg->X = dummy_val;
+
+
 
 #define LOOKUP_FLOAT_ELEM(X,i) \
   cfg->X[i] = config_setting_get_float_elem(config_lookup(&config,#X),i);
@@ -297,6 +314,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(radiant.analog.apply_lab4_vbias); 
   LOOKUP_INT(radiant.analog.apply_diode_vbias); 
   LOOKUP_INT(radiant.analog.apply_attenuations); 
+  LOOKUP_FLOAT(radiant.analog.settle_time); 
   LOOKUP_FLOAT_ELEM(radiant.analog.lab4_vbias,0); 
   LOOKUP_FLOAT_ELEM(radiant.analog.lab4_vbias,1); 
 
@@ -324,14 +342,14 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   //trigger
   LOOKUP_INT(radiant.trigger.clear_mode); 
   LOOKUP_INT(radiant.trigger.output_enabled); 
-  LOOKUP_INT(radiant.trigger.RF[0].enabled)
-  LOOKUP_INT(radiant.trigger.RF[1].enabled)
-  LOOKUP_UINT(radiant.trigger.RF[0].mask)
-  LOOKUP_UINT(radiant.trigger.RF[1].mask)
-  LOOKUP_FLOAT(radiant.trigger.RF[0].window)
-  LOOKUP_FLOAT(radiant.trigger.RF[1].window)
-  LOOKUP_INT(radiant.trigger.RF[0].num_coincidences)
-  LOOKUP_INT(radiant.trigger.RF[1].num_coincidences)
+  LOOKUP_INT_RENAME(radiant.trigger.RF[0].enabled, radiant.trigger.RF0.enabled);
+  LOOKUP_INT_RENAME(radiant.trigger.RF[1].enabled, radiant.trigger.RF1.enabled)
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].mask, radiant.trigger.RF0.mask);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].mask, radiant.trigger.RF1.mask);
+  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[0].window, radiant.trigger.RF0.window);
+  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF0.window);
+  LOOKUP_INT_RENAME(radiant.trigger.RF[0].num_coincidences, radiant.trigger.RF0.num_coincidences)
+  LOOKUP_INT_RENAME(radiant.trigger.RF[1].num_coincidences, radiant.trigger.RF1.num_coincidences)
   LOOKUP_INT(radiant.trigger.pps.enabled);
   LOOKUP_INT(radiant.trigger.pps.output_enabled);
   LOOKUP_INT(radiant.trigger.ext.enabled);
@@ -394,6 +412,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
     LOOKUP_INT_ELEM(lt.servo.scaler_goals,i);
     LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i); 
   }
+  LOOKUP_INT(lt.servo.subtract_gated);
   LOOKUP_FLOAT(lt.servo.servo_thresh_frac);
   LOOKUP_FLOAT(lt.servo.servo_thresh_offset);
   LOOKUP_FLOAT(lt.servo.servo_interval);
@@ -401,6 +420,9 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.servo.enable);
   LOOKUP_FLOAT(lt.servo.fast_scaler_weight); 
   LOOKUP_FLOAT(lt.servo.slow_scaler_weight); 
+  LOOKUP_FLOAT(lt.servo.P);
+  LOOKUP_FLOAT(lt.servo.I);
+  LOOKUP_FLOAT(lt.servo.D);
 
   LOOKUP_INT(lt.device.spi_enable_gpio); 
 
