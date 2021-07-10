@@ -707,7 +707,7 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
     }
 
     st->last_error[chan] = st->error[chan]; 
-    st->error[chan] = st->value[chan] - cfg.radiant.servo.scaler_goals[chan]; 
+    st->error[chan] = (st->value[chan] - cfg.radiant.servo.scaler_goals[chan]); 
     st->sum_error[chan] += st->error[chan]; 
   }
   st->nsum++; 
@@ -740,7 +740,7 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
     st->last_value[i] = st->value[i]; 
     st->value[i] = val; 
     st->last_error[i] = st->error[i]; 
-    st->error[i] = val-cfg.lt.servo.scaler_goals[i]; 
+    st->error[i] = (val-cfg.lt.servo.scaler_goals[i]); 
     st->sum_error[i] += st->error[i]; 
   } 
 }
@@ -881,12 +881,12 @@ static void * mon_thread(void* v)
                              cfg.radiant.servo.I * rad_servo_state.sum_error[ch] + 
                              cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]); 
 
-         if (cfg.radiant.servo.max_thresh_change && fabs(dthreshold) > cfg.radiant.servo.max_thresh_change)
+         if (cfg.radiant.servo.max_thresh_change && fabs(dthreshold) > cfg.radiant.servo.max_thresh_change*16777216/2.5)
          {
            dthreshold = (dthreshold < 0)  ? -cfg.radiant.servo.max_thresh_change : cfg.radiant.servo.max_thresh_change; 
          }
 
-         ds->radiant_thresholds[ch] += dthreshold; 
+         ds->radiant_thresholds[ch] -= dthreshold; 
       }
 
       //set the thresholds
