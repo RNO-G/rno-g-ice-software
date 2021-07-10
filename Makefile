@@ -38,6 +38,9 @@ clean:
 	rm -rf $(BINDIR)
 
 setup:
-	mkdir $(PREFIX)/run
-	mkdir $(PREFIX)/var
+	mkdir -p $(PREFIX)/run
+	chown rno-g $(PREFIX)/run
+	mkdir -p $(PREFIX)/var
+	chown rno-g $(PREFIX)/var
+
 
