@@ -161,7 +161,7 @@ int init_acq_config(acq_config_t * cfg)
 
   //SOFT trigger
   SECT.soft.enabled = 1; 
-  SECT.soft.use_exponential_distribution = 1; 
+  SECT.soft.use_exponential_distribution = 0; 
   SECT.soft.interval = 10; 
   SECT.soft.interval_jitter = 0; 
   SECT.soft.output_enabled = 0; 
@@ -181,14 +181,14 @@ int init_acq_config(acq_config_t * cfg)
   for (int i = 0; i < NUM_SERVO_PERIODS; i++) 
   {
     SECT.nscaler_periods_per_servo_period[i] = i+1; 
-    SECT.period_weights[i] = 1; 
+    SECT.period_weights[i] = 1./3; 
   }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
     SECT.scaler_goals[i] = 5; // noise avoiding! 
   }
-  SECT.P = 0.5; 
-  SECT.I = 0.5; 
+  SECT.P = 5; 
+  SECT.I = 1; 
   SECT.D = 0; 
   SECT.max_thresh_change = 0.05; 
 
@@ -479,7 +479,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_ARR(radiant.servo, period_weights, 
                "The weights of the aforementioned periods. For scaler goal to mean something sensible, these should add to 1.", NUM_SERVO_PERIODS, "%g" ); 
     WRITE_ARR(radiant.servo, scaler_goals, 
-               "The scaler goal for each channel (calculated as the weighted contribution of periods)", RNO_G_NUM_LT_CHANNELS, "%g" ); 
+               "The scaler goal for each channel (calculated as the weighted contribution of periods)", RNO_G_NUM_RADIANT_CHANNELS, "%g" ); 
     WRITE_FLT(radiant.servo, max_thresh_change, "The maximum amount the threshold can change by in each step"); 
     WRITE_FLT(radiant.servo,P,"servo PID loop P");
     WRITE_FLT(radiant.servo,I,"servo PID loop I");
