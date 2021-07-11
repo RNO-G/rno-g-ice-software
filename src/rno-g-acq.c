@@ -228,7 +228,7 @@ static void read_config()
   }
   else
   {
-    if (!read_acq_config(fptr, &cfg))
+    if (read_acq_config(fptr, &cfg))
     {
       fprintf(stderr,"!!! Errors while reading acq config\n"); 
     }
@@ -444,12 +444,14 @@ int radiant_initial_setup()
 {
 
 
-   radiant  = radiant_open(cfg.radiant.device.spi_device, 
+  radiant  = radiant_open(cfg.radiant.device.spi_device, 
                            cfg.radiant.device.uart_device, 
                            cfg.radiant.device.poll_gpio, 
                            cfg.radiant.device.spi_enable_gpio); 
 
   if (!radiant) return -1; 
+
+  radiant_sync(radiant); 
 
   //just in case 
   radiant_labs_stop(radiant); 
@@ -592,7 +594,7 @@ int radiant_initial_setup()
   radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds); 
 
   //set up DMA correctly 
-  radiant_reset_counters(radiant); 
+  radiant_reset_fifo_counters(radiant); 
   radiant_set_nbuffers_per_readout(radiant, cfg.radiant.readout.nbuffers_per_readout); 
   radiant_dma_setup_event(radiant, cfg.radiant.readout.readout_mask); 
  
@@ -774,8 +776,8 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
   }
 
 
-  memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(*state->nscaler_periods_per_servo_period)); 
-  memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(*state->period_weights)); 
+  memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS); 
+  memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS); 
 
 
 }
@@ -1044,12 +1046,6 @@ static void * wri_thread(void* v)
 
   snprintf(bigbuf, bigbuflen, "%s/run%d/", cfg.output.base_dir, run_number); 
   output_dir = strdup(bigbuf); 
-  if (make_dirs_for_output(output_dir))
-  {
-    please_stop();
-    return 0; 
-  }
-
   //if we have pedestals, write them out 
   if (pedestals) 
   {
@@ -1115,9 +1111,9 @@ static void * wri_thread(void* v)
     if (have_data) 
     {
       if ( !wf_file_name || 
-           (cfg.output.max_kB_per_file > 0  &&  wf_file_size > cfg.output.max_kB_per_file) ||
-           (cfg.output.max_events_per_file > 0 && wf_file_N > cfg.output.max_events_per_file) ||
-           (cfg.output.seconds_per_run > 0 && now - wf_file_time > cfg.output.seconds_per_run ) )
+           (cfg.output.max_kB_per_file > 0  &&  wf_file_size >= cfg.output.max_kB_per_file) ||
+           (cfg.output.max_events_per_file > 0 && wf_file_N >= cfg.output.max_events_per_file) ||
+           (cfg.output.seconds_per_run > 0 && now - wf_file_time >= cfg.output.seconds_per_run ) )
       {
         if (wf_file_name) do_close(wf_handle, wf_file_name); 
 
@@ -1305,6 +1301,9 @@ static int initial_setup()
     }
   }
   pthread_rwlock_init(&ds_lock,NULL); 
+
+
+  make_dirs_for_output(output_dir); 
 
   //now let's dump the configuration file to the cfg dir 
   sprintf(strbuf,"%s/cfg/acq.cfg", output_dir); 
