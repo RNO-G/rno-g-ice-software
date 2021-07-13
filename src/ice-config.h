@@ -32,6 +32,8 @@ typedef struct acq_config
     {
       int load_from_threshold_file; 
       float initial[RNO_G_NUM_RADIANT_CHANNELS];  
+      float max;
+      float min; 
     } thresholds; 
 
     struct 

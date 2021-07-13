@@ -196,6 +196,8 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT 
 #define SECT cfg->radiant.thresholds
 
+  SECT.min = 0.5; 
+  SECT.max = 1.5; 
   SECT.load_from_threshold_file = 1; 
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
@@ -384,6 +386,8 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   {
     LOOKUP_FLOAT_ELEM(radiant.thresholds.initial,i); 
   }
+  LOOKUP_FLOAT(radiant.thresholds.min); 
+  LOOKUP_FLOAT(radiant.thresholds.max); 
 
   //scalers
   LOOKUP_INT(radiant.scalers.use_pps); 
@@ -468,6 +472,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
    SECT(thresholds,"Threshold initialization configuration"); 
     WRITE_INT(radiant.thresholds, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used"); 
     WRITE_ARR(radiant.thresholds,initial,"Initial thresholds if not loaded from file (in V)", RNO_G_NUM_RADIANT_CHANNELS, "%g"); 
+    WRITE_FLT(radiant.thresholds, min, "Minimum allowed threshold, in V"); 
+    WRITE_FLT(radiant.thresholds, max, "Maximum allowed threshold, in V"); 
    UNSECT(); 
 
    SECT(servo, "Threshold servo configuration"); 

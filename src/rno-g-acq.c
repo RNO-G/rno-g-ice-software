@@ -853,6 +853,8 @@ static void * mon_thread(void* v)
          }
 
          ds->radiant_thresholds[ch] -= dthreshold; 
+         if (ds->radiant_thresholds[ch] < cfg.radiant.thresholds.min)  ds->radiant_thresholds[ch] = cfg.radiant.thresholds.min;
+         if (ds->radiant_thresholds[ch] > cfg.radiant.thresholds.max)  ds->radiant_thresholds[ch] = cfg.radiant.thresholds.max;
       }
 
       //set the thresholds
