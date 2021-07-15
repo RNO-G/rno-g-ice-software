@@ -1346,6 +1346,13 @@ static int initial_setup()
   file_list = fopen(strbuf, "w"); 
   add_to_file_list(strbuf); 
 
+  //save comment 
+  sprintf(strbuf,"%s/aux/comment.txt",output_dir); 
+  FILE * fcomment = fopen(strbuf,"w"); 
+  fprintf(fcomment, cfg.output.comment); 
+  fclose(fcomment); 
+  add_to_file_list(strbuf); 
+
 
   //now let's dump the configuration file to the cfg dir 
   sprintf(strbuf,"%s/cfg/acq.cfg", output_dir); 

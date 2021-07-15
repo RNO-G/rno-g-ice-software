@@ -26,6 +26,6 @@ int main(int nargs, char ** args)
     return 0; 
   }
 
-  fprintf(stderr,"I don't know how to make a %s config", args[1] ); 
+  fprintf(stderr,"I don't know how to make a %s config\n", args[1] ); 
   return 1; 
 }

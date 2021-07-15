@@ -209,6 +209,7 @@ typedef struct acq_config
   {
     const char * base_dir; 
     const char * runfile; 
+    const char * comment; 
     float daqstatus_interval; 
     int seconds_per_run; 
     int max_events_per_file; 
