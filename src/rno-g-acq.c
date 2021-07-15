@@ -555,6 +555,7 @@ int radiant_initial_setup()
                                             cfg.radiant.pedestals.ntriggers_per_computation,
                                             pedestals); 
 
+    pedestals->station = station_number; 
 
     //if we have a pedestal file, let's flush it 
     if (cfg.radiant.pedestals.pedestal_file) 
@@ -639,6 +640,10 @@ void * acq_thread(void* v)
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer); 
       radiant_read_event(radiant, &mem->hd, &mem->wf);
       flower_fill_header(flower, &mem->hd); 
+      mem->hd.run_number = run_number;
+      mem->wf.run_number = run_number;
+      mem->hd.station_number = station_number;
+      mem->wf.station= station_number;
       ice_buf_commit(acq_buffer); 
     }
 
@@ -924,6 +929,7 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt)  
     {
       flower_fill_daqstatus(flower, ds); 
+      ds->station = station_number; 
       update_flower_servo_state(&flwr_servo_state, ds); 
       last_scalers_lt = nowf; 
     }
