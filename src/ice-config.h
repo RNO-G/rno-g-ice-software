@@ -45,6 +45,7 @@ typedef struct acq_config
       float period_weights [NUM_SERVO_PERIODS]; 
       float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel 
       float max_thresh_change; 
+      float max_sum_err; 
       float P; 
       float I; 
       float D;

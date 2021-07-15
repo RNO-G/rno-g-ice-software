@@ -191,6 +191,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.I = 1; 
   SECT.D = 0; 
   SECT.max_thresh_change = 0.05; 
+  SECT.max_sum_err = 10000; 
 
 
 #undef SECT 
@@ -378,6 +379,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(radiant.servo.I);
   LOOKUP_FLOAT(radiant.servo.D);
   LOOKUP_FLOAT(radiant.servo.max_thresh_change); 
+  LOOKUP_FLOAT(radiant.servo.max_sum_err); 
 
 
   //thresholds
@@ -490,6 +492,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.servo,P,"servo PID loop P");
     WRITE_FLT(radiant.servo,I,"servo PID loop I");
     WRITE_FLT(radiant.servo,D,"servo PID loop D");
+    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)"); 
   UNSECT(); 
 
   SECT(trigger,"Trigger configuration"); 
