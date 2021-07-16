@@ -457,9 +457,7 @@ int radiant_initial_setup()
   if (!radiant) return -1; 
   //just in case 
   radiant_labs_stop(radiant); 
-  radiant_reset_fifo_counters(radiant); 
-  radiant_sync(radiant); 
-
+  radiant_sync(radiant); //try to reset counters
 
   int wait_for_analog_settle=0; 
   if (cfg.radiant.analog.apply_lab4_vbias) 
@@ -595,6 +593,7 @@ int radiant_initial_setup()
 
 
 
+
   //set thresholds 
   radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds); 
 
@@ -652,6 +651,7 @@ void * acq_thread(void* v)
     pthread_rwlock_unlock(&radiant_lock); 
 
   }
+
 
   return 0;
 }
@@ -888,8 +888,23 @@ static void * mon_thread(void* v)
     //do we need radiant scalers? 
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
     {
-      int ok = radiant_read_daqstatus(radiant, ds); 
-      if (ok) fprintf(stderr,"Problem reading daqstatus\n"); 
+      while (1) 
+      {
+        //read twice and make sure equal
+        static rno_g_daqstatus_t ds0 = {0}; 
+        static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0}; 
+        int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check); 
+
+        if (ok) fprintf(stderr,"Problem reading daqstatus\n"); 
+
+        if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
+        {
+            memcpy(ds, &ds0, sizeof(ds0));
+            break; 
+        }
+
+        printf("WARNING: Unequal sequential DAQStatus, trying again\n"); 
+      }
 
       //update the running averages for the radiant 
       update_radiant_servo_state(&rad_servo_state, ds); 
@@ -1153,6 +1168,8 @@ static void * wri_thread(void* v)
          snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
          wf_handle.type = RNO_G_GZIP; 
          wf_handle.handle.gz = gzopen(bigbuf,"w"); 
+         gzsetparams(wf_handle.handle.gz,3,Z_FILTERED); 
+
          wf_file_name = strdup(bigbuf); 
          wf_file_size = 0; 
          wf_file_N = 0; 
@@ -1466,6 +1483,8 @@ int teardown()
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
 
+  //disable the trigger OVLD
+  radiant_trigger_enable(radiant,0,0); 
   radiant_labs_stop(radiant); 
   radiant_close(radiant); 
   flower_close(flower); 
