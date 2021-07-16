@@ -455,12 +455,10 @@ int radiant_initial_setup()
                            cfg.radiant.device.spi_enable_gpio); 
 
   if (!radiant) return -1; 
-
-  radiant_reset_fifo_counters(radiant); 
-  radiant_sync(radiant); 
-
   //just in case 
   radiant_labs_stop(radiant); 
+  radiant_reset_fifo_counters(radiant); 
+  radiant_sync(radiant); 
 
 
   int wait_for_analog_settle=0; 
@@ -754,7 +752,7 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
 
-    float val =  fw * 100*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
+    float val =  fw * 1000*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
     st->last_value[i] = st->value[i]; 
     st->value[i] = val; 
     st->last_error[i] = st->error[i]; 
@@ -1442,7 +1440,7 @@ int main(void)
      {
        struct statvfs vfs; 
        statvfs(cfg.output.base_dir,&vfs);
-       double MBfree = (vfs.f_bsize * vfs.f_bavail) / ( (double) (1 << 20)); 
+       double MBfree = (((double)vfs.f_bsize) * vfs.f_bavail) / ( (double) (1 << 20)); 
        if (MBfree < cfg.output.min_free_space_MB) 
        {
          please_stop(); 
