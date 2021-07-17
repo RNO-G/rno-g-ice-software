@@ -28,3 +28,45 @@ int mkdir_if_needed(const char * path)
 }
 
 
+
+FILE* find_config(const char * cfgname) 
+{
+
+  //first try CWD
+  if (!access(cfgname, R_OK))
+  {
+    printf("Using cfg file ./%s\n",cfgname); 
+    return fopen(cfgname,"r"); 
+  }
+
+  //try RNO_G_INSTALL_DIR/cfg or /rno-g/cfg 
+  const char * install_dir = getenv("RNO_G_INSTALL_DIR"); 
+  if (install_dir)
+  {
+    char * fname = 0; 
+    asprintf(&fname,"%s/cfg/%s", install_dir,cfgname); 
+    if (!access(fname,R_OK))
+    {
+        printf("Using cfg file %s\n" fname); 
+        fptr = fopen(fname,"r"); 
+        free(fname); 
+        return fptr; 
+    }
+    free(fname); 
+  }
+
+  char * fname = 0; 
+  asprintf(&fname,"/rno-g/cfg/%s", cfgname); 
+  if (!access(fname,R_OK))
+  {
+      fptr = fopen(fname,"r"); 
+      printf("Using cfg file %s\n", fname); 
+      free(fname); 
+      return fptr; 
+  }
+
+  free(fname); 
+  fprintf(stderr,"Could not find %s in CWD, $RNO_G_INSTALL_DIR/cfg or /rno-g/cfg\n", cfgname); 
+  return 0; 
+}
+

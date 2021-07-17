@@ -186,41 +186,11 @@ static void read_config()
     memcpy(&old_cfg,&cfg,sizeof(cfg)); 
   }
 
-  FILE * fptr = NULL; 
+  FILE * fptr = find_config("acq.cfg"); 
 
-  //First try CWD
-  if (!access("acq.cfg", R_OK))
-  {
-    fptr = fopen("acq.cfg", "r"); 
-  }
-  else //try $RNO_G_INSTALL_DIR/cfg/acq.cfg  or /rno-g/cfg/acq.cfg
-  {
-
-    const char * install_dir = getenv("RNO_G_INSTALL_DIR"); 
-    if (install_dir)
-    {
-      char * fname = 0; 
-      asprintf(&fname,"%s/cfg/acq.cfg", install_dir); 
-      if (!access(fname,R_OK))
-      {
-        fptr = fopen(fname,"r"); 
-        free(fname); 
-      }
-    }
-
-    //still don't have it, let's try /rno-g/cfg/acq.cfg
-    if (!fptr) 
-    {
-      if (!access("/rno-g/cfg/acq.cfg",R_OK))
-      {
-        fptr = fopen("/rno-g/cfg/acq.cfg","r"); 
-      }
-    }
-  }
 
   if (!fptr) 
   {
-    fprintf(stderr,"!!!Could not find acq.cfg in ., $RNO_G_INSTALL_DIR/cfg/ or /rno-g/cfg\n"); 
     if (first_time) 
     {
       fprintf(stderr,"!!! This means we are using the default cfg. Hopefully it works for you?\n"); 
