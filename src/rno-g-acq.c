@@ -46,6 +46,8 @@
 #include <signal.h> 
 #include <unistd.h> 
 #include <sys/mman.h>
+#include <sys/file.h> 
+#include <sys/types.h> 
 #include <sys/statvfs.h>
 #include <zlib.h>
 #include <inttypes.h>
@@ -139,10 +141,13 @@ static rno_g_daqstatus_t * ds = 0;
 static int shared_ds_fd; 
 
 //acq ring buffer 
-ice_buf_t *acq_buffer; 
+static ice_buf_t *acq_buffer; 
 
 //mon ring buffer 
-ice_buf_t *mon_buffer; 
+static ice_buf_t *mon_buffer; 
+
+static FILE * file_list = 0; 
+static int file_list_fd = 0; 
 
 ///// PROTOTYPES  /////  
 
@@ -150,6 +155,7 @@ static int radiant_configure();
 static int flower_configure();
 static int teardown(); 
 static int please_stop(); 
+static int add_to_file_list(const char * path); 
 
 
 ///// Implementations /////
@@ -211,10 +217,13 @@ static void read_config()
   if (!first_time) 
   {
     char * ofname; 
-    asprintf(&ofname,"%s/cfg/acq.%d.cfg", output_dir, config_counter); 
+    time_t now; 
+    time(&now); 
+    asprintf(&ofname,"%s/cfg/acq.%d.%lu.cfg", output_dir, config_counter,now); 
     FILE * of = fopen(ofname,"w"); 
     dump_acq_config(of, &cfg); 
     fclose(of); 
+    add_to_file_list(ofname); 
     free(ofname); 
   }
 
@@ -238,6 +247,15 @@ static void read_config()
     }
   }
 
+}
+
+int add_to_file_list(const char *path) 
+{
+  flock(file_list_fd, LOCK_EX); 
+  fprintf(file_list,"%s\n", path); 
+  fflush(file_list); 
+  flock(file_list_fd, LOCK_UN); 
+  return 0; 
 }
 
 
@@ -316,6 +334,26 @@ int radiant_configure()
   return 0; 
 }
 
+int write_gain_codes(const uint8_t * codes) 
+{
+  static int gain_codes_counter = 0; 
+  time_t now; 
+  time(&now); 
+
+  char * path = 0; 
+  asprintf(&path, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++); 
+  FILE * of = fopen(path,"w"); 
+  fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now); 
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+  {
+    fprintf(of, "%u%s", codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n"); 
+  }
+  fclose(of); 
+  add_to_file_list(path); 
+  free(path); 
+  return 0; 
+}
+
 
 /** this configures the flower trigger. It holds the flower write lock (and acquires the config read lock)*/ 
 int flower_configure() 
@@ -332,6 +370,7 @@ int flower_configure()
   if (!cfg.lt.gain.auto_gain) 
   {
     flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes); 
+    write_gain_codes(cfg.lt.gain.fixed_gain_codes); 
   }
 
   pthread_rwlock_unlock(&cfg_lock); 
@@ -348,19 +387,7 @@ static float clamp(float val, float min, float max)
   return val; 
 }
 
-double getrms(int N, uint8_t* X) 
-{
-  double sum = 0; 
-  double sum2 = 0; 
-  for (int i = 0; i < N ; i++) 
-  {
-    sum+=X[i]; 
-    sum2+=X[i]*X[i]; 
-  }
 
-  double mean = sum/N; 
-  return sqrt(sum2/N - mean*mean); 
-}
 
 int flower_initial_setup() 
 {
@@ -371,35 +398,13 @@ int flower_initial_setup()
   if (cfg.lt.gain.auto_gain) 
   {
     float target = cfg.lt.gain.target_rms; 
-    float rms[RNO_G_NUM_LT_CHANNELS] = {0};
-    uint8_t data[RNO_G_NUM_LT_CHANNELS][256]; 
-    uint8_t * data_ptrs[RNO_G_NUM_LT_CHANNELS] = { data[0], data[1], data[2], data[3] }; 
-    uint8_t gain_codes[RNO_G_NUM_LT_CHANNELS] = {0}; 
-    uint8_t done = 0;
-
-    while(done != (1<<RNO_G_NUM_LT_CHANNELS)-1) 
-    {
-      flower_set_gains(flower, gain_codes); 
-      flower_read_waveforms(flower, 256, data_ptrs); 
-      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
-      {
-        if (done & ( 1 << i)) continue; 
-
-        rms[i] = getrms(256, data[i]); 
-        if (rms[i] < target && gain_codes[i] < FLOWER_GAIN_TOO_HIGH) 
-        {
-          gain_codes[i]++; 
-        }
-        else 
-        {
-          done |= (1 << i); 
-        }
-      }
-    }
+    uint8_t codes[RNO_G_NUM_LT_CHANNELS]; 
+    flower_equalize(flower, target,codes,FLOWER_EQUALIZE_VERBOSE); 
+    write_gain_codes(codes); 
   }
   
 
-  flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 7); 
+  flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
   //then the rest of the configuration; 
   flower_configure(); 
   return 0; 
@@ -420,12 +425,9 @@ int radiant_initial_setup()
                            cfg.radiant.device.spi_enable_gpio); 
 
   if (!radiant) return -1; 
-
-  radiant_sync(radiant); 
-
   //just in case 
   radiant_labs_stop(radiant); 
-
+  radiant_sync(radiant); //try to reset counters
 
   int wait_for_analog_settle=0; 
   if (cfg.radiant.analog.apply_lab4_vbias) 
@@ -519,6 +521,7 @@ int radiant_initial_setup()
                                             cfg.radiant.pedestals.ntriggers_per_computation,
                                             pedestals); 
 
+    pedestals->station = station_number; 
 
     //if we have a pedestal file, let's flush it 
     if (cfg.radiant.pedestals.pedestal_file) 
@@ -557,6 +560,7 @@ int radiant_initial_setup()
          radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, cfg.radiant.analog.trig_attenuation[ichan]*4); 
        }
   }
+
 
 
 
@@ -603,6 +607,10 @@ void * acq_thread(void* v)
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer); 
       radiant_read_event(radiant, &mem->hd, &mem->wf);
       flower_fill_header(flower, &mem->hd); 
+      mem->hd.run_number = run_number;
+      mem->wf.run_number = run_number;
+      mem->hd.station_number = station_number;
+      mem->wf.station= station_number;
       ice_buf_commit(acq_buffer); 
     }
 
@@ -613,6 +621,7 @@ void * acq_thread(void* v)
     pthread_rwlock_unlock(&radiant_lock); 
 
   }
+
 
   return 0;
 }
@@ -681,6 +690,11 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
     st->last_error[chan] = st->error[chan]; 
     st->error[chan] = (st->value[chan] - cfg.radiant.servo.scaler_goals[chan]); 
     st->sum_error[chan] += st->error[chan]; 
+    if (fabs(st->sum_error[chan]) > cfg.radiant.servo.max_sum_err)
+    {
+      st->sum_error[chan] = st->sum_error[chan] < 0 ? -cfg.radiant.servo.max_sum_err: cfg.radiant.servo.max_sum_err; 
+    }
+
   }
   st->nsum++; 
 
@@ -708,7 +722,7 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
 
-    float val =  fw * 100*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
+    float val =  fw * 1000*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
     st->last_value[i] = st->value[i]; 
     st->value[i] = val; 
     st->last_error[i] = st->error[i]; 
@@ -803,6 +817,11 @@ static void * mon_thread(void* v)
   double next_sw_trig = -1; 
   radiant_servo_state_t rad_servo_state = {0}; 
   flower_servo_state_t flwr_servo_state = {0}; 
+  float flower_float_thresh[RNO_G_NUM_LT_CHANNELS]; 
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_float_thresh[i] = ds->lt_servo_thresholds[i];
+  uint32_t min_rad_thresh = 0; 
+  uint32_t max_rad_thresh = 0; 
+  uint32_t max_rad_change = 0;
   while(!quit) 
   {
     struct timespec now; 
@@ -827,6 +846,10 @@ static void * mon_thread(void* v)
       last_cfg_counter = config_counter; 
       setup_radiant_servo_state(&rad_servo_state); 
       setup_flower_servo_state(&flwr_servo_state); 
+      min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5; 
+      max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5; 
+      max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5; 
+      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_float_thresh[i] = ds->lt_servo_thresholds[i];
     }
 
     //Hold the config read lock to avoid values getting take from underneath us
@@ -835,8 +858,23 @@ static void * mon_thread(void* v)
     //do we need radiant scalers? 
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
     {
-      int ok = radiant_read_daqstatus(radiant, ds); 
-      if (ok) fprintf(stderr,"Problem reading daqstatus\n"); 
+      while (1) 
+      {
+        //read twice and make sure equal
+        static rno_g_daqstatus_t ds0 = {0}; 
+        static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0}; 
+        int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check); 
+
+        if (ok) fprintf(stderr,"Problem reading daqstatus\n"); 
+
+        if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
+        {
+            memcpy(ds, &ds0, sizeof(ds0));
+            break; 
+        }
+
+        printf("WARNING: Unequal sequential DAQStatus, trying again\n"); 
+      }
 
       //update the running averages for the radiant 
       update_radiant_servo_state(&rad_servo_state, ds); 
@@ -853,14 +891,14 @@ static void * mon_thread(void* v)
                              cfg.radiant.servo.I * rad_servo_state.sum_error[ch] + 
                              cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]); 
 
-         if (cfg.radiant.servo.max_thresh_change && fabs(dthreshold) > cfg.radiant.servo.max_thresh_change*16777216/2.5)
+         if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
          {
-           dthreshold = (dthreshold < 0)  ? -cfg.radiant.servo.max_thresh_change : cfg.radiant.servo.max_thresh_change; 
+           dthreshold = (dthreshold < 0)  ? -max_rad_change : max_rad_change; 
          }
 
          ds->radiant_thresholds[ch] -= dthreshold; 
-         if (ds->radiant_thresholds[ch] < cfg.radiant.thresholds.min)  ds->radiant_thresholds[ch] = cfg.radiant.thresholds.min;
-         if (ds->radiant_thresholds[ch] > cfg.radiant.thresholds.max)  ds->radiant_thresholds[ch] = cfg.radiant.thresholds.max;
+         if (ds->radiant_thresholds[ch] < min_rad_thresh)  ds->radiant_thresholds[ch] = min_rad_thresh; 
+         if (ds->radiant_thresholds[ch] > max_rad_thresh)  ds->radiant_thresholds[ch] = max_rad_thresh; 
       }
 
       //set the thresholds
@@ -874,6 +912,7 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt)  
     {
       flower_fill_daqstatus(flower, ds); 
+      ds->station = station_number; 
       update_flower_servo_state(&flwr_servo_state, ds); 
       last_scalers_lt = nowf; 
     }
@@ -889,11 +928,13 @@ static void * mon_thread(void* v)
                                     cfg.lt.servo.I * flwr_servo_state.sum_error[ch] + 
                                     cfg.lt.servo.D * (flwr_servo_state.error[ch] - flwr_servo_state.last_error[ch]); 
 
-         ds->lt_servo_thresholds[ch] = clamp( ds->lt_servo_thresholds[ch] + d_servo_threshold, 0, 255);
-         ds->lt_trigger_thresholds[ch] = clamp( (ds->lt_servo_thresholds[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 0, 255);
+         
+         flower_float_thresh[ch] = clamp(flower_float_thresh[ch] + d_servo_threshold,4,120); 
+         ds->lt_servo_thresholds[ch] = flower_float_thresh[ch]; 
+         ds->lt_trigger_thresholds[ch] = clamp( (flower_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
       }
 
-      flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 7); 
+      flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
       last_servo_lt = nowf; 
     }
     
@@ -905,6 +946,7 @@ static void * mon_thread(void* v)
       mon_buffer_item_t * mem = ice_buf_getmem(mon_buffer); 
       memcpy(&mem->ds,ds, sizeof(rno_g_daqstatus_t)); 
       ice_buf_commit(mon_buffer); 
+      last_daqstatus_out = nowf; 
     }
 
 
@@ -972,7 +1014,12 @@ int do_close(rno_g_file_handle_t h, char *path)
     char * final_path = strdup(path);  
     final_path[pathlen-tmp_suffix_len] = 0; 
     rename(path,final_path); 
+    add_to_file_list(final_path); 
     free(final_path); 
+  }
+  else
+  {
+    add_to_file_list(path); 
   }
   free(path); 
   return ret; 
@@ -1024,6 +1071,7 @@ static void * wri_thread(void* v)
     rno_g_init_handle(&ped_h, bigbuf,"w");  
     rno_g_pedestal_write(ped_h, pedestals); 
     rno_g_close_handle(&ped_h); 
+    add_to_file_list(bigbuf); 
   }
 
 
@@ -1090,6 +1138,8 @@ static void * wri_thread(void* v)
          snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
          wf_handle.type = RNO_G_GZIP; 
          wf_handle.handle.gz = gzopen(bigbuf,"w"); 
+         gzsetparams(wf_handle.handle.gz,3,Z_FILTERED); 
+
          wf_file_name = strdup(bigbuf); 
          wf_file_size = 0; 
          wf_file_N = 0; 
@@ -1104,21 +1154,22 @@ static void * wri_thread(void* v)
       }
 
       wf_file_size += rno_g_waveform_write(wf_handle, &acq_item.wf); 
+      rno_g_header_write(hd_handle, &acq_item.hd); 
       wf_file_N++; 
     }
 
     if (have_status) 
     {
       if ( !ds_file_name || 
-           (cfg.output.max_kB_per_file > 0  &&  ds_file_size > cfg.output.max_kB_per_file) ||
-           (cfg.output.max_events_per_file > 0 && ds_file_N > cfg.output.max_events_per_file) ||
-           (cfg.output.seconds_per_run > 0 && now - ds_file_time > cfg.output.seconds_per_run ) )
+           (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
+           (cfg.output.max_events_per_file > 0 && ds_file_N >= cfg.output.max_events_per_file) ||
+           (cfg.output.seconds_per_run > 0 && now - ds_file_time >= cfg.output.seconds_per_run ) )
      
       {
 
     
         if (ds_file_name) do_close(ds_handle, ds_file_name); 
-        snprintf(bigbuf,bigbuflen,"%s/status/%d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix ); 
+        snprintf(bigbuf,bigbuflen,"%s/daqstatus/%05d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix ); 
         ds_handle.type = RNO_G_GZIP; 
         ds_handle.handle.gz = gzopen(bigbuf,"w"); 
         ds_file_name = strdup(bigbuf); 
@@ -1275,6 +1326,19 @@ static int initial_setup()
 
   make_dirs_for_output(output_dir); 
 
+  //open the file list 
+  sprintf(strbuf,"%s/aux/acq-file-list.txt", output_dir); 
+  file_list = fopen(strbuf, "w"); 
+  add_to_file_list(strbuf); 
+
+  //save comment 
+  sprintf(strbuf,"%s/aux/comment.txt",output_dir); 
+  FILE * fcomment = fopen(strbuf,"w"); 
+  fprintf(fcomment, cfg.output.comment); 
+  fclose(fcomment); 
+  add_to_file_list(strbuf); 
+
+
   //now let's dump the configuration file to the cfg dir 
   sprintf(strbuf,"%s/cfg/acq.cfg", output_dir); 
   FILE * of = fopen(strbuf,"w"); 
@@ -1286,6 +1350,7 @@ static int initial_setup()
   {
     dump_acq_config(of,&cfg); 
     fclose(of); 
+    add_to_file_list(strbuf); 
   }
   free(strbuf); 
 
@@ -1362,7 +1427,7 @@ int main(void)
      {
        struct statvfs vfs; 
        statvfs(cfg.output.base_dir,&vfs);
-       double MBfree = (vfs.f_bsize * vfs.f_bavail) / ( (double) (1 << 20)); 
+       double MBfree = (((double)vfs.f_bsize) * vfs.f_bavail) / ( (double) (1 << 20)); 
        if (MBfree < cfg.output.min_free_space_MB) 
        {
          please_stop(); 
@@ -1388,10 +1453,12 @@ int teardown()
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
 
+  //disable the trigger OVLD
+  radiant_trigger_enable(radiant,0,0); 
   radiant_labs_stop(radiant); 
   radiant_close(radiant); 
   flower_close(flower); 
-
+  fclose(file_list); 
 
   if (shared_ds_fd) 
   {

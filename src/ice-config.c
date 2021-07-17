@@ -24,9 +24,10 @@ int init_acq_config(acq_config_t * cfg)
   SECT.max_seconds_per_file = 60; 
   SECT.max_kB_per_file = 0; 
   SECT.min_free_space_MB = 512; 
-  SECT.print_interval = 10; 
-  SECT.daqstatus_interval = 5; 
+  SECT.print_interval = 5; 
+  SECT.daqstatus_interval = 1; 
   SECT.seconds_per_run = 7200; 
+  SECT.comment = ""; 
     
 #undef SECT
 #define SECT cfg->runtime
@@ -38,7 +39,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->lt.gain
   SECT.auto_gain=1; 
-  SECT.target_rms=3; 
+  SECT.target_rms=5; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
     SECT.fixed_gain_codes[i] =5;
@@ -56,7 +57,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->lt.trigger
   SECT.vpp =1; 
   SECT.min_coincidence=2; 
-  SECT.window = 2; 
+  SECT.window = 5; 
   SECT.enable = 1; 
 
 #undef SECT
@@ -72,17 +73,17 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable = 1; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = 30; 
+    SECT.scaler_goals[i] = 2000; 
   }
-  SECT.servo_thresh_frac = 0.67; 
-  SECT.servo_thresh_offset = -10; 
-  SECT.fast_scaler_weight = 0.7; 
-  SECT.slow_scaler_weight = 0.3; 
+  SECT.servo_thresh_frac = 0.9; 
+  SECT.servo_thresh_offset = 0; 
+  SECT.fast_scaler_weight = 0.2; 
+  SECT.slow_scaler_weight = 0.8; 
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
   SECT.subtract_gated = 1; 
-  SECT.P = 0.5; 
-  SECT.I = 0.5; 
+  SECT.P = 0.0001; 
+  SECT.I = 0; 
   SECT.D = 0; 
 
 
@@ -181,16 +182,17 @@ int init_acq_config(acq_config_t * cfg)
   for (int i = 0; i < NUM_SERVO_PERIODS; i++) 
   {
     SECT.nscaler_periods_per_servo_period[i] = i+1; 
-    SECT.period_weights[i] = 1./3; 
+    SECT.period_weights[i] = i == 0 ? 1: 0; 
   }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = 5; // noise avoiding! 
+    SECT.scaler_goals[i] = 10; // noise avoiding! 
   }
   SECT.P = 5; 
-  SECT.I = 1; 
+  SECT.I = 0; 
   SECT.D = 0; 
-  SECT.max_thresh_change = 0.05; 
+  SECT.max_thresh_change = 0.01; 
+  SECT.max_sum_err = 10000; 
 
 
 #undef SECT 
@@ -201,7 +203,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.load_from_threshold_file = 1; 
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
-    SECT.initial[i]=  1.;  // 1 V 
+    SECT.initial[i]=  1.05;  // 1.05 V 
   }
 
 #undef SECT 
@@ -285,6 +287,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   LOOKUP_STRING(output,base_dir); 
   LOOKUP_STRING(output,runfile); 
+  LOOKUP_STRING(output,comment); 
 
   LOOKUP_INT(output.seconds_per_run); 
   LOOKUP_INT(output.max_events_per_file); 
@@ -378,6 +381,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(radiant.servo.I);
   LOOKUP_FLOAT(radiant.servo.D);
   LOOKUP_FLOAT(radiant.servo.max_thresh_change); 
+  LOOKUP_FLOAT(radiant.servo.max_sum_err); 
 
 
   //thresholds
@@ -490,6 +494,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.servo,P,"servo PID loop P");
     WRITE_FLT(radiant.servo,I,"servo PID loop I");
     WRITE_FLT(radiant.servo,D,"servo PID loop D");
+    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)"); 
   UNSECT(); 
 
   SECT(trigger,"Trigger configuration"); 
@@ -607,6 +612,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   SECT(output,"Output settings"); 
     WRITE_STR(output,base_dir,"");
     WRITE_STR(output,runfile,"");
+    WRITE_STR(output,comment,"");
     WRITE_FLT(output,daqstatus_interval,"");
     WRITE_INT(output,seconds_per_run,"");
     WRITE_INT(output,max_events_per_file,"");

@@ -45,6 +45,7 @@ typedef struct acq_config
       float period_weights [NUM_SERVO_PERIODS]; 
       float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel 
       float max_thresh_change; 
+      float max_sum_err; 
       float P; 
       float I; 
       float D;
@@ -208,6 +209,7 @@ typedef struct acq_config
   {
     const char * base_dir; 
     const char * runfile; 
+    const char * comment; 
     float daqstatus_interval; 
     int seconds_per_run; 
     int max_events_per_file; 
