@@ -1,0 +1,17 @@
+[Unit]
+Description=Copy RNO-G Data to Server
+#
+[Service]
+#Just hardcode /rno-g for now
+#EnvironmentFile=/rno-g
+User=rno-g 
+Restart=always
+ExecStart=/bin/sh /rno-g/bin/rno-g-simple-copy
+ExecReload=/bin/kill -USR1 $MAINPID
+
+[Install]
+#event
+#WantedBy=rno-g.target
+
+
+

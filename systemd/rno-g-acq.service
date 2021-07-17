@@ -1,0 +1,19 @@
+[Unit]
+Description=Record RNO-G Data
+Wants=rno-g-copy.service 
+# Eventually, for now must be started manually 
+#Requires=rno-g-startup.service 
+
+[Service]
+#Just hardcode /rno-g for now
+#EnvironmentFile=/rno-g
+User=rno-g 
+Restart=always
+ExecStart=/rno-g/bin/rno-g-acq
+ExecReload=/bin/kill -USR1 $MAINPID
+
+[Install]
+#event
+#WantedBy=rno-g.target
+
+
