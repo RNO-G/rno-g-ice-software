@@ -1,0 +1,32 @@
+#! /bin/sh 
+
+STN=`cat /STATION_ID | tr -d '\n'`
+
+THRESH1=64000000
+AGE1=5 
+THRESH2=32000000
+AGE2=3 
+THRESH3=16000000
+AGE3=1 
+
+while true; 
+do 
+  sleep 60; 
+  rsync -avh --exclude '*.tmp' /data/daq 10.1.0.1:/data/ingress/$STN/
+
+  #in 1K blocks
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
+
+  if [ $FREESPACE -lt $THRESH1 ] ; 
+  then  
+    find /data/daq -mtime +${AGE1} -delete 
+  fi 
+  if [ $FREESPACE -lt $THRESH2 ] ; 
+  then 
+    find /data/daq -mtime +${AGE2} -delete 
+  fi 
+  if [ $FREESPACE -lt $THRESH3 ] ; 
+  then 
+    find /data/daq -mtime +${AGE3} -delete 
+  fi 
+done 
