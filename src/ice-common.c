@@ -1,8 +1,11 @@
+#define _GNU_SOURCE
 #include "ice-common.h" 
 #include <stdio.h> 
 #include <stdlib.h> 
 #include <string.h> 
 #include <sys/stat.h> 
+#include <sys/file.h> 
+#include <unistd.h> 
 
 
 
@@ -47,8 +50,8 @@ FILE* find_config(const char * cfgname)
     asprintf(&fname,"%s/cfg/%s", install_dir,cfgname); 
     if (!access(fname,R_OK))
     {
-        printf("Using cfg file %s\n" fname); 
-        fptr = fopen(fname,"r"); 
+        printf("Using cfg file %s\n", fname); 
+        FILE * fptr = fopen(fname,"r"); 
         free(fname); 
         return fptr; 
     }
@@ -59,7 +62,7 @@ FILE* find_config(const char * cfgname)
   asprintf(&fname,"/rno-g/cfg/%s", cfgname); 
   if (!access(fname,R_OK))
   {
-      fptr = fopen(fname,"r"); 
+      FILE * fptr = fopen(fname,"r"); 
       printf("Using cfg file %s\n", fname); 
       free(fname); 
       return fptr; 
