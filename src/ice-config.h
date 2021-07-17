@@ -227,6 +227,15 @@ int read_acq_config(FILE *f, acq_config_t * cfg);
 int dump_acq_config(FILE *f, const acq_config_t * cfg); 
 
 
+typedef struct xfer_config
+{
+  const char * hostname; 
+  const char * destdir; 
+  const char * dbfile; 
+  int copy_sleep_amt; 
+  int collect_sleep_amt; 
+
+} xfer_config_t; 
 
 
 #endif
