@@ -12,7 +12,7 @@ AGE3=1
 while true; 
 do 
   sleep 60; 
-  rsync -avh --exclude '*.tmp' /data/daq 10.1.0.1:/data/ingress/$STN/
+  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
