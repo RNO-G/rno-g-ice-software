@@ -10,6 +10,7 @@ Wants=rno-g-copy.service
 User=rno-g 
 Restart=always
 ExecStart=/rno-g/bin/rno-g-acq
+Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
 
 [Install]

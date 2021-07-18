@@ -39,8 +39,18 @@ clean:
 
 setup:
 	mkdir -p $(PREFIX)/run
-	chown rno-g $(PREFIX)/run
+	chown rno-g:rno-g $(PREFIX)/run
 	mkdir -p $(PREFIX)/var
-	chown rno-g $(PREFIX)/var
+	chown rno-g:rno-g $(PREFIX)/var
+	mkdir -p $(PREFIX)/cfg
+	chown rno-g:rno-g $(PREFIX)/cfg
 
 
+install: $(BINS) setup
+	install $(BINS) $(PREFIX)/bin
+	install cfg/acq.cfg $(PREFIX)/cfg
+	install scripts/* $(PREFIX)/bin
+
+service-install: 
+	sudo install systemd/*.service /etc/systemd/system 
+	sudo systemctl daemon-reload
