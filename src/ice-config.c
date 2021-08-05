@@ -149,13 +149,13 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[0].enabled = 1; 
   SECT.RF[0].mask =  (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17) | (1 << 18) | (1 <<19) | ( 1<< 20)   ; 
   SECT.RF[0].window = 30 ; // ?!?? 
-  SECT.RF[0].num_coincidences = 3; 
+  SECT.RF[0].num_coincidences = 4; 
 
   //DEEP TRIGGER? 
   SECT.RF[1].enabled = 1; 
   SECT.RF[1].mask = 0xf; // ??!? 
   SECT.RF[1].window = 20; 
-  SECT.RF[1].num_coincidences = 2; 
+  SECT.RF[1].num_coincidences = 4; 
 
   //LT 
   SECT.ext.enabled = 1; 
@@ -186,7 +186,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = 10; // noise avoiding! 
+    SECT.scaler_goals[i] = (i & 0x01ff00) ? 1 : 5; // noise avoiding! 
   }
   SECT.P = 5; 
   SECT.I = 0; 
