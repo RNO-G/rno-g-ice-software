@@ -292,11 +292,11 @@ int radiant_configure()
 
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_A, 
       cfg.radiant.trigger.RF[0].enabled ? cfg.radiant.trigger.RF[0].mask  : 0, 
-      cfg.radiant.trigger.RF[0].num_coincidences-1, cfg.radiant.trigger.RF[0].window); 
+      cfg.radiant.trigger.RF[0].num_coincidences, cfg.radiant.trigger.RF[0].window); 
 
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_B, 
       cfg.radiant.trigger.RF[1].enabled ? cfg.radiant.trigger.RF[1].mask  : 0, 
-      cfg.radiant.trigger.RF[1].num_coincidences-1, cfg.radiant.trigger.RF[1].window); 
+      cfg.radiant.trigger.RF[1].num_coincidences, cfg.radiant.trigger.RF[1].window); 
 
   //make sure the labs are started before setting enables 
   radiant_labs_start(radiant); 
