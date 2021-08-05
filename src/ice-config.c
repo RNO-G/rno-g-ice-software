@@ -149,13 +149,13 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[0].enabled = 1; 
   SECT.RF[0].mask =  (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17) | (1 << 18) | (1 <<19) | ( 1<< 20)   ; 
   SECT.RF[0].window = 30 ; // ?!?? 
-  SECT.RF[0].num_coincidences = 4; 
+  SECT.RF[0].num_coincidences = 2; 
 
   //DEEP TRIGGER? 
   SECT.RF[1].enabled = 1; 
   SECT.RF[1].mask = 0xf; // ??!? 
   SECT.RF[1].window = 20; 
-  SECT.RF[1].num_coincidences = 4; 
+  SECT.RF[1].num_coincidences = 2; 
 
   //LT 
   SECT.ext.enabled = 1; 
