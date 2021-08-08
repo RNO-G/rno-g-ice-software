@@ -953,7 +953,7 @@ static void * mon_thread(void* v)
 
     //do we need to send a soft trigger? 
 
-    if (nowf > next_sw_trig) 
+    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig) 
     {
       radiant_soft_trigger(radiant); 
       next_sw_trig = calc_next_sw_trig(nowf); 
