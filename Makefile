@@ -44,6 +44,9 @@ setup:
 	chown rno-g:rno-g $(PREFIX)/var
 	mkdir -p $(PREFIX)/cfg
 	chown rno-g:rno-g $(PREFIX)/cfg
+	mkdir -p $(PREFIX)/bin
+	chown rno-g:rno-g $(PREFIX)/bin
+
 
 
 install: $(BINS) setup
