@@ -53,6 +53,7 @@
 #include <inttypes.h>
 #include <math.h> 
 
+#include <systemd/sd-daemon.h> 
 
 #include "radiant.h" 
 #include "flower.h" 
@@ -149,6 +150,8 @@ static ice_buf_t *mon_buffer;
 static FILE * file_list = 0; 
 static int file_list_fd = 0; 
 
+static time_t last_watchdog; 
+
 ///// PROTOTYPES  /////  
 
 static int radiant_configure();
@@ -156,6 +159,7 @@ static int flower_configure();
 static int teardown(); 
 static int please_stop(); 
 static int add_to_file_list(const char * path); 
+static void feed_watchdog(time_t * now) ; 
 
 
 ///// Implementations /////
@@ -255,6 +259,17 @@ int add_to_file_list(const char *path)
   fprintf(file_list,"%s\n", path); 
   fflush(file_list); 
   flock(file_list_fd, LOCK_UN); 
+  return 0; 
+}
+
+//Feeds the systemd watchdog
+void feed_watchdog(time_t * now) 
+{
+  time_t when;
+  if (!now) time(&when) ; 
+  else when = *now; 
+  sd_notify(0,"WATCHDOG=1"); 
+  last_watchdog = when; 
   return 0; 
 }
 
@@ -1111,6 +1126,12 @@ static void * wri_thread(void* v)
       last_print_out = now; 
     }
 
+    //feed the watchdog in the write thread, since it might wait longer at the end
+    if (now - last_watchdog > 10) 
+    {
+      feed_watchdog(&now); 
+    }
+
     if (!have_data && !have_status) 
     {
       if (quit) 
@@ -1354,16 +1375,18 @@ static int initial_setup()
   }
   free(strbuf); 
 
-  //initialie the radiant lock
+  //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
   //intitial configure of the radiant
   radiant_initial_setup(); 
+  feed_watchdog(0); 
 
   pthread_rwlock_init(&flower_lock,NULL); 
 
   //and the flower
   flower_initial_setup(); 
+  feed_watchdog(0); 
 
   //set up signal handlers 
   sigset_t empty; 
@@ -1384,6 +1407,7 @@ static int initial_setup()
   //now let's make the threads
   pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
   pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
+  feed_watchdog(0); 
   pthread_create(&the_wri_thread,NULL, wri_thread, NULL); 
 
   return 0; 
