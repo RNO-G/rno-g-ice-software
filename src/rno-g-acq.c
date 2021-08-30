@@ -850,11 +850,7 @@ static void * mon_thread(void* v)
     float diff_servo_lt = nowf - last_servo_lt;
     float diff_last_daqstatus_out = nowf - last_daqstatus_out; 
 
-    if (next_sw_trig  < 0) 
-    {
-      next_sw_trig = calc_next_sw_trig(nowf); 
-    }
-
+ 
     //re set up the RADIANT 
     if (config_counter > last_cfg_counter) 
     {
@@ -869,6 +865,18 @@ static void * mon_thread(void* v)
 
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
+
+    if (next_sw_trig  < 0) 
+    {
+      next_sw_trig = calc_next_sw_trig(nowf); 
+    }
+    //do we need to send a soft trigger? 
+    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig) 
+    {
+      radiant_soft_trigger(radiant); 
+      next_sw_trig = calc_next_sw_trig(nowf); 
+    }
+
 
     //do we need radiant scalers? 
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
@@ -966,18 +974,13 @@ static void * mon_thread(void* v)
 
 
 
-    //do we need to send a soft trigger? 
-
-    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig) 
-    {
-      radiant_soft_trigger(radiant); 
-      next_sw_trig = calc_next_sw_trig(nowf); 
-    }
-
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock); 
 
     float sleep_amt = 0.1; //maximum sleep amount
+    
+    //sleep less if we need to send a soft trigger sooner
+    if ( cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4; 
 
     usleep(sleep_amt *1e6); 
   }
