@@ -1,11 +1,12 @@
 BUILD_DIR=build
-PREFIX?=/rno-g
-CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(PREFIX)/include 
+RNO_G_INSTALL_DIR?=/rno-g/
+PREFIX?=$(RNO_G_INSTALL_DIR)
+CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include 
 BINDIR=bin
 
 
-LDFLAGS=-L$(PREFIX)/lib
-LIBS=-lz -pthread -lrno-g -lradiant -lconfig -lflower -lm
+LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
+LIBS=-lz -pthread -lrno-g -lradiant -lconfig -lflower -lm 
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h 
 
