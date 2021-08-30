@@ -270,7 +270,6 @@ void feed_watchdog(time_t * now)
   else when = *now; 
   sd_notify(0,"WATCHDOG=1"); 
   last_watchdog = when; 
-  return 0; 
 }
 
 
