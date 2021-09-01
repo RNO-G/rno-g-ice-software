@@ -380,6 +380,12 @@ int flower_configure()
   ltcfg.vpp_mode = cfg.lt.trigger.vpp; 
   ltcfg.num_coinc =cfg.lt.trigger.enable ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   int ret = flower_configure_trigger(flower, ltcfg); 
+  //TODO: configure the enables
+  flower_trigger_enables_t trig_enables = {.enable_coinc=1, .enable_pps = 0, .enable_ext = 0};
+  flower_trigger_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
+
+  flower_set_trigger_enables(flower,trig_enables);
+  flower_set_trigger_enables(flower,trigout_enables);
 
   if (!cfg.lt.gain.auto_gain) 
   {
@@ -413,6 +419,9 @@ int flower_initial_setup()
   {
     float target = cfg.lt.gain.target_rms; 
     uint8_t codes[RNO_G_NUM_LT_CHANNELS]; 
+    //disable the coincident trigger momentarily 
+    flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0};
+    flower_set_trigger_enables(flower,trig_enables);
     flower_equalize(flower, target,codes,FLOWER_EQUALIZE_VERBOSE); 
     write_gain_codes(codes); 
   }
