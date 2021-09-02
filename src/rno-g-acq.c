@@ -442,6 +442,7 @@ int flower_initial_setup()
   flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
   fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
   fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+  fflush(runinfo); 
  
   return 0; 
 }
@@ -622,7 +623,7 @@ int radiant_initial_setup()
   fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
 
   uint16_t sample_rate= radiant_get_sample_rate(radiant); 
-  fprintf(runinfo, "RADIANT-SAMPLERATE = %u", sample_rate); 
+  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
   fflush(runinfo); 
   return 0; 
 }
