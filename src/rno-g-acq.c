@@ -386,10 +386,10 @@ int flower_configure()
   int ret = flower_configure_trigger(flower, ltcfg); 
   //TODO: configure the enables
   flower_trigger_enables_t trig_enables = {.enable_coinc=1, .enable_pps = 0, .enable_ext = 0};
-  flower_trigger_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
+  flower_trigout_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
 
   flower_set_trigger_enables(flower,trig_enables);
-  flower_set_trigger_enables(flower,trigout_enables);
+  flower_set_trigout_enables(flower,trigout_enables);
 
   if (!cfg.lt.gain.auto_gain) 
   {
