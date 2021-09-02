@@ -61,6 +61,7 @@
 #include "ice-config.h" 
 #include "ice-buf.h"
 #include "ice-common.h"
+#include "ice-version.h"
 
 /////// TYPES //////////
 
@@ -150,6 +151,8 @@ static ice_buf_t *mon_buffer;
 static FILE * file_list = 0; 
 static int file_list_fd = 0; 
 
+static FILE * runinfo = 0; 
+
 static time_t last_watchdog; 
 
 ///// PROTOTYPES  /////  
@@ -161,6 +164,7 @@ static int please_stop();
 static int add_to_file_list(const char * path); 
 static void feed_watchdog(time_t * now) ; 
 
+struct timespec precise_start_time; 
 
 ///// Implementations /////
 
@@ -430,6 +434,15 @@ int flower_initial_setup()
   flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
   //then the rest of the configuration; 
   flower_configure(); 
+
+
+  //finally write down the fwversion/date 
+  uint8_t fwmajor, fwminor, fwrev, fwmon, fwday; 
+  uint16_t fwyear; 
+  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+ 
   return 0; 
 }
 
@@ -597,6 +610,20 @@ int radiant_initial_setup()
  
   //then do the rest of the configuration 
   radiant_configure(); 
+
+  //write down radiant info to runinfo 
+  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
+  fprintf(runinfo, "RADIANT-SAMPLERATE = %u", sample_rate); 
+  fflush(runinfo); 
   return 0; 
 }
 
@@ -1249,6 +1276,8 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 static int initial_setup() 
 {
 
+  clock_gettime(CLOCK_REALTIME, &precise_start_time); 
+
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
   read_config(); 
@@ -1359,6 +1388,17 @@ static int initial_setup()
   sprintf(strbuf,"%s/aux/acq-file-list.txt", output_dir); 
   file_list = fopen(strbuf, "w"); 
   add_to_file_list(strbuf); 
+
+  //open the run info and start filling it in
+  sprintf(strbuf,"%s/aux/runinfo.txt", output_dir); 
+  runinfo = fopen(strbuf,"w"); 
+  add_to_file_list(strbuf); 
+  fprintf(runinfo, "STATION = %d\n", station_number);
+  fprintf(runinfo, "RUN = %d\n", run_number);
+  fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
+  fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
+  fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
+  fflush(runinfo); 
 
   //save comment 
   sprintf(strbuf,"%s/aux/comment.txt",output_dir); 
@@ -1491,6 +1531,10 @@ int teardown()
   radiant_close(radiant); 
   flower_close(flower); 
   fclose(file_list); 
+  struct timespec end_time; 
+  clock_gettime(CLOCK_REALTIME, &end_time); 
+  fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
+  fclose(runinfo); 
 
   if (shared_ds_fd) 
   {
