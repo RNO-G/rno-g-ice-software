@@ -931,6 +931,7 @@ static void * mon_thread(void* v)
       {
         //read twice and make sure equal
         static rno_g_daqstatus_t ds0 = {0}; 
+        memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
         static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0}; 
         int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check); 
 
