@@ -769,6 +769,16 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
   const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
 
   int sub = cfg.lt.servo.subtract_gated; 
+  static float fast_factor = 0; 
+  if (!fast_factor) 
+  {
+
+    uint8_t rev, major, minor; 
+    flower_get_fwversion(flower, &major,&minor,&rev,0,0,0); 
+
+    if (!major && !minor && rev < 6) fast_factor = 1000; 
+    else fast_factor = 100; 
+  }
   
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
