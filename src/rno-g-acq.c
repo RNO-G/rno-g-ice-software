@@ -53,6 +53,7 @@
 #include <inttypes.h>
 #include <math.h> 
 
+#include <systemd/sd-daemon.h> 
 
 #include "radiant.h" 
 #include "flower.h" 
@@ -60,6 +61,7 @@
 #include "ice-config.h" 
 #include "ice-buf.h"
 #include "ice-common.h"
+#include "ice-version.h"
 
 /////// TYPES //////////
 
@@ -149,6 +151,10 @@ static ice_buf_t *mon_buffer;
 static FILE * file_list = 0; 
 static int file_list_fd = 0; 
 
+static FILE * runinfo = 0; 
+
+static time_t last_watchdog; 
+
 ///// PROTOTYPES  /////  
 
 static int radiant_configure();
@@ -156,7 +162,9 @@ static int flower_configure();
 static int teardown(); 
 static int please_stop(); 
 static int add_to_file_list(const char * path); 
+static void feed_watchdog(time_t * now) ; 
 
+struct timespec precise_start_time; 
 
 ///// Implementations /////
 
@@ -256,6 +264,16 @@ int add_to_file_list(const char *path)
   fflush(file_list); 
   flock(file_list_fd, LOCK_UN); 
   return 0; 
+}
+
+//Feeds the systemd watchdog
+void feed_watchdog(time_t * now) 
+{
+  time_t when;
+  if (!now) time(&when) ; 
+  else when = *now; 
+  sd_notify(0,"WATCHDOG=1"); 
+  last_watchdog = when; 
 }
 
 
@@ -366,6 +384,12 @@ int flower_configure()
   ltcfg.vpp_mode = cfg.lt.trigger.vpp; 
   ltcfg.num_coinc =cfg.lt.trigger.enable ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   int ret = flower_configure_trigger(flower, ltcfg); 
+  //TODO: configure the enables
+  flower_trigger_enables_t trig_enables = {.enable_coinc=1, .enable_pps = 0, .enable_ext = 0};
+  flower_trigout_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
+
+  flower_set_trigger_enables(flower,trig_enables);
+  flower_set_trigout_enables(flower,trigout_enables);
 
   if (!cfg.lt.gain.auto_gain) 
   {
@@ -399,6 +423,9 @@ int flower_initial_setup()
   {
     float target = cfg.lt.gain.target_rms; 
     uint8_t codes[RNO_G_NUM_LT_CHANNELS]; 
+    //disable the coincident trigger momentarily 
+    flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0};
+    flower_set_trigger_enables(flower,trig_enables);
     flower_equalize(flower, target,codes,FLOWER_EQUALIZE_VERBOSE); 
     write_gain_codes(codes); 
   }
@@ -407,6 +434,16 @@ int flower_initial_setup()
   flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
   //then the rest of the configuration; 
   flower_configure(); 
+
+
+  //finally write down the fwversion/date 
+  uint8_t fwmajor, fwminor, fwrev, fwmon, fwday; 
+  uint16_t fwyear; 
+  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+  fflush(runinfo); 
+ 
   return 0; 
 }
 
@@ -574,6 +611,20 @@ int radiant_initial_setup()
  
   //then do the rest of the configuration 
   radiant_configure(); 
+
+  //write down radiant info to runinfo 
+  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
+  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
+  fflush(runinfo); 
   return 0; 
 }
 
@@ -718,11 +769,21 @@ static void update_flower_servo_state(flower_servo_state_t *st, const rno_g_daqs
   const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
 
   int sub = cfg.lt.servo.subtract_gated; 
+  static float fast_factor = 0; 
+  if (!fast_factor) 
+  {
+
+    uint8_t rev, major, minor; 
+    flower_get_fwversion(flower, &major,&minor,&rev,0,0,0); 
+
+    if (!major && !minor && rev < 6) fast_factor = 1000; 
+    else fast_factor = 100; 
+  }
   
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
 
-    float val =  fw * 1000*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
+    float val =  fw * fast_factor*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
     st->last_value[i] = st->value[i]; 
     st->value[i] = val; 
     st->last_error[i] = st->error[i]; 
@@ -835,11 +896,7 @@ static void * mon_thread(void* v)
     float diff_servo_lt = nowf - last_servo_lt;
     float diff_last_daqstatus_out = nowf - last_daqstatus_out; 
 
-    if (next_sw_trig  < 0) 
-    {
-      next_sw_trig = calc_next_sw_trig(nowf); 
-    }
-
+ 
     //re set up the RADIANT 
     if (config_counter > last_cfg_counter) 
     {
@@ -854,6 +911,18 @@ static void * mon_thread(void* v)
 
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
+
+    if (next_sw_trig  < 0) 
+    {
+      next_sw_trig = calc_next_sw_trig(nowf); 
+    }
+    //do we need to send a soft trigger? 
+    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig) 
+    {
+      radiant_soft_trigger(radiant); 
+      next_sw_trig = calc_next_sw_trig(nowf); 
+    }
+
 
     //do we need radiant scalers? 
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
@@ -951,18 +1020,13 @@ static void * mon_thread(void* v)
 
 
 
-    //do we need to send a soft trigger? 
-
-    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig) 
-    {
-      radiant_soft_trigger(radiant); 
-      next_sw_trig = calc_next_sw_trig(nowf); 
-    }
-
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock); 
 
     float sleep_amt = 0.1; //maximum sleep amount
+    
+    //sleep less if we need to send a soft trigger sooner
+    if ( cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4; 
 
     usleep(sleep_amt *1e6); 
   }
@@ -1111,6 +1175,12 @@ static void * wri_thread(void* v)
       last_print_out = now; 
     }
 
+    //feed the watchdog in the write thread, since it might wait longer at the end
+    if (now - last_watchdog > 10) 
+    {
+      feed_watchdog(&now); 
+    }
+
     if (!have_data && !have_status) 
     {
       if (quit) 
@@ -1219,6 +1289,8 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 
 static int initial_setup() 
 {
+
+  clock_gettime(CLOCK_REALTIME, &precise_start_time); 
 
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
@@ -1331,6 +1403,17 @@ static int initial_setup()
   file_list = fopen(strbuf, "w"); 
   add_to_file_list(strbuf); 
 
+  //open the run info and start filling it in
+  sprintf(strbuf,"%s/aux/runinfo.txt", output_dir); 
+  runinfo = fopen(strbuf,"w"); 
+  add_to_file_list(strbuf); 
+  fprintf(runinfo, "STATION = %d\n", station_number);
+  fprintf(runinfo, "RUN = %d\n", run_number);
+  fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
+  fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
+  fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
+  fflush(runinfo); 
+
   //save comment 
   sprintf(strbuf,"%s/aux/comment.txt",output_dir); 
   FILE * fcomment = fopen(strbuf,"w"); 
@@ -1354,16 +1437,18 @@ static int initial_setup()
   }
   free(strbuf); 
 
-  //initialie the radiant lock
+  //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
   //intitial configure of the radiant
   radiant_initial_setup(); 
+  feed_watchdog(0); 
 
   pthread_rwlock_init(&flower_lock,NULL); 
 
   //and the flower
   flower_initial_setup(); 
+  feed_watchdog(0); 
 
   //set up signal handlers 
   sigset_t empty; 
@@ -1384,6 +1469,7 @@ static int initial_setup()
   //now let's make the threads
   pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
   pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
+  feed_watchdog(0); 
   pthread_create(&the_wri_thread,NULL, wri_thread, NULL); 
 
   return 0; 
@@ -1459,6 +1545,10 @@ int teardown()
   radiant_close(radiant); 
   flower_close(flower); 
   fclose(file_list); 
+  struct timespec end_time; 
+  clock_gettime(CLOCK_REALTIME, &end_time); 
+  fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
+  fclose(runinfo); 
 
   if (shared_ds_fd) 
   {

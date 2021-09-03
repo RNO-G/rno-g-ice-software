@@ -275,7 +275,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 {
   config_t config; 
   config_init(&config); 
-  config_set_options(&config, CONFIG_OPTION_AUTOCONVERT); 
+  config_set_auto_convert(&config, 1); 
   if (!config_read(&config, f))
   {
     fprintf(stderr,"Trouble reading config: %s, line: %d\n", config_error_text(&config), config_error_line(&config)); 

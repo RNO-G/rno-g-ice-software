@@ -1,0 +1,5 @@
+src/ice-version.c
+*.o
+*.a
+*~
+bin/*

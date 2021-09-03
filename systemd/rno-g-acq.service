@@ -12,6 +12,7 @@ Restart=always
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
+WatchdogSec=30s 
 
 [Install]
 #event
