@@ -23,7 +23,9 @@ int init_acq_config(acq_config_t * cfg)
   SECT.max_daqstatuses_per_file= 100; 
   SECT.max_seconds_per_file = 60; 
   SECT.max_kB_per_file = 0; 
-  SECT.min_free_space_MB = 512; 
+  SECT.min_free_space_MB_output_partition = 512; 
+  SECT.min_free_space_MB_runfile_partition = 64; 
+  SECT.allow_rundir_overwrite = 0; 
   SECT.print_interval = 5; 
   SECT.daqstatus_interval = 1; 
   SECT.seconds_per_run = 7200; 
@@ -73,16 +75,16 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable = 1; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = 2000; 
+    SECT.scaler_goals[i] = 2500; 
   }
-  SECT.servo_thresh_frac = 0.9; 
+  SECT.servo_thresh_frac = 0.95; 
   SECT.servo_thresh_offset = 0; 
-  SECT.fast_scaler_weight = 0.2; 
-  SECT.slow_scaler_weight = 0.8; 
+  SECT.fast_scaler_weight = 0.3; 
+  SECT.slow_scaler_weight = 0.7; 
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
-  SECT.subtract_gated = 1; 
-  SECT.P = 0.0001; 
+  SECT.subtract_gated = 0; 
+  SECT.P = 0.0002; 
   SECT.I = 0; 
   SECT.D = 0; 
 
@@ -107,7 +109,7 @@ int init_acq_config(acq_config_t * cfg)
   //radiant analog
 #undef SECT
 #define SECT cfg->radiant.analog
-  SECT.apply_lab4_vbias = 0; 
+  SECT.apply_lab4_vbias = 1; 
   SECT.lab4_vbias[0] = 1.5; 
   SECT.lab4_vbias[1] = 1.5; 
   SECT.apply_diode_vbias = 0; 
@@ -149,12 +151,12 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[0].enabled = 1; 
   SECT.RF[0].mask =  (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17) | (1 << 18) | (1 <<19) | ( 1<< 20)   ; 
   SECT.RF[0].window = 30 ; // ?!?? 
-  SECT.RF[0].num_coincidences = 2; 
+  SECT.RF[0].num_coincidences = 1; 
 
   //DEEP TRIGGER? 
-  SECT.RF[1].enabled = 1; 
+  SECT.RF[1].enabled = 0; 
   SECT.RF[1].mask = 0xf; // ??!? 
-  SECT.RF[1].window = 20; 
+  SECT.RF[1].window = 30; 
   SECT.RF[1].num_coincidences = 2; 
 
   //LT 
@@ -186,7 +188,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = (i & 0x01ff00) ? 1 : 5; // noise avoiding! 
+    SECT.scaler_goals[i] = ( (1<<i) & 0x1ff000) ? 1 : 5; // noise avoiding! 
   }
   SECT.P = 5; 
   SECT.I = 0; 
@@ -199,7 +201,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->radiant.thresholds
 
   SECT.min = 0.5; 
-  SECT.max = 1.5; 
+  SECT.max = 1.45; 
   SECT.load_from_threshold_file = 1; 
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
   {
@@ -296,7 +298,9 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(output.max_kB_per_file); 
   LOOKUP_INT(output.print_interval); 
   LOOKUP_FLOAT(output.daqstatus_interval); 
-  LOOKUP_INT(output.min_free_space_MB); 
+  LOOKUP_INT(output.min_free_space_MB_output_partition); 
+  LOOKUP_INT(output.min_free_space_MB_runfile_partition); 
+  LOOKUP_INT(output.allow_rundir_overwrite); 
 
 
   //RADIANT
@@ -619,7 +623,9 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(output,max_daqstatuses_per_file,"");
     WRITE_INT(output,max_seconds_per_file,"");
     WRITE_INT(output,max_kB_per_file,"");
-    WRITE_INT(output,min_free_space_MB,"");
+    WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored. ");
+    WRITE_INT(output,min_free_space_MB_runfile_partition,"Minimum free space on the partition where the runfile gets stored");
+    WRITE_INT(output,allow_rundir_overwrite,"Allow overwriting output directories (only effective if there's a runfile)");
     WRITE_INT(output,print_interval,"");
   UNSECT(); 
 

@@ -10,6 +10,7 @@ double timespec_difference(const struct timespec *a, const struct timespec* b);
 
 FILE *find_config(const char * cfgname); //e.g. cfgname="acq.cfg" 
 
+double get_free_MB_by_path(const char * path); 
 
 
 #endif

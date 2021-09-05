@@ -216,8 +216,10 @@ typedef struct acq_config
     int max_daqstatuses_per_file; 
     int max_seconds_per_file; 
     int max_kB_per_file; 
-    int min_free_space_MB; 
+    int min_free_space_MB_output_partition; 
+    int min_free_space_MB_runfile_partition; 
     int print_interval; 
+    int allow_rundir_overwrite; 
   } output; 
   
 } acq_config_t;

@@ -5,6 +5,7 @@
 #include <string.h> 
 #include <sys/stat.h> 
 #include <sys/file.h> 
+#include <sys/statvfs.h>
 #include <unistd.h> 
 
 
@@ -73,3 +74,10 @@ FILE* find_config(const char * cfgname)
   return 0; 
 }
 
+double get_free_MB_by_path(const char * path) 
+{
+  struct statvfs vfs; 
+  statvfs(path,&vfs);
+  double MBfree = (((double)vfs.f_bsize) * vfs.f_bavail) / ( (double) (1 << 20)); 
+  return MBfree; 
+}

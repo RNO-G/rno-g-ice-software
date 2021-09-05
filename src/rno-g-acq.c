@@ -48,7 +48,6 @@
 #include <sys/mman.h>
 #include <sys/file.h> 
 #include <sys/types.h> 
-#include <sys/statvfs.h>
 #include <zlib.h>
 #include <inttypes.h>
 #include <math.h> 
@@ -1293,11 +1292,33 @@ static int initial_setup()
 
   clock_gettime(CLOCK_REALTIME, &precise_start_time); 
 
+
+
+
+
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
   read_config(); 
 
-  //since no other threads exit yet, and we haven't set up the signal handler yet, don't bother to take locks. 
+  // Check that there is sufficient free space before proceeding any farther; 
+
+  double runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
+  double output_partition_free = get_free_MB_by_path(cfg.output.runfile); 
+
+  if ( cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition) 
+  {
+    fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d)", runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition); 
+    return 1; 
+  }
+
+  if ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition) 
+  {
+    fprintf(stderr,"Insufficient free space on output partition (%f MB free,  %d)", output_partition_free, cfg.output.min_free_space_MB_output_partition); 
+    return 1; 
+  }
+
+
+
 
   // Read the station number
 
@@ -1312,29 +1333,65 @@ static int initial_setup()
   }
 
 
+
   //Read the runfile, and update it.  
   FILE * frun = fopen(cfg.output.runfile,"r"); 
   if (!frun) 
   {
     fprintf(stderr,"NO RUN FILE FOUND at %s, setting run to 0\n", cfg.output.runfile); 
     run_number = 0; 
+    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
   }
   else
   {
     fscanf(frun,"%d\n", &run_number); 
     fclose(frun); 
 
-    //TODO: make sure we don't run out of disk space here
-    const char * tmp_run_file = "/tmp/tmprunfile"; 
-    frun = fopen("/tmp/tmprunfile","w"); 
-    fprintf(frun,"%d\n", run_number+1); 
-    fclose(frun); 
-    rename(tmp_run_file, cfg.output.runfile); 
+    // make sure run number is positive
+    if (run_number < 0) 
+    {
+      fprintf(stderr,"NEGATIVE RUN NUMBER FOUND (%d), aborting.\n", run_number); 
+      return 1; 
+    }
+
+    //our output dir is going to be the base_dir + run%d/ 
+    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
+
+    //avoid overwriting rundir (note that run 0 may still be overwritten if there is no run file, but that's ok.) 
+    if (!cfg.output.allow_rundir_overwrite) 
+    {
+      //dir exists! 
+      while (!access(output_dir, F_OK))
+      {
+        fprintf(stderr,"DIR %s exists, incrementing run number\n", output_dir); 
+        run_number++; 
+        free(output_dir); 
+        asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
+      }
+    }
+ 
+    char * tmp_run_file = 0;
+    asprintf(&tmp_run_file, "%s.tmp", cfg.output.runfile); 
+    frun = fopen(tmp_run_file,"w"); 
+    if (!frun) 
+    {
+      fprintf(stderr,"Could not open temporary run file: %s\n", tmp_run_file); 
+      return 1; 
+    }
+    if ( 0 > fprintf(frun,"%d\n", run_number+1) || 0 != fclose(frun))
+    {
+      fprintf(stderr,"Problem writing temporary run file %s\n", tmp_run_file); 
+      return 1; 
+    }
+    if (rename(tmp_run_file, cfg.output.runfile))
+    {
+      fprintf(stderr,"Problem moving %s to %s\n", tmp_run_file, cfg.output.runfile); 
+      return 1; 
+    }
+    free(tmp_run_file); 
   }
 
-  //our output dir is going to be the base_dir + run%d/ 
-  asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
-  
+ 
   //let's make the output directories
   mkdir_if_needed(output_dir); 
 
@@ -1413,6 +1470,9 @@ static int initial_setup()
   fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
   fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
   fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
+  fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
+  fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
+  
   fflush(runinfo); 
 
   //save comment 
@@ -1510,13 +1570,12 @@ int main(void)
 
      //check disk space 
 
-     if (cfg.output.min_free_space_MB > 0 ) 
+     if (cfg.output.min_free_space_MB_output_partition > 0 ) 
      {
-       struct statvfs vfs; 
-       statvfs(cfg.output.base_dir,&vfs);
-       double MBfree = (((double)vfs.f_bsize) * vfs.f_bavail) / ( (double) (1 << 20)); 
-       if (MBfree < cfg.output.min_free_space_MB) 
+       double MBfree = get_free_MB_by_path(cfg.output.base_dir); 
+       if (MBfree < cfg.output.min_free_space_MB_output_partition) 
        {
+         fprintf(stderr,"Output partition free space is just %f MB, smaller than minimum %d MB\n", MBfree, cfg.output.min_free_space_MB_output_partition); 
          please_stop(); 
          continue; 
        }
