@@ -1303,7 +1303,7 @@ static int initial_setup()
   // Check that there is sufficient free space before proceeding any farther; 
 
   double runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
-  double output_partition_free = get_free_MB_by_path(cfg.output.runfile); 
+  double output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
 
   if ( cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition) 
   {
