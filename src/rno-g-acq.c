@@ -978,7 +978,7 @@ static void * mon_thread(void* v)
 
 
     // do we need LT scalers? 
-    if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt)  
+    if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)   
     {
       flower_fill_daqstatus(flower, ds); 
       ds->station = station_number; 
@@ -989,7 +989,7 @@ static void * mon_thread(void* v)
     // do we need to servo LT? 
 
     if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
-        && cfg.lt.servo.scaler_update_interval < diff_servo_lt)  
+        && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)  
     {
       for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
       {
