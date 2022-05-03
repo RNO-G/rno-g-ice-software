@@ -50,6 +50,7 @@ setup:
 	mkdir -p $(PREFIX)/bin
 	chown rno-g:rno-g $(PREFIX)/bin
 	mkdir -p /data/daq
+	chown rno-g:rno-g /data/daq
 
 
 
