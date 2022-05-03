@@ -49,6 +49,7 @@ setup:
 	chown rno-g:rno-g $(PREFIX)/cfg
 	mkdir -p $(PREFIX)/bin
 	chown rno-g:rno-g $(PREFIX)/bin
+	mkdir -p /data/daq
 
 
 
