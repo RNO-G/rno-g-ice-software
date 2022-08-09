@@ -96,6 +96,7 @@ void ice_buf_push(ice_buf_t *b, const void * mem)
 void * ice_buf_pop(ice_buf_t * b, void * dest)
 {
   if (!dest) dest = malloc(b->memb_size); 
+  if (!dest) return 0; 
   while (b->produced_count - b->consumed_count == 0)
   {
     sched_yield(); 
