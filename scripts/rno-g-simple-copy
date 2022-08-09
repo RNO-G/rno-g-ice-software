@@ -2,12 +2,26 @@
 
 STN=`cat /STATION_ID | tr -d '\n'`
 
+CMP=mtime
 THRESH1=64000000
 AGE1=5 
 THRESH2=32000000
 AGE2=3 
 THRESH3=16000000
 AGE3=1 
+
+if test -f /mnt/sdcard/SDCARD ; then 
+  echo "SD card detected" 
+else
+  echo "SD card not detected" 
+  CMP=mmin
+  THRESH1=640000
+  AGE1=360 
+  THRESH2=320000
+  AGE2=180 
+  THRESH3=160000
+  AGE3=60 
+fi
 
 while true; 
 do 
@@ -24,14 +38,14 @@ do
 
   if [ $FREESPACE -lt $THRESH1 ] ; 
   then  
-    find /data/daq -mtime +${AGE1} -delete 
+    find /data/daq -${CMP} +${AGE1} -delete 
   fi 
   if [ $FREESPACE -lt $THRESH2 ] ; 
   then 
-    find /data/daq -mtime +${AGE2} -delete 
+    find /data/daq -${CMP} +${AGE2} -delete 
   fi 
   if [ $FREESPACE -lt $THRESH3 ] ; 
   then 
-    find /data/daq -mtime +${AGE3} -delete 
+    find /data/daq -${CMP} +${AGE3} -delete 
   fi 
 done 
