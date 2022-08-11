@@ -20,7 +20,7 @@ else
   THRESH2=320000
   AGE2=180 
   THRESH3=160000
-  AGE3=60 
+  AGE3=120 
 fi
 
 while true; 
@@ -33,6 +33,9 @@ do
     continue ; 
   fi 
 
+  #rsync AGAIN in case we were behind
+  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
 
@@ -40,10 +43,13 @@ do
   then  
     find /data/daq -${CMP} +${AGE1} -delete 
   fi 
+
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
   if [ $FREESPACE -lt $THRESH2 ] ; 
   then 
     find /data/daq -${CMP} +${AGE2} -delete 
   fi 
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
   if [ $FREESPACE -lt $THRESH3 ] ; 
   then 
     find /data/daq -${CMP} +${AGE3} -delete 
