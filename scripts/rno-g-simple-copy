@@ -33,6 +33,15 @@ do
     continue ; 
   fi 
 
+
+  if test -d /data/windmon ; then 
+    rsync -avh /data/windmon 10.1.0.1:/data/ingress/station$STN/ 
+    # only delete if rsync succeeds correctly 
+    if [ $? -ne 0 ] ; then 
+      continue ; 
+    fi 
+  fi 
+
   #rsync AGAIN in case we were behind
   rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
@@ -42,6 +51,11 @@ do
   if [ $FREESPACE -lt $THRESH1 ] ; 
   then  
     find /data/daq -${CMP} +${AGE1} -delete 
+
+    # delete wind monitoring 
+    if test -d /data/windmon ; then 
+      find /data/windmon -mtime  +3 -delete 
+    fi 
   fi 
 
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
