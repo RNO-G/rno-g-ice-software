@@ -1270,7 +1270,7 @@ static void * wri_thread(void* v)
       if ( !wf_file_name || 
            (cfg.output.max_kB_per_file > 0  &&  wf_file_size >= cfg.output.max_kB_per_file) ||
            (cfg.output.max_events_per_file > 0 && wf_file_N >= cfg.output.max_events_per_file) ||
-           (cfg.output.seconds_per_run > 0 && now - wf_file_time >= cfg.output.seconds_per_run ) )
+           (cfg.output.max_seconds_per_file > 0 && now - wf_file_time >= cfg.output.max_seconds_per_file ) )
       {
         if (wf_file_name) do_close(wf_handle, wf_file_name); 
 
@@ -1301,8 +1301,8 @@ static void * wri_thread(void* v)
     {
       if ( !ds_file_name || 
            (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
-           (cfg.output.max_events_per_file > 0 && ds_file_N >= cfg.output.max_events_per_file) ||
-           (cfg.output.seconds_per_run > 0 && now - ds_file_time >= cfg.output.seconds_per_run ) )
+           (cfg.output.max_daqstatuses_per_file > 0 && ds_file_N >= cfg.output.max_daqstatuses_per_file) ||
+           (cfg.output.max_seconds_per_file > 0 && now - ds_file_time >= cfg.output.max_seconds_per_file ) )
      
       {
 
