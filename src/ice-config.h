@@ -221,6 +221,18 @@ typedef struct acq_config
     int print_interval; 
     int allow_rundir_overwrite; 
   } output; 
+
+  //calibration 
+  struct 
+  {
+    int enable_cal; 
+    int i2c_bus; 
+    int gpio; 
+    const char * rev;
+    rno_g_calpulser_out_t channel; 
+    rno_g_calpulser_mode_t type; 
+    float atten; 
+  } calib; 
   
 } acq_config_t;
 

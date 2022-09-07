@@ -6,7 +6,7 @@ BINDIR=bin
 
 
 LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
-LIBS=-lz -pthread -lrno-g -lradiant -lconfig -lflower -lm -lsystemd
+LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h 
 

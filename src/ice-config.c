@@ -5,8 +5,10 @@
 #include <string.h>
 
 /** This implements configuration of the DAQ.  This is nominally done with
- * libconfig, although this makes heavy use of macros. The output is done "by
- * hand" with macros because that way we can include comments. 
+ * libconfig, although this makes heavy use of macros to form a horrific DSL.
+ * The output is done "by hand" with macros because that way we can include
+ * comments. 
+ *
  */
 
 
@@ -216,6 +218,12 @@ int init_acq_config(acq_config_t * cfg)
   {
     SECT.prescal_m1[i]=  0; 
   }
+#undef SECT 
+#define SECT cfg->calib
+  SECT.enable_cal = 0; 
+  SECT.channel= RNO_G_CAL_NO_OUTPUT; 
+  SECT.type = RNO_G_CAL_NO_SIGNAL; 
+  SECT.atten = 31.5; 
 
   return 0;
 }
@@ -226,7 +234,27 @@ int init_acq_config(acq_config_t * cfg)
 #define LOOKUP_INT_RENAME(X,Y) \
  config_lookup_int(&config, #Y, &cfg->X);  
 
-
+static const char * dummy_enum_str; 
+#define LOOKUP_ENUM(PATH, X, TYPE, STRS) \
+  config_lookup_string(&config, #PATH "." #X, &dummy_enum_str); \
+  int found_##X = 0;\
+  for (unsigned istr = 0; istr < sizeof(STRS)/sizeof(*STRS); istr++) \
+  {\
+    if (!strcasecmp(STRS[istr], dummy_enum_str))\
+    {\
+      found_##X = 1;\
+      cfg->PATH.X = (TYPE) istr; break; \
+    }\
+  }\
+  if (!found_##X) \
+  {\
+    fprintf(stderr,#PATH "." #X " not valid. Got \"%s\". Valid vals are: [", dummy_enum_str); \
+    for (unsigned istr = 0; istr < sizeof(STRS)/sizeof(*STRS); istr++) \
+    {\
+      fprintf(stderr, " \"%s\" ", STRS[istr]);\
+    }\
+    fprintf(stderr,"]\n");\
+  }
 
 #define LOOKUP_INT_ELEM(X,i) \
   cfg->X[i] = config_setting_get_int_elem(config_lookup(&config,#X),i);
@@ -271,6 +299,9 @@ static double dummy_val;
   cfg->X[i] = config_setting_get_float_elem(config_lookup(&config,#X),i);
 
 
+//define enum string arrays here 
+const char * calpulser_outs[] = RNO_G_CALPULSER_OUT_STRS; 
+const char * calpulser_modes[] = RNO_G_CALPULSER_MODE_STRS; 
 
 
 int read_acq_config(FILE * f, acq_config_t * cfg) 
@@ -445,6 +476,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.gain.auto_gain);
   LOOKUP_FLOAT(lt.gain.target_rms); 
 
+  LOOKUP_INT(calib.enable_cal); 
+  LOOKUP_FLOAT(calib.atten); 
+  LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs); 
+  LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes); 
 
   config_destroy(&config); 
   return 0; 
@@ -470,6 +505,15 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   fprintf(f,"%s//%s\n%s%s=[", indents[indent_level], COMMENT, indents[indent_level], #Y ); \
   for (int i = 0; i < LEN; i++) fprintf(f, TYPE "%s", cfg->X.Y[i], i < LEN-1 ? ",": ""); \
   fprintf(f,"];\n"); 
+
+#define WRITE_ENUM(X,Y,COMMENT, STRS)\
+  fprintf(f,"%s//%s", indents[indent_level], COMMENT); \
+  fprintf(f," [ valid values: "); \
+  for (unsigned istr = 0; istr < sizeof(STRS)/sizeof(*STRS); istr++) fprintf(f," \"%s\" ", STRS[istr]); \
+  fprintf(f, "]\n"); \
+  unsigned index_##X##Y= (int) cfg->X.Y; \
+  if (index_##X##Y>= sizeof(STRS)/sizeof(*STRS)) index_##X##Y= 0; \
+  fprintf(f,"%s%s=\"%s\";\n", indents[indent_level],#Y,STRS[index_##X##Y]); 
 
  SECT(radiant,"RADIANT configuration"); 
    SECT(scalers,"Scalers configuration");
@@ -614,19 +658,29 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
    
 
   SECT(output,"Output settings"); 
-    WRITE_STR(output,base_dir,"");
-    WRITE_STR(output,runfile,"");
-    WRITE_STR(output,comment,"");
-    WRITE_FLT(output,daqstatus_interval,"");
-    WRITE_INT(output,seconds_per_run,"");
-    WRITE_INT(output,max_events_per_file,"");
-    WRITE_INT(output,max_daqstatuses_per_file,"");
-    WRITE_INT(output,max_seconds_per_file,"");
-    WRITE_INT(output,max_kB_per_file,"");
+    WRITE_STR(output,base_dir,"Base directory for writing out data");
+    WRITE_STR(output,runfile,"The file used to persist the run");
+    WRITE_STR(output,comment,"A human-readable comment that you can fill what whatever hopefully useful comment (or, an excuse not to take good notes?)");
+    WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages) ");
+    WRITE_INT(output,seconds_per_run,"Number of seconds per run");
+    WRITE_INT(output,max_events_per_file,"Maximum number of events per event (and header) file, or 0 to ignore");
+    WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ingore");
+    WRITE_INT(output,max_seconds_per_file,"Maximum seconds per file (or 0 to ignore)");
+    WRITE_INT(output,max_kB_per_file,"Maximum kB per file (or 0 to ignore), not including any compression");
     WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored. ");
     WRITE_INT(output,min_free_space_MB_runfile_partition,"Minimum free space on the partition where the runfile gets stored");
     WRITE_INT(output,allow_rundir_overwrite,"Allow overwriting output directories (only effective if there's a runfile)");
-    WRITE_INT(output,print_interval,"");
+    WRITE_INT(output,print_interval,"Interval for printing a bunch of stuff to a screen nobody will see. Ideally done in green text with The Matrix font...");
+  UNSECT(); 
+
+  SECT(calib, "In-situ Calibration settings"); 
+    WRITE_INT(calib, enable_cal,"Enable in-situ pulser"); 
+    WRITE_INT(calib, i2c_bus, "the calpulser i2c-bus"); 
+    WRITE_INT(calib, gpio, "the calpulser control gpio"); 
+    WRITE_STR(calib,rev, "the board revision (e.g. D or E), or the absolute path to the name of a file containing the board revision"); 
+    WRITE_ENUM(calib, channel, "in-situ calpulser channel", calpulser_outs); 
+    WRITE_ENUM(calib, type, "in-situ calpulser type", calpulser_modes); 
+    WRITE_FLT(calib, atten,"Attenuation in dB (max 31.5, in steps of 0.5 dB)" ); 
   UNSECT(); 
 
 
