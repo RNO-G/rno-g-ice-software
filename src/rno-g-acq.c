@@ -128,6 +128,7 @@ static radiant_dev_t * radiant = 0;
 /** flower handle */ 
 static flower_dev_t * flower = 0; 
 
+uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS]; 
 
 /** radiant pedestals*/ 
 static rno_g_pedestal_t * pedestals = 0; 
@@ -429,7 +430,7 @@ int calpulser_configure()
 
 
 
-int write_gain_codes(const uint8_t * codes) 
+int write_gain_codes() 
 {
   static int gain_codes_counter = 0; 
   time_t now; 
@@ -441,7 +442,7 @@ int write_gain_codes(const uint8_t * codes)
   fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now); 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    fprintf(of, "%u%s", codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n"); 
+    fprintf(of, "%u%s", flower_codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n"); 
   }
   fclose(of); 
   add_to_file_list(path); 
@@ -471,7 +472,7 @@ int flower_configure()
   if (!cfg.lt.gain.auto_gain) 
   {
     flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes); 
-    write_gain_codes(cfg.lt.gain.fixed_gain_codes); 
+    memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
   }
 
   pthread_rwlock_unlock(&cfg_lock); 
@@ -499,12 +500,10 @@ int flower_initial_setup()
   if (cfg.lt.gain.auto_gain) 
   {
     float target = cfg.lt.gain.target_rms; 
-    uint8_t codes[RNO_G_NUM_LT_CHANNELS]; 
     //disable the coincident trigger momentarily 
     flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0};
     flower_set_trigger_enables(flower,trig_enables);
-    flower_equalize(flower, target,codes,FLOWER_EQUALIZE_VERBOSE); 
-    write_gain_codes(codes); 
+    flower_equalize(flower, target,flower_codes,FLOWER_EQUALIZE_VERBOSE); 
   }
   
 
@@ -513,14 +512,6 @@ int flower_initial_setup()
   flower_configure(); 
 
 
-  //finally write down the fwversion/date 
-  uint8_t fwmajor, fwminor, fwrev, fwmon, fwday; 
-  uint16_t fwyear; 
-  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", fwyear, fwmon, fwday); 
-  fflush(runinfo); 
- 
   return 0; 
 }
 
@@ -689,20 +680,7 @@ int radiant_initial_setup()
   //then do the rest of the configuration 
   radiant_configure(); 
 
-  //write down radiant info to runinfo 
-  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
-  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
-
-  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
-
-  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
-  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
-  fflush(runinfo); 
-  return 0; 
+ return 0; 
 }
 
 
@@ -973,7 +951,7 @@ static void * mon_thread(void* v)
     float diff_servo_lt = nowf - last_servo_lt;
     float diff_last_daqstatus_out = nowf - last_daqstatus_out; 
 
- 
+
     //re set up the RADIANT 
     if (config_counter > last_cfg_counter) 
     {
@@ -1412,10 +1390,22 @@ static int initial_setup()
   }
 
 
+  //initialize the radiant lock
+  pthread_rwlock_init(&radiant_lock,NULL); 
+
+  //intitial configure of the radiant, bail if can't open
+  if (radiant_initial_setup()) return 1; 
+  feed_watchdog(0); 
+
+  pthread_rwlock_init(&flower_lock,NULL); 
+
+  //and the flower, bail if can't open 
+  //TODO: flowerless mode 
+  if (flower_initial_setup()) return 1; 
+  feed_watchdog(0); 
 
 
   // Read the station number
-
   const char * station_number_file = "/STATION_ID"; 
   FILE *fstation = fopen(station_number_file,"r"); 
   fscanf(fstation,"%d\n",&station_number); 
@@ -1425,8 +1415,6 @@ static int initial_setup()
     fprintf(stderr,"Could not get a station number... using 0\n"); 
     station_number = 0; 
   }
-
-
 
   //Read the runfile, and update it.  
   FILE * frun = fopen(cfg.output.runfile,"r"); 
@@ -1567,6 +1555,24 @@ static int initial_setup()
   fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
   fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
   
+  //write down radiant info to runinfo 
+  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
+  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
+ 
+
+  uint16_t flower_fwyear;
+  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
   fflush(runinfo); 
 
   //save comment 
@@ -1575,6 +1581,9 @@ static int initial_setup()
   fprintf(fcomment, cfg.output.comment); 
   fclose(fcomment); 
   add_to_file_list(strbuf); 
+
+  //write gain codes
+  write_gain_codes(); 
 
 
   //now let's dump the configuration file to the cfg dir 
@@ -1591,19 +1600,6 @@ static int initial_setup()
     add_to_file_list(strbuf); 
   }
   free(strbuf); 
-
-  //initialize the radiant lock
-  pthread_rwlock_init(&radiant_lock,NULL); 
-
-  //intitial configure of the radiant
-  radiant_initial_setup(); 
-  feed_watchdog(0); 
-
-  pthread_rwlock_init(&flower_lock,NULL); 
-
-  //and the flower
-  flower_initial_setup(); 
-  feed_watchdog(0); 
 
   //set up signal handlers 
   sigset_t empty; 
