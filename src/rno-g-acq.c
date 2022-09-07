@@ -1196,8 +1196,6 @@ static void * wri_thread(void* v)
 
   int ds_i = 0; 
 
-  snprintf(bigbuf, bigbuflen, "%s/run%d/", cfg.output.base_dir, run_number); 
-  output_dir = strdup(bigbuf); 
   //if we have pedestals, write them out 
   if (pedestals) 
   {
