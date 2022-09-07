@@ -1037,7 +1037,6 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)   
     {
       flower_fill_daqstatus(flower, ds); 
-      ds->station = station_number; 
       update_flower_servo_state(&flwr_servo_state, ds); 
       last_scalers_lt = nowf; 
     }
