@@ -17,6 +17,7 @@ int main(int nargs, char ** args)
     FILE * f = fopen(ifname,"r"); 
 
     acq_config_t cfg;
+    init_acq_config(&cfg); 
     read_acq_config(f,&cfg); 
     char *ofname = nargs > 3 ? args[3] : "acq-checked.cfg"; 
     FILE * of = fopen(ofname,"w"); 
