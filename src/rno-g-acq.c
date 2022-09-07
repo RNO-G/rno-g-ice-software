@@ -57,6 +57,7 @@
 #include "radiant.h" 
 #include "flower.h" 
 #include "rno-g.h" 
+#include "rno-g-cal.h" 
 #include "ice-config.h" 
 #include "ice-buf.h"
 #include "ice-common.h"
@@ -138,8 +139,12 @@ static int pedestal_fd;
 /** Shared daq status */ 
 static rno_g_daqstatus_t * ds = 0; 
 
+
 //File descriptor for daqstatus shared mem file
 static int shared_ds_fd; 
+
+/** calib handle */ 
+static rno_g_cal_dev_t * calpulser = 0;  
 
 //acq ring buffer 
 static ice_buf_t *acq_buffer; 
@@ -158,6 +163,7 @@ static time_t last_watchdog;
 
 static int radiant_configure();
 static int flower_configure();
+static int calpulser_configure(); 
 static int teardown(); 
 static int please_stop(); 
 static int add_to_file_list(const char * path); 
@@ -251,6 +257,11 @@ static void read_config()
     if (memcmp(&old_cfg.lt, &cfg.lt, sizeof(cfg.lt)))
     {
       flower_configure(); 
+    }
+
+    if (memcpy(&old_cfg.calib, &cfg.calib, sizeof(cfg.calib)))
+    {
+      calpulser_configure(); 
     }
   }
 
@@ -350,6 +361,73 @@ int radiant_configure()
   pthread_rwlock_unlock(&radiant_lock); 
   return 0; 
 }
+
+int calpulser_configure() 
+{
+  pthread_rwlock_rdlock(&cfg_lock); 
+  if (cfg.calib.enable_cal && !calpulser) 
+  {
+    // figure out the rev
+    char rev ='E';  
+
+    //check if calib.rev is a file 
+    if (cfg.calib.rev[0]=='/') 
+    {
+      FILE * frev = fopen(cfg.calib.rev,"r"); 
+      if (!frev) 
+      {
+        fprintf(stderr,"WARNING: calib.rev looks like a file but we can't open it!\n"); 
+      }
+      else
+      {
+        int nread = fread(&rev, 1,1,frev); 
+        if (!nread || rev == '\n') 
+        {
+          fprintf(stderr,"WARNING: calib.rev is a file but it seems to be empty! Assuming REVE\n"); 
+          rev = 'E'; 
+        }
+      }
+    }
+    else
+    {
+      rev = cfg.calib.rev[0]; 
+    }
+    calpulser = rno_g_cal_open(cfg.calib.i2c_bus, cfg.calib.gpio, rev) ;
+    if (!calpulser) 
+    {
+      fprintf(stderr,"Could not open calpulser\n"); 
+      return 1; 
+    }
+    //enable the calpulser and initialize it
+    rno_g_cal_enable(calpulser); 
+    rno_g_cal_setup(calpulser); 
+  }
+  else if (calpulser && !cfg.calib.enable_cal)
+  {
+    //forget everything if the calpulser is not enabled 
+    rno_g_cal_disable(calpulser); 
+    rno_g_cal_close(calpulser); 
+    calpulser = NULL; 
+  }
+
+  //now set the rest of the stuff 
+  if (calpulser) 
+  {
+    rno_g_cal_select(calpulser, cfg.calib.channel); 
+    rno_g_cal_set_pulse_mode(calpulser,cfg.calib.type); 
+    float atten = cfg.calib.atten; 
+    if (atten < 0) atten = 0; 
+    if (atten > 31.5) atten = 31.5; 
+    atten = round(atten*2); 
+    rno_g_cal_set_atten(calpulser,(uint8_t) atten); 
+  }
+  pthread_rwlock_unlock(&cfg_lock); 
+  return 0; 
+}
+
+
+
+
 
 int write_gain_codes(const uint8_t * codes) 
 {
@@ -1012,6 +1090,22 @@ static void * mon_thread(void* v)
 
     if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval < diff_last_daqstatus_out)  
     {
+      //make sure the station is set correctly 
+      ds->station = station_number; 
+
+      //fill in radiant voltages
+      radiant_bm_analog_read_all(radiant, &ds->radiant_voltages); 
+
+      // fill in calpulser info 
+      if (!calpulser)  // just zero 
+      {
+        memset(&ds->cal,0,sizeof(ds->cal)); 
+      }
+      else
+      {
+        rno_g_cal_fill_info(calpulser, &ds->cal);
+      }
+ 
       mon_buffer_item_t * mem = ice_buf_getmem(mon_buffer); 
       memcpy(&mem->ds,ds, sizeof(rno_g_daqstatus_t)); 
       ice_buf_commit(mon_buffer); 
