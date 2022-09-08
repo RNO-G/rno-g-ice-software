@@ -1070,9 +1070,6 @@ static void * mon_thread(void* v)
       //make sure the station is set correctly 
       ds->station = station_number; 
 
-      //fill in radiant voltages
-      radiant_bm_analog_read_all(radiant, &ds->radiant_voltages); 
-
       // fill in calpulser info 
       if (!calpulser)  // just zero 
       {
