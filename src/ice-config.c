@@ -7,7 +7,12 @@
 /** This implements configuration of the DAQ.  This is nominally done with
  * libconfig, although this makes heavy use of macros to form a horrific DSL.
  * The output is done "by hand" with macros because that way we can include
- * comments. 
+ * comments.
+ *
+ * If you want to add a new setting, first add it to the relevant struct in the
+ * header file, then you'll need to put a default value in init_X_config, add a
+ * lookup in read_X_config and a write out in write_X_config (including a
+ * comment). For most simple data types this should be straightforward... 
  *
  */
 
@@ -17,6 +22,7 @@ int init_acq_config(acq_config_t * cfg)
 
   //output 
   // Yes, I really am this lazy 
+  // to avoid lots of typing we'll keep #defining and #undefing the section
 #define SECT cfg->output
 
   SECT.base_dir = "/data/daq/"; 
@@ -49,7 +55,7 @@ int init_acq_config(acq_config_t * cfg)
     SECT.fixed_gain_codes[i] =5;
   }
 
-  //lt 
+  //lt  (low-threshold) 
   //
 #undef SECT
 #define SECT cfg->lt.device
@@ -102,6 +108,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->radiant.device
 
+  //hah, this does nothing so far
   SECT.reset_script = "/rno-g/bin/reset-radiant" ;
   SECT.spi_device = "/dev/spidev0.0"; 
   SECT.uart_device = "/dev/ttyRadiant"; 
@@ -151,14 +158,14 @@ int init_acq_config(acq_config_t * cfg)
 
   //SURFACE TRIGGER? 
   SECT.RF[0].enabled = 1; 
-  SECT.RF[0].mask =  (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17) | (1 << 18) | (1 <<19) | ( 1<< 20)   ; 
-  SECT.RF[0].window = 30 ; // ?!?? 
-  SECT.RF[0].num_coincidences = 1; 
+  SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
+  SECT.RF[0].window = 50 ; // ?!?? 
+  SECT.RF[0].num_coincidences = 2; 
 
   //DEEP TRIGGER? 
-  SECT.RF[1].enabled = 0; 
-  SECT.RF[1].mask = 0xf; // ??!? 
-  SECT.RF[1].window = 30; 
+  SECT.RF[1].enabled = 1; 
+  SECT.RF[1].mask = 0x16d000; // downward pointing LPDAs
+  SECT.RF[1].window = 50; 
   SECT.RF[1].num_coincidences = 2; 
 
   //LT 
@@ -221,6 +228,9 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT 
 #define SECT cfg->calib
   SECT.enable_cal = 0; 
+  SECT.i2c_bus = 2; 
+  SECT.gpio = 49; 
+  SECT.rev = "/REV"; 
   SECT.channel= RNO_G_CAL_NO_OUTPUT; 
   SECT.type = RNO_G_CAL_NO_SIGNAL; 
   SECT.atten = 31.5; 
@@ -248,7 +258,7 @@ static const char * dummy_enum_str;
   }\
   if (!found_##X) \
   {\
-    fprintf(stderr,#PATH "." #X " not valid. Got \"%s\". Valid vals are: [", dummy_enum_str); \
+    fprintf(stderr,#PATH "." #X " not valid. Got \"%s\". Valid values: [", dummy_enum_str); \
     for (unsigned istr = 0; istr < sizeof(STRS)/sizeof(*STRS); istr++) \
     {\
       fprintf(stderr, " \"%s\" ", STRS[istr]);\
@@ -477,9 +487,12 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.gain.target_rms); 
 
   LOOKUP_INT(calib.enable_cal); 
-  LOOKUP_FLOAT(calib.atten); 
+  LOOKUP_INT(calib.i2c_bus); 
+  LOOKUP_INT(calib.gpio); 
+  LOOKUP_STRING(calib,rev); 
   LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs); 
   LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes); 
+  LOOKUP_FLOAT(calib.atten); 
 
   config_destroy(&config); 
   return 0; 
@@ -490,7 +503,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 int dump_acq_config(FILE *f, const acq_config_t * cfg) 
 {
   int indent_level = 0; 
-  const char * indents[] = { "", "\t", "\t\t", "\t\t\t", "\t\t\t\t", "\t\t\t\t\t"}; 
+  const char * indents[] = { "", "\t", "\t\t", "\t\t\t", "\t\t\t\t", "\t\t\t\t\t"};  
 
 #undef SECT 
 #define SECT(X, COMMENT) fprintf(f,"%s//%s\n%s%s:\n%s{\n",indents[indent_level],COMMENT, indents[indent_level], #X, indents[indent_level]); indent_level++; 
@@ -515,10 +528,19 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   if (index_##X##Y>= sizeof(STRS)/sizeof(*STRS)) index_##X##Y= 0; \
   fprintf(f,"%s%s=\"%s\";\n", indents[indent_level],#Y,STRS[index_##X##Y]); 
 
+  fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n");
+  fprintf(f,"// Main configuration file for rno-g-acq (typically /rno-g/cfg/acq.cfg is used)\n"); 
+  fprintf(f,"// This file is in libconfig format, though your syntax highligher might mistake it for json\n"); 
+  fprintf(f,"// Changing values in this file may adversely affect the operation of the DAQ.\n"); 
+  fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor. \n"); 
+  fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n\n");
+  
+
+
  SECT(radiant,"RADIANT configuration"); 
    SECT(scalers,"Scalers configuration");
-     WRITE_INT(radiant.scalers,use_pps,"use pps, otherwise period is used"); 
-     WRITE_FLT(radiant.scalers,period,"The period used for scalers if pps is not enabled"); 
+     WRITE_INT(radiant.scalers,use_pps,"use PPS, otherwise period is used"); 
+     WRITE_FLT(radiant.scalers,period,"The period used for scalers if PPS is not enabled"); 
      WRITE_ARR(radiant.scalers,prescal_m1, "The prescaler minus 1 for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%u"); 
    UNSECT(); 
    SECT(thresholds,"Threshold initialization configuration"); 
@@ -529,7 +551,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
    UNSECT(); 
 
    SECT(servo, "Threshold servo configuration"); 
-    WRITE_INT(radiant.servo, enable, "Enable servoing");
+    WRITE_INT(radiant.servo, enable, "Enable servoing of RADIANT thresholds");
     WRITE_FLT(radiant.servo, scaler_update_interval, "Time interval (in seconds) that scalers are updated at"); 
     WRITE_FLT(radiant.servo, servo_interval, "Time interval (in seconds) that thresholds are updated at"); 
     WRITE_ARR(radiant.servo, nscaler_periods_per_servo_period, 
@@ -557,19 +579,19 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_INT(radiant.trigger.ext,enabled,"Enable ext trigger (note: this is the low threshold trigger!)"); 
     UNSECT(); 
     SECT(pps,"PPS trigger configuration"); 
-      WRITE_INT(radiant.trigger.pps,enabled,"Enable pps trigger"); 
-      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable pps trigger output"); 
+      WRITE_INT(radiant.trigger.pps,enabled,"Enable PPS trigger"); 
+      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable PPS trigger output"); 
     UNSECT(); 
     SECT(RF0,"First RF trigger configuration"); 
       WRITE_INT(radiant.trigger.RF[0],enabled,"Enable this RF trigger"); 
       WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger"); 
-      WRITE_FLT(radiant.trigger.RF[0],window,"The time widow (in ns) for the coincidnce  trigger"); 
+      WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
     UNSECT()
     SECT(RF1,"Second RF trigger configuration"); 
       WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger"); 
       WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger"); 
-      WRITE_FLT(radiant.trigger.RF[1],window,"The time widow (in ns) for the coincidnce  trigger"); 
+      WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
     UNSECT()
 
@@ -591,25 +613,25 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   UNSECT(); 
   SECT(analog,"Analog settings for the RADIANT"); 
     WRITE_INT(radiant.analog,apply_lab4_vbias, "Apply lab4 vbias at beginning of run (instead of using whatever it is)"); 
-    WRITE_ARR(radiant.analog,lab4_vbias,"The lab3 vbias (in V) to apply", 2, "%g"); 
+    WRITE_ARR(radiant.analog,lab4_vbias,"The lab4 vbias (in V) to apply", 2, "%g"); 
     WRITE_INT(radiant.analog,apply_diode_vbias, "Apply diode vbias at beginning of run (instead of using whatever it is)"); 
     WRITE_ARR(radiant.analog,diode_vbias,"The diode vbias (in V) to apply", RNO_G_NUM_RADIANT_CHANNELS, "%g"); 
     WRITE_INT(radiant.analog,apply_attenuations,"Apply attenuations to digitizer/trigger paths"); 
     WRITE_ARR(radiant.analog,digi_attenuation,"Digitizer path attenuations (dB)", RNO_G_NUM_RADIANT_CHANNELS, "%g"); 
     WRITE_ARR(radiant.analog,trig_attenuation,"Trigger path attenuations (dB)", RNO_G_NUM_RADIANT_CHANNELS, "%g"); 
-    WRITE_FLT(radiant.analog,settle_time,"Time to wait after setting analog params"); 
+    WRITE_FLT(radiant.analog,settle_time,"Time to wait after setting analog settings"); 
   UNSECT(); 
   SECT(device,"RADIANT other device settings"); 
-    WRITE_STR(radiant.device,reset_script, "Script to reset the radiant (not implemented yet)"); 
+    WRITE_STR(radiant.device,reset_script, "Script to reset the radiant (not implemented yet, so this is merely aspirational)"); 
     WRITE_STR(radiant.device,spi_device,"SPI device for RADIANT DMA"); 
-    WRITE_STR(radiant.device,uart_device,"UART device for RADIANT comms"); 
-    WRITE_INT(radiant.device,poll_gpio,"gpio to poll on"); 
-    WRITE_INT(radiant.device,spi_enable_gpio,"gpio to enable gpio (negative for active low)"); 
+    WRITE_STR(radiant.device,uart_device,"UART device for RADIANT and RADIANT controller communications"); 
+    WRITE_INT(radiant.device,poll_gpio,"gpio to poll on for new DMA transfers"); 
+    WRITE_INT(radiant.device,spi_enable_gpio,"gpio to enable SPI (use negative value for active low)"); 
   UNSECT(); 
   SECT(pps,"RADIANT pps settings"); 
     WRITE_INT(radiant.pps,use_internal,"Use internal PPS instead of from GPS"); 
     WRITE_INT(radiant.pps,sync_out," Enable sync out"); 
-    WRITE_INT(radiant.pps,pps_holdoff,"Amount of PPS holdoff (in some units...)"); 
+    WRITE_INT(radiant.pps,pps_holdoff,"Amount of PPS holdoff (in some units...) for debouncing (I think?)"); 
   UNSECT(); 
  UNSECT() ; 
 
@@ -617,43 +639,43 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(trigger,"Trigger settings for the low-threshold-board"); 
        WRITE_INT(lt.trigger,enable, "Enable the LT trigger"); 
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255)"); 
-       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minmum 1)"); 
+       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1)"); 
        WRITE_INT(lt.trigger,window,"Coincidence window"); 
     UNSECT(); 
 
     SECT(thresholds,"Threshold settings for the low-threshold board"); 
        WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)"); 
-       WRITE_ARR(lt.thresholds,initial,"Initial thresholds if not loaded from file (in adc)",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.thresholds,initial,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u"); 
     UNSECT(); 
-    SECT(servo, "Servo setings for the low-threshold board"); 
+    SECT(servo, "Servo settings for the low-threshold board"); 
        WRITE_INT(lt.servo,enable,"Enable servoing"); 
        WRITE_INT(lt.servo,subtract_gated,"Subtract gated scalers"); 
        WRITE_ARR(lt.servo,scaler_goals,"",RNO_G_NUM_LT_CHANNELS,"%u"); 
-       WRITE_FLT(lt.servo,servo_thresh_frac,"");
-       WRITE_FLT(lt.servo,servo_thresh_offset,"");
-       WRITE_FLT(lt.servo,fast_scaler_weight,"");
-       WRITE_FLT(lt.servo,slow_scaler_weight,"");
-       WRITE_FLT(lt.servo,scaler_update_interval,"");
-       WRITE_FLT(lt.servo,servo_interval,"");
-       WRITE_FLT(lt.servo,P,"");
-       WRITE_FLT(lt.servo,I,"");
-       WRITE_FLT(lt.servo,D,"");
+       WRITE_FLT(lt.servo,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
+       WRITE_FLT(lt.servo,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
+       WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (1Hz?) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (10Hz?) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,scaler_update_interval,"How often we update the scalers");
+       WRITE_FLT(lt.servo,servo_interval,"How often we run the scaler");
+       WRITE_FLT(lt.servo,P,"PID loop P term");
+       WRITE_FLT(lt.servo,I,"PID loop I term");
+       WRITE_FLT(lt.servo,D,"PID loop D term ");
     UNSECT(); 
-    SECT(gain,""); 
-      WRITE_INT(lt.gain,auto_gain,""); 
-      WRITE_FLT(lt.gain,target_rms,""); 
-      WRITE_ARR(lt.gain,fixed_gain_codes,"", RNO_G_NUM_LT_CHANNELS, "%u"); 
+    SECT(gain,"Settings related to HMCAD1511 gain"); 
+      WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels"); 
+      WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization"); 
+      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u"); 
     UNSECT(); 
-    SECT(device,""); 
-      WRITE_STR(lt.device,spi_device,"");
-      WRITE_INT(lt.device,spi_enable_gpio,"");
+    SECT(device,"Settings related to device interface"); 
+      WRITE_STR(lt.device,spi_device,"The SPI device for the low-threshold board");
+      WRITE_INT(lt.device,spi_enable_gpio,"gpio to enable SPI device");
     UNSECT(); 
   UNSECT()
 
   SECT(runtime,"Runtime settings"); 
-    WRITE_STR(runtime,status_shmem_file,"");
-    WRITE_INT(runtime,acq_buf_size,"");
-    WRITE_INT(runtime,mon_buf_size,"");
+    WRITE_STR(runtime,status_shmem_file,"The file holding the current daqstatus");
+    WRITE_INT(runtime,acq_buf_size,"acq circular buffer size (temporarily stores events between acquisition and writing to disk)");
+    WRITE_INT(runtime,mon_buf_size,"monitoring circular buffer size (temporarily stores daqstatus between recording and writing to disk)");
   UNSECT();
    
 
@@ -664,7 +686,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages) ");
     WRITE_INT(output,seconds_per_run,"Number of seconds per run");
     WRITE_INT(output,max_events_per_file,"Maximum number of events per event (and header) file, or 0 to ignore");
-    WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ingore");
+    WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ignore");
     WRITE_INT(output,max_seconds_per_file,"Maximum seconds per file (or 0 to ignore)");
     WRITE_INT(output,max_kB_per_file,"Maximum kB per file (or 0 to ignore), not including any compression");
     WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored. ");
