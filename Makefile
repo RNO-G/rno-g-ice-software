@@ -62,11 +62,12 @@ install: $(BINS) setup
 	install scripts/* $(PREFIX)/bin
 
 cfg-install: 
-	if [ -f cfg/acq-${STATION_NUMBER}.cfg ] ; \
+	@ echo "Installing configuration..."
+	@ if [ -f cfg/acq-${STATION_NUMBER}.cfg ] ; \
 	then \
-		install cfg/acq-${STATION_NUMBER}.cfg $(PREFIX)/cfg/acq.cfg \
+		echo "Using station-specific file cfg/acq-${STATION_NUMBER}.cfg" ; install cfg/acq-${STATION_NUMBER}.cfg $(PREFIX)/cfg/acq.cfg ;\
 	else \
-		install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg \
+		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
 	fi
 
 service-install: 
