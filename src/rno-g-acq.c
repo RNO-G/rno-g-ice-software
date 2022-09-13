@@ -160,6 +160,9 @@ static FILE * runinfo = 0;
 
 static time_t last_watchdog; 
 
+static double runfile_partition_free = 0; 
+static double output_partition_free = 0;
+
 ///// PROTOTYPES  /////  
 
 static int radiant_configure();
@@ -430,23 +433,21 @@ int calpulser_configure()
 
 
 
-int write_gain_codes() 
+int write_gain_codes(char * buf) 
 {
   static int gain_codes_counter = 0; 
   time_t now; 
   time(&now); 
 
-  char * path = 0; 
-  asprintf(&path, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++); 
-  FILE * of = fopen(path,"w"); 
+  sprintf(buf, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++); 
+  FILE * of = fopen(buf,"w"); 
   fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now); 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
     fprintf(of, "%u%s", flower_codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n"); 
   }
   fclose(of); 
-  add_to_file_list(path); 
-  free(path); 
+  add_to_file_list(buf); 
   return 0; 
 }
 
@@ -1193,6 +1194,76 @@ static void * wri_thread(void* v)
 
   int ds_i = 0; 
 
+  //let's make the output directories
+  mkdir_if_needed(output_dir); 
+
+
+
+  make_dirs_for_output(output_dir); 
+
+  //open the file list 
+  sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir); 
+  file_list = fopen(bigbuf, "w"); 
+  add_to_file_list(bigbuf); 
+
+  //open the run info and start filling it in
+  sprintf(bigbuf,"%s/aux/runinfo.txt", output_dir); 
+  runinfo = fopen(bigbuf,"w"); 
+  add_to_file_list(bigbuf); 
+  fprintf(runinfo, "STATION = %d\n", station_number);
+  fprintf(runinfo, "RUN = %d\n", run_number);
+  fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
+  fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
+  fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
+  fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
+  fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
+  
+  //write down radiant info to runinfo 
+  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+
+  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
+  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
+ 
+
+  uint16_t flower_fwyear;
+  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
+  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
+  fflush(runinfo); 
+
+  //save comment 
+  sprintf(bigbuf,"%s/aux/comment.txt",output_dir); 
+  FILE * fcomment = fopen(bigbuf,"w"); 
+  fprintf(fcomment, cfg.output.comment); 
+  fclose(fcomment); 
+  add_to_file_list(bigbuf); 
+
+  //write gain codes
+  write_gain_codes(bigbuf); 
+
+
+  //now let's dump the configuration file to the cfg dir 
+  sprintf(bigbuf,"%s/cfg/acq.cfg", output_dir); 
+  FILE * of = fopen(bigbuf,"w"); 
+  if (!of) 
+  {
+    fprintf(stderr,"Could not open %s\n", bigbuf); 
+  }
+  else
+  {
+    dump_acq_config(of,&cfg); 
+    fclose(of); 
+    add_to_file_list(bigbuf); 
+  }
+
+
   //if we have pedestals, write them out 
   if (pedestals) 
   {
@@ -1352,7 +1423,6 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 }
 
 
-
 static int initial_setup() 
 {
 
@@ -1368,8 +1438,8 @@ static int initial_setup()
 
   // Check that there is sufficient free space before proceeding any farther; 
 
-  double runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
-  double output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
+  runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
+  output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
 
   if ( cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition) 
   {
@@ -1526,78 +1596,6 @@ static int initial_setup()
   }
 
  
-  //let's make the output directories
-  mkdir_if_needed(output_dir); 
-
-  char * strbuf = malloc(strlen(output_dir)+100); //long enough for our purposes; 
-
-
-
-  make_dirs_for_output(output_dir); 
-
-  //open the file list 
-  sprintf(strbuf,"%s/aux/acq-file-list.txt", output_dir); 
-  file_list = fopen(strbuf, "w"); 
-  add_to_file_list(strbuf); 
-
-  //open the run info and start filling it in
-  sprintf(strbuf,"%s/aux/runinfo.txt", output_dir); 
-  runinfo = fopen(strbuf,"w"); 
-  add_to_file_list(strbuf); 
-  fprintf(runinfo, "STATION = %d\n", station_number);
-  fprintf(runinfo, "RUN = %d\n", run_number);
-  fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
-  fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
-  fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
-  fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
-  fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
-  
-  //write down radiant info to runinfo 
-  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
-  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
-
-  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
-
-  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
-  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
- 
-
-  uint16_t flower_fwyear;
-  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
-  fflush(runinfo); 
-
-  //save comment 
-  sprintf(strbuf,"%s/aux/comment.txt",output_dir); 
-  FILE * fcomment = fopen(strbuf,"w"); 
-  fprintf(fcomment, cfg.output.comment); 
-  fclose(fcomment); 
-  add_to_file_list(strbuf); 
-
-  //write gain codes
-  write_gain_codes(); 
-
-
-  //now let's dump the configuration file to the cfg dir 
-  sprintf(strbuf,"%s/cfg/acq.cfg", output_dir); 
-  FILE * of = fopen(strbuf,"w"); 
-  if (!of) 
-  {
-    fprintf(stderr,"Could not open %s\n", strbuf); 
-  }
-  else
-  {
-    dump_acq_config(of,&cfg); 
-    fclose(of); 
-    add_to_file_list(strbuf); 
-  }
-  free(strbuf); 
-
   //set up signal handlers 
   sigset_t empty; 
   sigemptyset(&empty); 
