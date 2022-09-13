@@ -1384,6 +1384,64 @@ static int initial_setup()
   }
 
 
+  int need_to_copy_radiant_thresholds = 1; 
+  int need_to_copy_lt_thresholds = 1; 
+  //open the shared status file, if it's there. 
+  //need to do this before opening the radiant/flower since we need to laod thresholds, potentially 
+  if (cfg.runtime.status_shmem_file && *cfg.runtime.status_shmem_file) 
+  {
+    shared_ds_fd = open(cfg.runtime.status_shmem_file, O_CREAT | O_RDWR,0755);
+
+    if (shared_ds_fd <= 0) 
+    {
+      fprintf(stderr, "Could not open %s\n", cfg.runtime.status_shmem_file); 
+      shared_ds_fd = 0; 
+    }
+    else
+    {
+       size_t file_size = lseek(shared_ds_fd,0,SEEK_END); 
+       lseek(shared_ds_fd,0,SEEK_SET); 
+       if (file_size != sizeof(rno_g_daqstatus_t))
+       {
+         ftruncate(shared_ds_fd, sizeof(rno_g_daqstatus_t)); 
+       }
+
+       ds = mmap(0, sizeof(rno_g_daqstatus_t), PROT_READ | PROT_WRITE, MAP_SHARED, shared_ds_fd,0); 
+
+       if (cfg.radiant.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
+         need_to_copy_radiant_thresholds = 0; 
+
+       if (cfg.lt.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
+         need_to_copy_lt_thresholds = 0; 
+    }
+  }
+
+  if (!shared_ds_fd) 
+  {
+    ds = calloc(sizeof(rno_g_daqstatus_t),1); 
+  }
+
+  if (need_to_copy_radiant_thresholds) 
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
+    {
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 16777215/2.5;   
+    }
+  }
+
+  if (need_to_copy_lt_thresholds) 
+  { 
+    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++) 
+    {
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial[i]; 
+      ds->lt_servo_thresholds[i] = 
+        clamp(cfg.lt.thresholds.initial[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
+    }
+  }
+  pthread_rwlock_init(&ds_lock,NULL); 
+
+
+
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
@@ -1473,61 +1531,6 @@ static int initial_setup()
 
   char * strbuf = malloc(strlen(output_dir)+100); //long enough for our purposes; 
 
-  int need_to_copy_radiant_thresholds = 1; 
-  int need_to_copy_lt_thresholds = 1; 
-
-  //open the shared status file, if it's there
-  if (cfg.runtime.status_shmem_file && *cfg.runtime.status_shmem_file) 
-  {
-    shared_ds_fd = open(cfg.runtime.status_shmem_file, O_CREAT | O_RDWR,0755);
-
-    if (shared_ds_fd <= 0) 
-    {
-      fprintf(stderr, "Could not open %s\n", cfg.runtime.status_shmem_file); 
-      shared_ds_fd = 0; 
-    }
-    else
-    {
-       size_t file_size = lseek(shared_ds_fd,0,SEEK_END); 
-       lseek(shared_ds_fd,0,SEEK_SET); 
-       if (file_size != sizeof(rno_g_daqstatus_t))
-       {
-         ftruncate(shared_ds_fd, sizeof(rno_g_daqstatus_t)); 
-       }
-
-       ds = mmap(0, sizeof(rno_g_daqstatus_t), PROT_READ | PROT_WRITE, MAP_SHARED, shared_ds_fd,0); 
-
-       if (cfg.radiant.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
-         need_to_copy_radiant_thresholds = 0; 
-
-       if (cfg.lt.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t)) 
-         need_to_copy_lt_thresholds = 0; 
-    }
-  }
-
-  if (!shared_ds_fd) 
-  {
-    ds = calloc(sizeof(rno_g_daqstatus_t),1); 
-  }
-
-  if (need_to_copy_radiant_thresholds) 
-  {
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
-    {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 16777215/2.5;   
-    }
-  }
-
-  if (need_to_copy_lt_thresholds) 
-  { 
-    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++) 
-    {
-      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial[i]; 
-      ds->lt_servo_thresholds[i] = 
-        clamp(cfg.lt.thresholds.initial[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
-    }
-  }
-  pthread_rwlock_init(&ds_lock,NULL); 
 
 
   make_dirs_for_output(output_dir); 
