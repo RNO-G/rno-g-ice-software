@@ -1197,8 +1197,6 @@ static void * wri_thread(void* v)
   //let's make the output directories
   mkdir_if_needed(output_dir); 
 
-
-
   make_dirs_for_output(output_dir); 
 
   //open the file list 
@@ -1263,6 +1261,8 @@ static void * wri_thread(void* v)
     add_to_file_list(bigbuf); 
   }
 
+  //now we can release the cfg lock, for a bit 
+  pthread_rwlock_unlock(&cfg_lock); 
 
   //if we have pedestals, write them out 
   if (pedestals) 
@@ -1332,67 +1332,71 @@ static void * wri_thread(void* v)
       usleep(50000); 
     }
 
-
-    if (have_data) 
+    else
     {
-      if ( !wf_file_name || 
-           (cfg.output.max_kB_per_file > 0  &&  wf_file_size >= cfg.output.max_kB_per_file) ||
-           (cfg.output.max_events_per_file > 0 && wf_file_N >= cfg.output.max_events_per_file) ||
-           (cfg.output.max_seconds_per_file > 0 && now - wf_file_time >= cfg.output.max_seconds_per_file ) )
+      //do we need to grab the cfg rd lock here? not sure it matters. 
+
+      if (have_data) 
       {
-        if (wf_file_name) do_close(wf_handle, wf_file_name); 
+        if ( !wf_file_name || 
+             (cfg.output.max_kB_per_file > 0  &&  wf_file_size >= cfg.output.max_kB_per_file) ||
+             (cfg.output.max_events_per_file > 0 && wf_file_N >= cfg.output.max_events_per_file) ||
+             (cfg.output.max_seconds_per_file > 0 && now - wf_file_time >= cfg.output.max_seconds_per_file ) )
+        {
+          if (wf_file_name) do_close(wf_handle, wf_file_name); 
 
-         snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
-         wf_handle.type = RNO_G_GZIP; 
-         wf_handle.handle.gz = gzopen(bigbuf,"w"); 
-         gzsetparams(wf_handle.handle.gz,3,Z_FILTERED); 
+           snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+           wf_handle.type = RNO_G_GZIP; 
+           wf_handle.handle.gz = gzopen(bigbuf,"w"); 
+           gzsetparams(wf_handle.handle.gz,3,Z_FILTERED); 
 
-         wf_file_name = strdup(bigbuf); 
-         wf_file_size = 0; 
-         wf_file_N = 0; 
-         wf_file_time = now; 
+           wf_file_name = strdup(bigbuf); 
+           wf_file_size = 0; 
+           wf_file_N = 0; 
+           wf_file_time = now; 
 
 
-         if (hd_file_name) do_close(hd_handle, hd_file_name); 
-         snprintf(bigbuf,bigbuflen,"%s/header/%06u.hd.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
-         hd_handle.type = RNO_G_GZIP; 
-         hd_handle.handle.gz = gzopen(bigbuf,"w"); 
-         hd_file_name = strdup(bigbuf); 
+           if (hd_file_name) do_close(hd_handle, hd_file_name); 
+           snprintf(bigbuf,bigbuflen,"%s/header/%06u.hd.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+           hd_handle.type = RNO_G_GZIP; 
+           hd_handle.handle.gz = gzopen(bigbuf,"w"); 
+           hd_file_name = strdup(bigbuf); 
+        }
+
+        wf_file_size += rno_g_waveform_write(wf_handle, &acq_item.wf); 
+        rno_g_header_write(hd_handle, &acq_item.hd); 
+        wf_file_N++; 
       }
 
-      wf_file_size += rno_g_waveform_write(wf_handle, &acq_item.wf); 
-      rno_g_header_write(hd_handle, &acq_item.hd); 
-      wf_file_N++; 
-    }
-
-    if (have_status) 
-    {
-      if ( !ds_file_name || 
-           (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
-           (cfg.output.max_daqstatuses_per_file > 0 && ds_file_N >= cfg.output.max_daqstatuses_per_file) ||
-           (cfg.output.max_seconds_per_file > 0 && now - ds_file_time >= cfg.output.max_seconds_per_file ) )
-     
+      if (have_status) 
       {
+        if ( !ds_file_name || 
+             (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
+             (cfg.output.max_daqstatuses_per_file > 0 && ds_file_N >= cfg.output.max_daqstatuses_per_file) ||
+             (cfg.output.max_seconds_per_file > 0 && now - ds_file_time >= cfg.output.max_seconds_per_file ) )
+       
+        {
 
-    
-        if (ds_file_name) do_close(ds_handle, ds_file_name); 
-        snprintf(bigbuf,bigbuflen,"%s/daqstatus/%05d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix ); 
-        ds_handle.type = RNO_G_GZIP; 
-        ds_handle.handle.gz = gzopen(bigbuf,"w"); 
-        ds_file_name = strdup(bigbuf); 
-        ds_file_size = 0; 
-        ds_file_N = 0; 
-        ds_file_time = now; 
+      
+          if (ds_file_name) do_close(ds_handle, ds_file_name); 
+          snprintf(bigbuf,bigbuflen,"%s/daqstatus/%05d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix ); 
+          ds_handle.type = RNO_G_GZIP; 
+          ds_handle.handle.gz = gzopen(bigbuf,"w"); 
+          ds_file_name = strdup(bigbuf); 
+          ds_file_size = 0; 
+          ds_file_N = 0; 
+          ds_file_time = now; 
+        }
+
+        memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t)); 
+
+        if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC); 
+
+
+        ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds); 
+        ds_file_N++; 
+        ds_i++; 
       }
-
-      memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t)); 
-
-      if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC); 
-
-
-      ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds); 
-      ds_file_N++; 
-      ds_i++; 
     }
 
     if ((int) ice_buf_occupancy(acq_buffer) < cfg.runtime.acq_buf_size /3)
@@ -1616,6 +1620,10 @@ static int initial_setup()
   pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
   pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
   feed_watchdog(0); 
+
+  //hold the cfg lock until the write thread is done writing the config 
+  pthread_rwlock_rdlock(&cfg_lock); 
+
   pthread_create(&the_wri_thread,NULL, wri_thread, NULL); 
 
   return 0; 
