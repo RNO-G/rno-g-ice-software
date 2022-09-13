@@ -918,6 +918,9 @@ static void * mon_thread(void* v)
   clock_gettime(CLOCK_MONOTONIC, &start); 
 
 
+  //initial configuration of the calpulser 
+  calpulser_configure(); 
+
   //last monitor time 
   double last_scalers_radiant = 0;
   double last_scalers_lt = 0;
@@ -1610,7 +1613,6 @@ static int initial_setup()
   sigaction(SIGINT,&sa,0);
   sigaction(SIGTERM,&sa,0);
   sigaction(SIGUSR1,&sa,0);
-
 
   //initialize the buffers 
   acq_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(acq_buffer_item_t)); 
