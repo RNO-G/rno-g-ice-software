@@ -1707,6 +1707,14 @@ int teardown()
   fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
   fclose(runinfo); 
 
+
+  //turn off the calpulser on teardown, if it's on?  
+  if (calpulser) 
+  {
+    rno_g_cal_disable(calpulser); 
+    rno_g_cal_close(calpulser); 
+  }
+
   if (shared_ds_fd) 
   {
     munmap(ds,sizeof(rno_g_daqstatus_t)); 
