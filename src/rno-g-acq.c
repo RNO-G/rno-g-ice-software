@@ -405,7 +405,7 @@ int calpulser_configure()
     //enable the calpulser and initialize it
     rno_g_cal_enable(calpulser); 
     // we need to wait a little bit  don't we... 
-    usleep(1000); // should be long enough? 
+    usleep(5000); // should be long enough? 
     rno_g_cal_setup(calpulser); 
   }
   else if (calpulser && !cfg.calib.enable_cal)
