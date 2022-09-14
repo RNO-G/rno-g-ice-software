@@ -1462,6 +1462,8 @@ static int initial_setup()
     return 1; 
   }
 
+  //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such 
+  rno_g_cal_disable_no_handle(cfg.calib.gpio); 
 
   int need_to_copy_radiant_thresholds = 1; 
   int need_to_copy_lt_thresholds = 1; 
