@@ -366,6 +366,14 @@ int radiant_configure()
   return 0; 
 }
 
+static void set_calpulser_atten(float atten) 
+{
+    if (atten < 0) atten = 0; 
+    if (atten > 31.5) atten = 31.5; 
+    atten = round(atten*2); 
+    rno_g_cal_set_atten(calpulser,(uint8_t) atten); 
+}
+
 int calpulser_configure() 
 {
   pthread_rwlock_rdlock(&cfg_lock); 
@@ -420,11 +428,7 @@ int calpulser_configure()
   {
     rno_g_cal_select(calpulser, cfg.calib.channel); 
     rno_g_cal_set_pulse_mode(calpulser,cfg.calib.type); 
-    float atten = cfg.calib.atten; 
-    if (atten < 0) atten = 0; 
-    if (atten > 31.5) atten = 31.5; 
-    atten = round(atten*2); 
-    rno_g_cal_set_atten(calpulser,(uint8_t) atten); 
+    set_calpulser_atten(cfg.calib.atten); 
   }
   pthread_rwlock_unlock(&cfg_lock); 
   return 0; 
@@ -922,6 +926,15 @@ static void * mon_thread(void* v)
   //initial configuration of the calpulser 
   calpulser_configure(); 
 
+  float sweep_atten = cfg.calib.sweep.start_atten; 
+
+  float sweep_time = 0; 
+  if (cfg.calib.sweep.enable) 
+  {
+    set_calpulser_atten(sweep_atten); 
+    sweep_time = start.tv_sec + 1e-9*start.tv_nsec; 
+  }
+
   //last monitor time 
   double last_scalers_radiant = 0;
   double last_scalers_lt = 0;
@@ -955,6 +968,7 @@ static void * mon_thread(void* v)
     float diff_servo_radiant = nowf - last_servo_radiant; 
     float diff_servo_lt = nowf - last_servo_lt;
     float diff_last_daqstatus_out = nowf - last_daqstatus_out; 
+    float diff_sweep = nowf - sweep_time; 
 
 
     //re set up the RADIANT 
@@ -1092,6 +1106,22 @@ static void * mon_thread(void* v)
     }
 
 
+    //do we need to change the calpulser attenuation? 
+    if (cfg.calib.sweep.enable && diff_sweep  > cfg.calib.sweep.step_time)
+    {
+      if (cfg.calib.sweep.stop_atten < cfg.calib.sweep.start_atten) 
+      {
+        sweep_atten -= fabs(cfg.calib.sweep.atten_step); 
+        if (sweep_atten < cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten; 
+      }
+      else
+      {
+        sweep_atten += fabs(cfg.calib.sweep.atten_step); 
+        if (sweep_atten > cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten; 
+      }
+      set_calpulser_atten(sweep_atten);
+      sweep_time = nowf; 
+    }
 
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock); 
