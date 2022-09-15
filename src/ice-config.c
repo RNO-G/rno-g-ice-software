@@ -235,6 +235,24 @@ int init_acq_config(acq_config_t * cfg)
   SECT.type = RNO_G_CAL_NO_SIGNAL; 
   SECT.atten = 31.5; 
 
+  SECT.sweep.enable = 0; 
+  SECT.sweep.start_atten = 31.5; 
+  SECT.sweep.stop_atten = 0; 
+  SECT.sweep.atten_step = 0.5; 
+  SECT.sweep.step_time = 100; 
+
+#undef SECT
+
+#define SECT cfg->bias_scan 
+  SECT.enable_bias_scan = 0; 
+  SECT.skip_runs = 13; 
+  SECT.min_val = 0; 
+  SECT.step_val = 16; 
+  SECT.max_val = 3072; 
+  SECT.navg_per_step = 512; 
+  SECT.sleep_time = 1; 
+  SECT.apply_attenuation = 0; 
+  SECT.attenuation = 0;
   return 0;
 }
 
@@ -494,6 +512,22 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes); 
   LOOKUP_FLOAT(calib.atten); 
 
+  LOOKUP_INT(calib.sweep.enable); 
+  LOOKUP_FLOAT(calib.sweep.start_atten);
+  LOOKUP_FLOAT(calib.sweep.stop_atten);
+  LOOKUP_FLOAT(calib.sweep.atten_step);
+  LOOKUP_INT(calib.sweep.step_time); 
+
+  LOOKUP_INT(bias_scan.enable_bias_scan); 
+  LOOKUP_INT(bias_scan.skip_runs); 
+  LOOKUP_INT(bias_scan.min_val); 
+  LOOKUP_INT(bias_scan.step_val); 
+  LOOKUP_INT(bias_scan.max_val); 
+  LOOKUP_INT(bias_scan.navg_per_step); 
+  LOOKUP_FLOAT(bias_scan.sleep_time); 
+  LOOKUP_INT(bias_scan.apply_attenuation); 
+  LOOKUP_FLOAT(bias_scan.attenuation); 
+
   config_destroy(&config); 
   return 0; 
 }
@@ -703,7 +737,28 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_ENUM(calib, channel, "in-situ calpulser channel", calpulser_outs); 
     WRITE_ENUM(calib, type, "in-situ calpulser type", calpulser_modes); 
     WRITE_FLT(calib, atten,"Attenuation in dB (max 31.5, in steps of 0.5 dB)" ); 
+
+    SECT(sweep, "Attenuation sweep settings") ; 
+      WRITE_INT(calib.sweep,enable,"Enable sweeping of calpulser attenuation"); 
+      WRITE_FLT(calib.sweep,start_atten,"Start attenuation of sweep"); 
+      WRITE_FLT(calib.sweep,stop_atten,"Stop attenuation of sweep"); 
+      WRITE_FLT(calib.sweep,atten_step,"Attenuation step of sweep"); 
+      WRITE_INT(calib.sweep,step_time,"Length of step, in seconds"); 
+    UNSECT(); 
   UNSECT(); 
+
+  SECT(bias_scan, "Bias Scan Settings"); 
+    WRITE_INT(bias_scan,enable_bias_scan,"Enable bias scan"); 
+    WRITE_INT(bias_scan,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0"); 
+    WRITE_INT(bias_scan,min_val, "Start DAC value (in adc) for bias scan"); 
+    WRITE_INT(bias_scan,step_val, "DAC step value (in adc) for bias scan"); 
+    WRITE_INT(bias_scan,max_val, "DAC step value (in adc) for bias scan"); 
+    WRITE_INT(bias_scan,navg_per_step, "Number of averages per step"); 
+    WRITE_FLT(bias_scan,sleep_time, "Number of seconds to sleep to settle"); 
+    WRITE_INT(bias_scan,apply_attenuation, "Apply Attenuation during bias scan"); 
+    WRITE_FLT(bias_scan,attenuation, "Attenuation to apply during bias scan"); 
+  UNSECT(); 
+
 
 
  return 0;

@@ -16,7 +16,7 @@
 typedef struct acq_config
 {
   
-  //radiant-specific tihngs
+  //radiant-specific things
   struct
   {
 
@@ -104,6 +104,7 @@ typedef struct acq_config
       const char * pedestal_file; 
       int pedestal_subtract; 
     } pedestals; 
+
 
     struct
     {
@@ -232,8 +233,32 @@ typedef struct acq_config
     rno_g_calpulser_out_t channel; 
     rno_g_calpulser_mode_t type; 
     float atten; 
+
+    struct 
+    {
+      int enable; 
+      float start_atten; 
+      float stop_atten; 
+      float atten_step; 
+      int step_time; 
+    } sweep; 
+
   } calib; 
   
+  struct
+  {
+    int enable_bias_scan; 
+    int skip_runs; 
+    int min_val; 
+    int step_val; 
+    int max_val; 
+    int navg_per_step; 
+    float sleep_time; 
+    int apply_attenuation; 
+    float attenuation; 
+  } bias_scan; 
+
+
 } acq_config_t;
 
 
