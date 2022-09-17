@@ -159,8 +159,7 @@ static int file_list_fd = 0;
 static FILE * runinfo = 0; 
 
 static time_t last_watchdog; 
-
-static double runfile_partition_free = 0; 
+static double runfile_partition_free = 0;
 static double output_partition_free = 0;
 
 ///// PROTOTYPES  /////  
@@ -525,9 +524,70 @@ int flower_initial_setup()
 }
 
 
-/* Initial radiant config, including potential pedestal taking 
+const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz"; 
+static int did_bias_scan = 0; 
+
+static int do_bias_scan() 
+{
+
+  //write to a temporary file, then we'll move ite
+  rno_g_file_handle_t hbias; 
+  if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
+  {  
+    fprintf(stderr,"Trouble opening %s for writing\n. Skipping bias scan.", bias_scan_tmpfile); 
+    return 1; 
+  }
+
+
+  //apply attenuation
+  if (cfg.radiant.bias_scan.apply_attenuation) 
+  {
+     for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
+     {
+       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.bias_scan.attenuation*4); 
+     }
+  }
+   
+
+ //make sure we apply the lab4 vbias in this case, otherwise it will be lost! 
+  cfg.radiant.analog.apply_lab4_vbias = 1; 
+
+  rno_g_pedestal_t ped; 
+  ped.station = station_number; 
+
+  for (int val = cfg.radiant.bias_scan.min_val; 
+      val <= cfg.radiant.bias_scan.max_val; 
+      val+= cfg.radiant.bias_scan.step_val)
+  {
+    radiant_set_dc_bias(radiant, val, val); 
+    usleep(1e6*cfg.radiant.bias_scan.sleep_time); 
+
+    radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped); 
+
+    rno_g_pedestal_write(hbias, &ped); 
+  }
+
+  rno_g_close_handle(&hbias); 
+  did_bias_scan =1; 
+
+  //TODO: there's no way we can restore, is there? 
+  if (cfg.radiant.bias_scan.apply_attenuation) 
+  {
+     for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
+     {
+       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0); 
+     }
+  }
+
+  return 0; 
+}
+ 
+
+/* Initial radiant config, including potential pedestal taking and even bias scans! 
  *
  * this happens before threads start while holding config lock. 
+ *  
+ *
  * */ 
 int radiant_initial_setup() 
 {
@@ -543,6 +603,11 @@ int radiant_initial_setup()
   radiant_labs_stop(radiant); 
   radiant_sync(radiant); //try to reset counters
 
+  //bias scan first, if we do it
+  if (cfg.radiant.bias_scan.enable_bias_scan && ((cfg.radiant.bias_scan.skip_runs < 2) || ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
+  {
+    do_bias_scan(); 
+  }
   int wait_for_analog_settle=0; 
   if (cfg.radiant.analog.apply_lab4_vbias) 
   {
@@ -613,6 +678,9 @@ int radiant_initial_setup()
       }
     }
   }
+
+
+  
 
   if (cfg.radiant.pedestals.compute_at_start) 
   {
@@ -1333,6 +1401,13 @@ static void * wri_thread(void* v)
     rno_g_init_handle(&ped_h, bigbuf,"w");  
     rno_g_pedestal_write(ped_h, pedestals); 
     rno_g_close_handle(&ped_h); 
+    add_to_file_list(bigbuf); 
+  }
+
+  if (did_bias_scan) 
+  {
+    snprintf(bigbuf,bigbuflen,"%s/bias_scan.dat.gz", output_dir); 
+    rename(bias_scan_tmpfile, bigbuf); 
     add_to_file_list(bigbuf); 
   }
 
