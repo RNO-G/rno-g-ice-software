@@ -77,7 +77,7 @@ void* ice_buf_getmem(ice_buf_t *b )
     usleep(500); //sleep for 500 us to give the other thread a chance; 
   }
 
-  return b->mem  + b->memb_size * (b->produced_count % b->capacity); 
+  return ((char*) b->mem)  + b->memb_size * (b->produced_count % b->capacity); 
 }
 
 void ice_buf_commit(ice_buf_t * b) 
@@ -102,7 +102,7 @@ void * ice_buf_pop(ice_buf_t * b, void * dest)
     sched_yield(); 
   }
 
-  memcpy(dest, b->mem + b->memb_size * (b->consumed_count % b->capacity), b->memb_size); 
+  memcpy(dest, ((char*)b->mem) + b->memb_size * (b->consumed_count % b->capacity), b->memb_size); 
   MEMORY_FENCE
   b->consumed_count++; 
   return dest; 
