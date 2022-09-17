@@ -170,6 +170,7 @@ static int flower_configure();
 static int calpulser_configure(); 
 static int teardown(); 
 static int please_stop(); 
+static void fail(const char *); 
 static int add_to_file_list(const char * path); 
 static void feed_watchdog(time_t * now) ; 
 
@@ -398,6 +399,7 @@ int calpulser_configure()
           fprintf(stderr,"WARNING: calib.rev is a file but it seems to be empty! Assuming REVE\n"); 
           rev = 'E'; 
         }
+        fclose(frev); 
       }
     }
     else
@@ -446,6 +448,7 @@ int write_gain_codes(char * buf)
 
   sprintf(buf, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++); 
   FILE * of = fopen(buf,"w"); 
+  if (!of) return 1; 
   fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now); 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
@@ -868,7 +871,7 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
   if (state->max_periods < max_periods)
   {
 
-    if (state->max_periods) 
+    if (state->scaler_v_mem) 
     {
       free(state->scaler_v_mem); 
       memset(state,0, sizeof(*state)); 
@@ -1133,6 +1136,10 @@ static void * mon_thread(void* v)
 
     usleep(sleep_amt *1e6); 
   }
+
+  //mostly to suppress warnings
+  if (rad_servo_state.scaler_v_mem) free(rad_servo_state.scaler_v_mem);
+
   return 0; 
 }
 
@@ -1223,6 +1230,12 @@ static void * wri_thread(void* v)
   int bigbuflen = strlen(cfg.output.base_dir)+512+1; 
   char * bigbuf = calloc(bigbuflen,1); 
 
+  if (!bigbuf) 
+  {
+    fail("Could not allocate buffer... that's not good!"); 
+    return 0; 
+  }
+
   int num_events = 0; 
   int num_events_this_cycle = 0; 
 
@@ -1241,41 +1254,55 @@ static void * wri_thread(void* v)
   //open the run info and start filling it in
   sprintf(bigbuf,"%s/aux/runinfo.txt", output_dir); 
   runinfo = fopen(bigbuf,"w"); 
-  add_to_file_list(bigbuf); 
-  fprintf(runinfo, "STATION = %d\n", station_number);
-  fprintf(runinfo, "RUN = %d\n", run_number);
-  fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
-  fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
-  fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
-  fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
-  fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
-  
-  //write down radiant info to runinfo 
-  uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
-  radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+  if (runinfo) 
+  {
+    add_to_file_list(bigbuf); 
+    fprintf(runinfo, "STATION = %d\n", station_number);
+    fprintf(runinfo, "RUN = %d\n", run_number);
+    fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
+    fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
+    fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
+    fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
+    fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
+    
+    //write down radiant info to runinfo 
+    uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+    radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+    fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+    fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
 
-  radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+    radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
+    fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+    fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
 
-  uint16_t sample_rate= radiant_get_sample_rate(radiant); 
-  fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
- 
+    uint16_t sample_rate= radiant_get_sample_rate(radiant); 
+    fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
+   
 
-  uint16_t flower_fwyear;
-  flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
-  fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-  fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
-  fflush(runinfo); 
+    uint16_t flower_fwyear;
+    flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
+    fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+    fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
+    fflush(runinfo); 
+  }
+  else
+  {
+    fprintf(stderr,"Yikes, couldn't write to %s\n", bigbuf); 
+  }
 
   //save comment 
   sprintf(bigbuf,"%s/aux/comment.txt",output_dir); 
   FILE * fcomment = fopen(bigbuf,"w"); 
-  fprintf(fcomment, cfg.output.comment); 
-  fclose(fcomment); 
-  add_to_file_list(bigbuf); 
+  if (fcomment) 
+  {
+    fprintf(fcomment, cfg.output.comment); 
+    fclose(fcomment); 
+    add_to_file_list(bigbuf); 
+  }
+  else
+  {
+    fprintf(stderr,"Yikes, couldn't write to %s\n", bigbuf); 
+  }
 
   //write gain codes
   write_gain_codes(bigbuf); 
@@ -1461,6 +1488,12 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 }
 
 
+void fail(const char * why)
+{
+  fprintf(stderr,"FAIL!: %s\n", why); 
+  please_stop(); 
+}
+
 static int initial_setup() 
 {
 
@@ -1490,6 +1523,56 @@ static int initial_setup()
     fprintf(stderr,"Insufficient free space on output partition (%f MB free,  %d)", output_partition_free, cfg.output.min_free_space_MB_output_partition); 
     return 1; 
   }
+
+  // Read the station number
+  const char * station_number_file = "/STATION_ID"; 
+  FILE *fstation = fopen(station_number_file,"r"); 
+  fscanf(fstation,"%d\n",&station_number); 
+  fclose(fstation); 
+  if (station_number < 0) 
+  {
+    fprintf(stderr,"Could not get a station number... using 0\n"); 
+    station_number = 0; 
+  }
+
+  //Read the runfile,
+  FILE * frun = fopen(cfg.output.runfile,"r"); 
+  if (!frun) 
+  {
+    fprintf(stderr,"NO RUN FILE FOUND at %s, setting run to 0\n", cfg.output.runfile); 
+    run_number = 0; 
+    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
+  }
+  else
+  {
+    fscanf(frun,"%d\n", &run_number); 
+
+    // make sure run number is positive
+    if (run_number < 0) 
+    {
+      fprintf(stderr,"NEGATIVE RUN NUMBER FOUND (%d), aborting.\n", run_number); 
+      fclose(frun); 
+      return 1; 
+    }
+
+    //our output dir is going to be the base_dir + run%d/ 
+    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
+
+
+    //avoid overwriting rundir (note that run 0 may still be overwritten if there is no run file, but that's ok.) 
+    if (!cfg.output.allow_rundir_overwrite) 
+    {
+      //dir exists! 
+      while (!access(output_dir, F_OK))
+      {
+        fprintf(stderr,"DIR %s exists, incrementing run number\n", output_dir); 
+        run_number++; 
+        free(output_dir); 
+        asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
+      }
+    }
+  }
+
 
   //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such 
   rno_g_cal_disable_no_handle(cfg.calib.gpio); 
@@ -1566,54 +1649,12 @@ static int initial_setup()
   if (flower_initial_setup()) return 1; 
   feed_watchdog(0); 
 
-
-  // Read the station number
-  const char * station_number_file = "/STATION_ID"; 
-  FILE *fstation = fopen(station_number_file,"r"); 
-  fscanf(fstation,"%d\n",&station_number); 
-  fclose(fstation); 
-  if (station_number < 0) 
+  //update the run file 
+  if (frun) 
   {
-    fprintf(stderr,"Could not get a station number... using 0\n"); 
-    station_number = 0; 
-  }
-
-  //Read the runfile, and update it.  
-  FILE * frun = fopen(cfg.output.runfile,"r"); 
-  if (!frun) 
-  {
-    fprintf(stderr,"NO RUN FILE FOUND at %s, setting run to 0\n", cfg.output.runfile); 
-    run_number = 0; 
-    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
-  }
-  else
-  {
-    fscanf(frun,"%d\n", &run_number); 
     fclose(frun); 
 
-    // make sure run number is positive
-    if (run_number < 0) 
-    {
-      fprintf(stderr,"NEGATIVE RUN NUMBER FOUND (%d), aborting.\n", run_number); 
-      return 1; 
-    }
 
-    //our output dir is going to be the base_dir + run%d/ 
-    asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
-
-    //avoid overwriting rundir (note that run 0 may still be overwritten if there is no run file, but that's ok.) 
-    if (!cfg.output.allow_rundir_overwrite) 
-    {
-      //dir exists! 
-      while (!access(output_dir, F_OK))
-      {
-        fprintf(stderr,"DIR %s exists, incrementing run number\n", output_dir); 
-        run_number++; 
-        free(output_dir); 
-        asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number); 
-      }
-    }
- 
     char * tmp_run_file = 0;
     asprintf(&tmp_run_file, "%s.tmp", cfg.output.runfile); 
     frun = fopen(tmp_run_file,"w"); 
@@ -1735,8 +1776,11 @@ int teardown()
   fclose(file_list); 
   struct timespec end_time; 
   clock_gettime(CLOCK_REALTIME, &end_time); 
-  fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
-  fclose(runinfo); 
+  if (runinfo) 
+  {
+    fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
+    fclose(runinfo); 
+  }
 
 
   //turn off the calpulser on teardown, if it's on?  
