@@ -226,6 +226,19 @@ int init_acq_config(acq_config_t * cfg)
     SECT.prescal_m1[i]=  0; 
   }
 #undef SECT 
+
+#define SECT cfg->radiant.bias_scan 
+  SECT.enable_bias_scan = 0; 
+  SECT.skip_runs = 13; 
+  SECT.min_val = 0; 
+  SECT.step_val = 16; 
+  SECT.max_val = 3072; 
+  SECT.navg_per_step = 512; 
+  SECT.sleep_time = 1; 
+  SECT.apply_attenuation = 0; 
+  SECT.attenuation = 0;
+
+#undef SECT 
 #define SECT cfg->calib
   SECT.enable_cal = 0; 
   SECT.i2c_bus = 2; 
@@ -240,19 +253,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.sweep.stop_atten = 0; 
   SECT.sweep.atten_step = 0.5; 
   SECT.sweep.step_time = 100; 
-
 #undef SECT
 
-#define SECT cfg->bias_scan 
-  SECT.enable_bias_scan = 0; 
-  SECT.skip_runs = 13; 
-  SECT.min_val = 0; 
-  SECT.step_val = 16; 
-  SECT.max_val = 3072; 
-  SECT.navg_per_step = 512; 
-  SECT.sleep_time = 1; 
-  SECT.apply_attenuation = 0; 
-  SECT.attenuation = 0;
   return 0;
 }
 
@@ -464,6 +466,18 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
     LOOKUP_UINT8_ELEM(radiant.scalers.prescal_m1,i); 
   }
 
+  //bias scan
+  LOOKUP_INT(radiant.bias_scan.enable_bias_scan); 
+  LOOKUP_INT(radiant.bias_scan.skip_runs); 
+  LOOKUP_INT(radiant.bias_scan.min_val); 
+  LOOKUP_INT(radiant.bias_scan.step_val); 
+  LOOKUP_INT(radiant.bias_scan.max_val); 
+  LOOKUP_INT(radiant.bias_scan.navg_per_step); 
+  LOOKUP_FLOAT(radiant.bias_scan.sleep_time); 
+  LOOKUP_INT(radiant.bias_scan.apply_attenuation); 
+  LOOKUP_FLOAT(radiant.bias_scan.attenuation); 
+
+
 
   //runtime
   LOOKUP_STRING(runtime,status_shmem_file); 
@@ -517,16 +531,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(calib.sweep.stop_atten);
   LOOKUP_FLOAT(calib.sweep.atten_step);
   LOOKUP_INT(calib.sweep.step_time); 
-
-  LOOKUP_INT(bias_scan.enable_bias_scan); 
-  LOOKUP_INT(bias_scan.skip_runs); 
-  LOOKUP_INT(bias_scan.min_val); 
-  LOOKUP_INT(bias_scan.step_val); 
-  LOOKUP_INT(bias_scan.max_val); 
-  LOOKUP_INT(bias_scan.navg_per_step); 
-  LOOKUP_FLOAT(bias_scan.sleep_time); 
-  LOOKUP_INT(bias_scan.apply_attenuation); 
-  LOOKUP_FLOAT(bias_scan.attenuation); 
 
   config_destroy(&config); 
   return 0; 
@@ -667,6 +671,20 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(radiant.pps,sync_out," Enable sync out"); 
     WRITE_INT(radiant.pps,pps_holdoff,"Amount of PPS holdoff (in some units...) for debouncing (I think?)"); 
   UNSECT(); 
+
+  SECT(bias_scan, "Bias Scan Settings"); 
+    WRITE_INT(radiant.bias_scan,enable_bias_scan,"Enable bias scan"); 
+    WRITE_INT(radiant.bias_scan,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0"); 
+    WRITE_INT(radiant.bias_scan,min_val, "Start DAC value (in adc) for bias scan"); 
+    WRITE_INT(radiant.bias_scan,step_val, "DAC step value (in adc) for bias scan"); 
+    WRITE_INT(radiant.bias_scan,max_val, "DAC step value (in adc) for bias scan"); 
+    WRITE_INT(radiant.bias_scan,navg_per_step, "Number of averages per step"); 
+    WRITE_FLT(radiant.bias_scan,sleep_time, "Number of seconds to sleep to settle"); 
+    WRITE_INT(radiant.bias_scan,apply_attenuation, "Apply Attenuation during bias scan"); 
+    WRITE_FLT(radiant.bias_scan,attenuation, "Attenuation to apply during bias scan"); 
+  UNSECT(); 
+
+
  UNSECT() ; 
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board"); 
@@ -745,18 +763,6 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(calib.sweep,atten_step,"Attenuation step of sweep"); 
       WRITE_INT(calib.sweep,step_time,"Length of step, in seconds"); 
     UNSECT(); 
-  UNSECT(); 
-
-  SECT(bias_scan, "Bias Scan Settings"); 
-    WRITE_INT(bias_scan,enable_bias_scan,"Enable bias scan"); 
-    WRITE_INT(bias_scan,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0"); 
-    WRITE_INT(bias_scan,min_val, "Start DAC value (in adc) for bias scan"); 
-    WRITE_INT(bias_scan,step_val, "DAC step value (in adc) for bias scan"); 
-    WRITE_INT(bias_scan,max_val, "DAC step value (in adc) for bias scan"); 
-    WRITE_INT(bias_scan,navg_per_step, "Number of averages per step"); 
-    WRITE_FLT(bias_scan,sleep_time, "Number of seconds to sleep to settle"); 
-    WRITE_INT(bias_scan,apply_attenuation, "Apply Attenuation during bias scan"); 
-    WRITE_FLT(bias_scan,attenuation, "Attenuation to apply during bias scan"); 
   UNSECT(); 
 
 

@@ -140,6 +140,18 @@ typedef struct acq_config
 
     } pps; 
 
+    struct
+    {
+      int enable_bias_scan; 
+      int skip_runs; 
+      int min_val; 
+      int step_val; 
+      int max_val; 
+      int navg_per_step; 
+      float sleep_time; 
+      int apply_attenuation; 
+      float attenuation; 
+    } bias_scan; 
   } radiant; 
 
   //low threshold board
@@ -245,19 +257,6 @@ typedef struct acq_config
 
   } calib; 
   
-  struct
-  {
-    int enable_bias_scan; 
-    int skip_runs; 
-    int min_val; 
-    int step_val; 
-    int max_val; 
-    int navg_per_step; 
-    float sleep_time; 
-    int apply_attenuation; 
-    float attenuation; 
-  } bias_scan; 
-
 
 } acq_config_t;
 
