@@ -70,6 +70,9 @@ cfg-install:
 		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
 	fi
 
+cppcheck: 
+	cppcheck --enable=portability --enable=performance --enable=information  src 
+
 service-install: 
 	sudo install systemd/*.service /etc/systemd/system 
 	sudo systemctl daemon-reload
