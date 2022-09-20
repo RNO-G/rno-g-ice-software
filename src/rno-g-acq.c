@@ -87,6 +87,7 @@ typedef struct mon_buffer_item
  *
  **/ 
 static acq_config_t cfg; 
+char * cfgpath = NULL; 
 
 /*read-write lock for the config */ 
 static pthread_rwlock_t cfg_lock; 
@@ -209,7 +210,8 @@ static void read_config()
     memcpy(&old_cfg,&cfg,sizeof(cfg)); 
   }
 
-  FILE * fptr = find_config("acq.cfg"); 
+  //try to load the same cfgpath each time, if possible. 
+  FILE * fptr =  find_config("acq.cfg", cfgpath, first_time ? &cfgpath : NULL) ; 
 
 
   if (!fptr) 
@@ -1815,8 +1817,10 @@ int please_stop()
 
 
 
-int main(void) 
+int main(int nargs, char ** args) 
 {
+   if (nargs >1 ) cfgpath = args[1]; 
+
    if (initial_setup()) 
    {
       return 1; 

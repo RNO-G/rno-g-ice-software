@@ -33,13 +33,51 @@ int mkdir_if_needed(const char * path)
 
 
 
-FILE* find_config(const char * cfgname) 
+FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path) 
 {
+  if (cfgpath != NULL ) 
+  {
+    //is it a file? 
+    struct stat st; 
+    if (!stat(cfgpath,&st))
+    {
+      if (S_ISREG(st.st_mode))
+      {
+        printf("Using cfg file %s\n", cfgpath); 
+        if (found_path) *found_path = strdup(cfgpath); 
+        return fopen(cfgpath,"r"); 
+      }
+      else if (S_ISDIR(st.st_mode))
+      {
+        char * fname = 0; 
+        asprintf(&fname,"%s/%s", cfgpath, cfgname); 
+        if (!access(fname, R_OK))
+        {
+          printf("Using cfg file %s\n", fname); 
+          FILE * f =  fopen(fname,"r"); 
+          if (found_path) 
+          {
+            *found_path = fname; 
+          }
+          else
+          {
+            free(fname); 
+          }
+
+          return f; 
+
+        }
+        free(fname); 
+      }
+    }
+    printf("Could not find %s or %s/%s, ignoring passed path and moving to defaults\n", cfgpath, cfgpath,cfgname); 
+  }
 
   //first try CWD
   if (!access(cfgname, R_OK))
   {
     printf("Using cfg file ./%s\n",cfgname); 
+    if (found_path) *found_path = strdup(cfgname); 
     return fopen(cfgname,"r"); 
   }
 
@@ -53,7 +91,8 @@ FILE* find_config(const char * cfgname)
     {
         printf("Using cfg file %s\n", fname); 
         FILE * fptr = fopen(fname,"r"); 
-        free(fname); 
+        if (found_path) *found_path = fname; 
+        else free(fname); 
         return fptr; 
     }
     free(fname); 
@@ -65,7 +104,8 @@ FILE* find_config(const char * cfgname)
   {
       FILE * fptr = fopen(fname,"r"); 
       printf("Using cfg file %s\n", fname); 
-      free(fname); 
+      if (found_path) *found_path = fname; 
+      else free(fname); 
       return fptr; 
   }
 
