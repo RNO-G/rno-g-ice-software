@@ -5,7 +5,7 @@
 
 int main(int nargs, char ** args) 
 {
-  if (nargs < 1) 
+  if (nargs < 2) 
   {
     fprintf(stderr,"What type of config?\n"); 
     return 1; 
@@ -19,7 +19,8 @@ int main(int nargs, char ** args)
     acq_config_t cfg;
     init_acq_config(&cfg); 
     read_acq_config(f,&cfg); 
-    char *ofname = nargs > 3 ? args[3] : "acq-checked.cfg"; 
+    char *ofname = strstr(args[0],"update-rno-g-config") ? args[2] :
+                    nargs > 3 ? args[3] : "/dev/stdout"; 
     FILE * of = fopen(ofname,"w"); 
     dump_acq_config(of,&cfg); 
     fclose(f); 
