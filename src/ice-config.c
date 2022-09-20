@@ -61,6 +61,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->lt.device
   SECT.spi_enable_gpio = 0;
   SECT.spi_device = "/dev/spidev1.0" ;
+  SECT.required = 1; 
 
 
 #undef SECT
@@ -510,6 +511,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.servo.D);
 
   LOOKUP_INT(lt.device.spi_enable_gpio); 
+  LOOKUP_INT(lt.device.required); 
 
   {
     LOOKUP_STRING(lt.device, spi_device); 
@@ -721,6 +723,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(device,"Settings related to device interface"); 
       WRITE_STR(lt.device,spi_device,"The SPI device for the low-threshold board");
       WRITE_INT(lt.device,spi_enable_gpio,"gpio to enable SPI device");
+      WRITE_INT(lt.device,required,"Require the low-threshold board to be detected for the DAQ to function. Turn this to 0 if you don't need it (usually for test-bench?)."); 
     UNSECT(); 
   UNSECT()
 

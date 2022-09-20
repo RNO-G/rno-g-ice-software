@@ -441,6 +441,7 @@ int calpulser_configure()
 
 int write_gain_codes(char * buf) 
 {
+  if (!flower) return -1; 
   static int gain_codes_counter = 0; 
   time_t now; 
   time(&now); 
@@ -462,6 +463,7 @@ int write_gain_codes(char * buf)
 /** this configures the flower trigger. It holds the flower write lock (and acquires the config read lock)*/ 
 int flower_configure() 
 {
+  if (!flower) return -1; 
 
   pthread_rwlock_wrlock(&flower_lock); 
   pthread_rwlock_rdlock(&cfg_lock); 
@@ -789,7 +791,7 @@ void * acq_thread(void* v)
       // Get a buffer , and fill it
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer); 
       radiant_read_event(radiant, &mem->hd, &mem->wf);
-      flower_fill_header(flower, &mem->hd); 
+      if (flower) flower_fill_header(flower, &mem->hd); 
       mem->hd.run_number = run_number;
       mem->wf.run_number = run_number;
       mem->hd.station_number = station_number;
@@ -1348,9 +1350,17 @@ static void * wri_thread(void* v)
    
 
     uint16_t flower_fwyear;
-    flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
-    fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-    fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
+    if (flower) 
+    {
+      flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
+      fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
+      fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
+    }
+    else
+    {
+      fprintf(runinfo, "FLOWER-FWVER = 0.0.0\n"); 
+      fprintf(runinfo, "FLOWER-FWDATE = 0000-00.00\n"); 
+    }
     fflush(runinfo); 
   }
   else
@@ -1364,6 +1374,7 @@ static void * wri_thread(void* v)
   if (fcomment) 
   {
     fprintf(fcomment, cfg.output.comment); 
+    if (!flower) fprintf(fcomment, " !!FLOWER NOT DETECTED!!"); 
     fclose(fcomment); 
     add_to_file_list(bigbuf); 
   }
@@ -1732,9 +1743,8 @@ static int initial_setup()
 
   pthread_rwlock_init(&flower_lock,NULL); 
 
-  //and the flower, bail if can't open 
-  //TODO: flowerless mode 
-  if (flower_initial_setup()) return 1; 
+  //and the flower, bail if can't open  and required 
+  if (flower_initial_setup() && cfg.lt.device.required) return 1; 
   feed_watchdog(0); 
 
   //update the run file 
@@ -1860,7 +1870,8 @@ int teardown()
   radiant_trigger_enable(radiant,0,0); 
   radiant_labs_stop(radiant); 
   radiant_close(radiant); 
-  flower_close(flower); 
+  if (flower) 
+    flower_close(flower); 
   fclose(file_list); 
   struct timespec end_time; 
   clock_gettime(CLOCK_REALTIME, &end_time); 

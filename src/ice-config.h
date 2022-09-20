@@ -195,6 +195,7 @@ typedef struct acq_config
     {
       const char * spi_device; 
       int spi_enable_gpio; 
+      int required; 
     } device; 
 
     struct
