@@ -267,7 +267,7 @@ int init_acq_config(acq_config_t * cfg)
 
 static const char * dummy_enum_str; 
 #define LOOKUP_ENUM(PATH, X, TYPE, STRS) \
-  config_lookup_string(&config, #PATH "." #X, &dummy_enum_str); \
+  if (CONFIG_TRUE==config_lookup_string(&config, #PATH "." #X, &dummy_enum_str)){ \
   int found_##X = 0;\
   for (unsigned istr = 0; istr < sizeof(STRS)/sizeof(*STRS); istr++) \
   {\
@@ -285,15 +285,32 @@ static const char * dummy_enum_str;
       fprintf(stderr, " \"%s\" ", STRS[istr]);\
     }\
     fprintf(stderr,"]\n");\
-  }
+  }}
 
+static config_setting_t * dummy_setting, *dummy_setting2; 
 #define LOOKUP_INT_ELEM(X,i) \
-  cfg->X[i] = config_setting_get_int_elem(config_lookup(&config,#X),i);
+   dummy_setting = config_lookup(&config,#X); \
+  if (dummy_setting) { \
+    dummy_setting2 = config_setting_get_elem(dummy_setting,i); \
+    if (dummy_setting2 && config_setting_is_number(dummy_setting2)) {cfg->X[i] = config_setting_get_int(dummy_setting2);} }
+
+
 
 static int dummy_ival;
 //TODO: complain if out of range
 #define LOOKUP_UINT8_ELEM(X,i) \
-  cfg->X[i] = config_setting_get_int_elem(config_lookup(&config,#X),i);
+   dummy_setting = config_lookup(&config,#X); \
+  if (dummy_setting) { \
+    dummy_setting2 = config_setting_get_elem(dummy_setting,i); \
+    if (dummy_setting2 && config_setting_is_number(dummy_setting2)) {cfg->X[i] = (uint8_t) config_setting_get_int(dummy_setting2);} }
+
+
+
+#define LOOKUP_FLOAT_ELEM(X,i) \
+  dummy_setting = config_lookup(&config,#X); \
+  if (dummy_setting) { \
+    dummy_setting2 = config_setting_get_elem(dummy_setting,i); \
+    if (dummy_setting2 && config_setting_is_number(dummy_setting2)) {cfg->X[i] = config_setting_get_float(dummy_setting2);} }
 
 
 
@@ -303,31 +320,27 @@ static int dummy_ival;
  cfg->X = (uint32_t) dummy_ival; 
 
 #define LOOKUP_UINT_RENAME(X,Y) \
- config_lookup_int(&config, #Y, &dummy_ival); \
- cfg->X = (uint32_t) dummy_ival; 
+ if (CONFIG_TRUE == config_lookup_int(&config, #Y, &dummy_ival)){\
+ cfg->X = (uint32_t) dummy_ival; }
 
 
 static const char * dummy_str; 
 #define LOOKUP_STRING(PATH,X) \
   static char * X;\
   if (X) free(X);\
-  config_lookup_string(&config, #PATH "." #X, &dummy_str);\
+  if (CONFIG_TRUE==config_lookup_string(&config, #PATH "." #X, &dummy_str)){\
   X = strdup(dummy_str); \
-  cfg->PATH.X = X; 
+  cfg->PATH.X = X; }
 
 static double dummy_val; 
 #define LOOKUP_FLOAT(X) \
-  config_lookup_float(&config,#X, &dummy_val); \
-  cfg->X = dummy_val;
+  if (CONFIG_TRUE==config_lookup_float(&config,#X, &dummy_val)){ \
+  cfg->X = dummy_val;}
 
 #define LOOKUP_FLOAT_RENAME(X,Y) \
-  config_lookup_float(&config,#Y, &dummy_val); \
-  cfg->X = dummy_val;
+  if (CONFIG_TRUE==config_lookup_float(&config,#Y, &dummy_val)){ \
+  cfg->X = dummy_val;}
 
-
-
-#define LOOKUP_FLOAT_ELEM(X,i) \
-  cfg->X[i] = config_setting_get_float_elem(config_lookup(&config,#X),i);
 
 
 //define enum string arrays here 
