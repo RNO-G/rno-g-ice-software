@@ -167,6 +167,7 @@ static double output_partition_free = 0;
 
 static int radiant_configure();
 static int flower_configure();
+static int flower_update_pps_offset(); 
 static int calpulser_configure(); 
 static int teardown(); 
 static int please_stop(); 
@@ -175,6 +176,8 @@ static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ; 
 
 struct timespec precise_start_time; 
+
+static uint32_t refclock_estimate = 10000000; 
 
 ///// Implementations /////
 
@@ -472,14 +475,31 @@ int flower_configure()
   rno_g_lt_simple_trigger_config_t ltcfg; 
   ltcfg.window = cfg.lt.trigger.window; 
   ltcfg.vpp_mode = cfg.lt.trigger.vpp; 
-  ltcfg.num_coinc =cfg.lt.trigger.enable ?  cfg.lt.trigger.min_coincidence-1 : 4; 
+  ltcfg.num_coinc =cfg.lt.trigger.enable_rf_trigger ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   int ret = flower_configure_trigger(flower, ltcfg); 
-  //TODO: configure the enables
-  flower_trigger_enables_t trig_enables = {.enable_coinc=1, .enable_pps = 0, .enable_ext = 0};
-  flower_trigout_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
+
+  flower_trigger_enables_t trig_enables = {
+    .enable_coinc=cfg.lt.trigger.enable_rf_trigger, 
+    .enable_pps = 0, 
+    .enable_ext = 0
+  };
+
+  flower_trigout_enables_t trigout_enables = {
+    .enable_rf_sysout=cfg.lt.trigger.enable_rf_trigger_sys_out, 
+    .enable_rf_auxout=cfg.lt.trigger.enable_rf_trigger_sma_out, 
+    .enable_pps_sysout=cfg.lt.trigger.enable_pps_trigger_sys_out, 
+    .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
+  };
 
   flower_set_trigger_enables(flower,trig_enables);
   flower_set_trigout_enables(flower,trigout_enables);
+
+
+  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+  {
+    flower_update_pps_offset(); 
+  }
+
 
   if (!cfg.lt.gain.auto_gain) 
   {
@@ -1131,6 +1151,9 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)   
     {
       flower_fill_daqstatus(flower, ds); 
+
+      //TODO: here we can update our frequency estimate and reset the pps delay
+
       update_flower_servo_state(&flwr_servo_state, ds); 
       last_scalers_lt = nowf; 
     }
@@ -1902,3 +1925,15 @@ int teardown()
   return 0; 
 }
 
+// you should be holding a flower lock while calling this
+int flower_update_pps_offset() 
+{
+  float wanted_delay = cfg.lt.trigger.pps_trigger_delay; 
+
+  // clamp to a second
+  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
+
+  int delay_cycles = round(wanted_delay * refclock_estimate/1e6); 
+  if (delay_cycles < 0) delay_cycles += refclock_estimate; 
+  return flower_set_delayed_pps_delay(flower,delay_cycles);
+}

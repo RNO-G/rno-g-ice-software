@@ -69,7 +69,13 @@ int init_acq_config(acq_config_t * cfg)
   SECT.vpp =1; 
   SECT.min_coincidence=2; 
   SECT.window = 5; 
-  SECT.enable = 1; 
+  SECT.enable_rf_trigger = 1; 
+  SECT.enable_rf_trigger_sys_out =1;
+  SECT.enable_rf_trigger_sma_out =0;
+
+  SECT.enable_pps_trigger_sys_out =0;
+  SECT.enable_pps_trigger_sma_out =0;
+  SECT.pps_trigger_delay = 0;
 
 #undef SECT
 #define SECT cfg->lt.thresholds
@@ -500,9 +506,18 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //LT 
   LOOKUP_INT(lt.trigger.vpp);
-  LOOKUP_INT(lt.trigger.enable);
+  //for backwards compatibility 
+  LOOKUP_INT_RENAME(lt.trigger.enable_rf_trigger, lt.trigger.enable);
+
+  LOOKUP_INT(lt.trigger.enable_rf_trigger);
+
   LOOKUP_INT(lt.trigger.min_coincidence);
   LOOKUP_INT(lt.trigger.window);
+  LOOKUP_INT(lt.trigger.enable_pps_trigger_sys_out);
+  LOOKUP_INT(lt.trigger.enable_pps_trigger_sma_out);
+  LOOKUP_INT(lt.trigger.enable_rf_trigger_sys_out);
+  LOOKUP_INT(lt.trigger.enable_rf_trigger_sma_out);
+  LOOKUP_FLOAT(lt.trigger.pps_trigger_delay);
 
   LOOKUP_INT(lt.thresholds.load_from_threshold_file);
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
@@ -704,10 +719,16 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board"); 
     SECT(trigger,"Trigger settings for the low-threshold-board"); 
-       WRITE_INT(lt.trigger,enable, "Enable the LT trigger"); 
-       WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255)"); 
-       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1)"); 
-       WRITE_INT(lt.trigger,window,"Coincidence window"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
+       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
+       WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)"); 
+
+       WRITE_INT(lt.trigger,enable_pps_trigger_sma_out,"Send PPS trigger to SMA out"); 
+       WRITE_INT(lt.trigger,enable_pps_trigger_sys_out,"Send PPS trigger to system out (i.e. to RADIANT)"); 
+       WRITE_FLT(lt.trigger,pps_trigger_delay,"The delay, in microseconds,of the PPS trigger relative to the GPS second. Will reounded to nearest 0.1 us. Can be negative to subtrract off from best estimate of current clock rate."); 
     UNSECT(); 
 
     SECT(thresholds,"Threshold settings for the low-threshold board"); 
