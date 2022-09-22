@@ -177,7 +177,7 @@ static void feed_watchdog(time_t * now) ;
 
 struct timespec precise_start_time; 
 
-static uint32_t refclock_estimate = 10000000; 
+static uint32_t delay_clock_estimate = 10000000; 
 
 ///// Implementations /////
 
@@ -1152,9 +1152,18 @@ static void * mon_thread(void* v)
     {
       flower_fill_daqstatus(flower, ds); 
 
-      //TODO: here we can update our frequency estimate and reset the pps delay
-
       update_flower_servo_state(&flwr_servo_state, ds); 
+      //if cycle counter is in the right realm, use it... 
+      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6) 
+      {
+        delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
+        //if we have the pps trigger out and it's not 0, let's update our estimate
+        if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out) 
+            && cfg.lt.trigger.pps_trigger_delay)
+        {
+          flower_update_pps_offset(); 
+        }
+      }
       last_scalers_lt = nowf; 
     }
 
@@ -1930,10 +1939,11 @@ int flower_update_pps_offset()
 {
   float wanted_delay = cfg.lt.trigger.pps_trigger_delay; 
 
+
   // clamp to a second
   if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
 
-  int delay_cycles = round(wanted_delay * refclock_estimate/1e6); 
-  if (delay_cycles < 0) delay_cycles += refclock_estimate; 
+  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6); 
+  if (delay_cycles < 0) delay_cycles += delay_clock_estimate; 
   return flower_set_delayed_pps_delay(flower,delay_cycles);
 }
