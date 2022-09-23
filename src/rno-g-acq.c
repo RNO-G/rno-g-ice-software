@@ -1486,7 +1486,7 @@ static void * wri_thread(void* v)
 
     if (cfg.output.print_interval > 0 && now - last_print_out > cfg.output.print_interval) 
     {
-      printf("---------after %u seconds-----------\n", (unsigned) (now - start_time)); 
+      printf("-------S%d/R%d after %u seconds-----------\n", station_number, run_number, (unsigned) (now - start_time)); 
       printf("  total events written: %d\n", num_events); 
       printf("  write rate:  %g Hz\n", (num_events == 0) ? 0. :  ((float) num_events_this_cycle) / (now - last_print_out)); 
       printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
