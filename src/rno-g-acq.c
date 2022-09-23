@@ -1641,6 +1641,7 @@ static int initial_setup()
       sleep(20); 
       feed_watchdog(0); 
     }
+    runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
   }
 
   while ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition) 
@@ -1653,6 +1654,7 @@ static int initial_setup()
       sleep(20); 
       feed_watchdog(0); 
     }
+    output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
   }
 
   clock_gettime(CLOCK_REALTIME, &precise_start_time); 
