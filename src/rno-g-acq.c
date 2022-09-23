@@ -491,21 +491,23 @@ int flower_configure()
     .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
   };
 
-  flower_set_trigger_enables(flower,trig_enables);
-  flower_set_trigout_enables(flower,trigout_enables);
 
-
-  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
-  {
-    flower_update_pps_offset(); 
-  }
-
+  
 
   if (!cfg.lt.gain.auto_gain) 
   {
     flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes); 
     memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
   }
+
+if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+  {
+    flower_update_pps_offset(); 
+  }
+
+  flower_set_trigger_enables(flower,trig_enables);
+  flower_set_trigout_enables(flower,trigout_enables);
+
 
   pthread_rwlock_unlock(&cfg_lock); 
   pthread_rwlock_unlock(&flower_lock); 
