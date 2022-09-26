@@ -588,6 +588,7 @@ static int do_bias_scan()
     radiant_set_dc_bias(radiant, val, val); 
     usleep(1e6*cfg.radiant.bias_scan.sleep_time); 
 
+    feed_watchdog(0); //don't get killed by watchdog 
     radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped); 
 
     rno_g_pedestal_write(hbias, &ped); 
