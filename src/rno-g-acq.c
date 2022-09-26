@@ -570,7 +570,7 @@ static int do_bias_scan()
   {
      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
      {
-       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.bias_scan.attenuation*4); 
+       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4); 
      }
   }
    
@@ -715,7 +715,7 @@ int radiant_initial_setup()
     {
        for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
        {
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.pedestals.attenuation*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.pedestals.attenuation,0,31.75)*4); 
        }
     }
 
@@ -764,8 +764,8 @@ int radiant_initial_setup()
   {
        for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
        {
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.analog.digi_attenuation[ichan]*4); 
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, cfg.radiant.analog.trig_attenuation[ichan]*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.analog.digi_attenuation[ichan],0,31.75)*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, clamp(cfg.radiant.analog.trig_attenuation[ichan],0,31.75)*4); 
        }
   }
 
