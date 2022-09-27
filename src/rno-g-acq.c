@@ -125,6 +125,7 @@ static volatile int cfg_reread = 0;
 
 /** radiant handle*/ 
 static radiant_dev_t * radiant = 0; 
+static uint32_t radiant_trig_chan = 0; 
 
 /** flower handle */ 
 static flower_dev_t * flower = 0; 
@@ -334,13 +335,20 @@ int radiant_configure()
 
   int ret = radiant_set_global_trigger_mask(radiant, global_mask); 
 
+  radiant_trig_chan = 0; 
+
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_A, 
       cfg.radiant.trigger.RF[0].enabled ? cfg.radiant.trigger.RF[0].mask  : 0, 
       cfg.radiant.trigger.RF[0].num_coincidences, cfg.radiant.trigger.RF[0].window); 
 
+  if (cfg.radiant.trigger.RF[0].enabled) radiant_trig_chan |= cfg.radiant.trigger.RF[0].mask; 
+
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_B, 
       cfg.radiant.trigger.RF[1].enabled ? cfg.radiant.trigger.RF[1].mask  : 0, 
       cfg.radiant.trigger.RF[1].num_coincidences, cfg.radiant.trigger.RF[1].window); 
+
+  if (cfg.radiant.trigger.RF[1].enabled) radiant_trig_chan |= cfg.radiant.trigger.RF[1].mask; 
+
 
   //make sure the labs are started before setting enables 
   radiant_labs_start(radiant); 
@@ -879,6 +887,8 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
 
   for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++) 
   {
+
+
     //calculate adjusted scaler
     float adjusted_scaler = ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1); 
 
@@ -1136,6 +1146,9 @@ static void * mon_thread(void* v)
     {
       for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++) 
       {
+         //only servo channels that are part of the trigger? 
+        if ( 0 == (radiant_trig_chan & (1 << ch))) continue; 
+
          double dthreshold = cfg.radiant.servo.P * rad_servo_state.error[ch] + 
                              cfg.radiant.servo.I * rad_servo_state.sum_error[ch] + 
                              cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]); 
