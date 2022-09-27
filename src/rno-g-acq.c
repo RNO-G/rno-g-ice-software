@@ -214,7 +214,9 @@ static void read_config()
   }
 
   //try to load the same cfgpath each time, if possible. 
-  FILE * fptr =  find_config("acq.cfg", cfgpath, first_time ? &cfgpath : NULL) ; 
+  char * found_config = 0; 
+  int onetime = 0; 
+  FILE * fptr =  find_config("acq.cfg", cfgpath, &found_config, &onetime) ; 
 
 
   if (!fptr) 
@@ -226,6 +228,11 @@ static void read_config()
   }
   else
   {
+    printf("Using%s config file %s\n", onetime ? " one-time": "", found_config); 
+
+    // try to use the config again the next reread if not onetime? 
+    if (!onetime) cfgpath = found_config; 
+    else free(found_config); 
     if (read_acq_config(fptr, &cfg))
     {
       fprintf(stderr,"!!! Errors while reading acq config\n"); 

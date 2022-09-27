@@ -7,7 +7,8 @@
 #include <sys/file.h> 
 #include <sys/statvfs.h>
 #include <unistd.h> 
-
+#include <dirent.h>
+#include <limits.h> 
 
 
 double timespec_difference(const struct timespec * a, const struct timespec * b) 
@@ -30,86 +31,159 @@ int mkdir_if_needed(const char * path)
 
   return 0; 
 }
-
-
-
-FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path) 
+static int cfgfilter(const struct dirent * d)
 {
-  if (cfgpath != NULL ) 
+  char * dot = strrchr(d->d_name,'.'); 
+  if (!strcasecmp(dot,".cfg"))
   {
-    //is it a file? 
-    struct stat st; 
-    if (!stat(cfgpath,&st))
+    return 1; 
+  }
+  return 0; 
+}
+
+
+static FILE * check_file(const char * fname) 
+{
+  FILE * f = fopen(fname,"r"); 
+  if (!f) return NULL; 
+
+  int fd = fileno(f); 
+  struct stat st; 
+  fstat(fd,&st); 
+
+  //NOT a regular file! 
+  if (!S_ISREG(st.st_mode))
+  {
+    fclose(f); 
+    return NULL; 
+  }
+
+  return f;
+
+}
+static FILE * check_dir(const char * dirname, const char * cfgname, char ** found_path, int * onetime)
+{
+  //first check we have a dir
+  struct stat st; 
+
+  if (stat(dirname,&st))
+      return NULL; //not found
+
+  //not a dir
+  if (!S_ISDIR(st.st_mode)) return NULL; 
+
+  //check for dirname/cfgname.once dir
+  char * fname = 0; 
+  asprintf(&fname,"%s/%s.once", dirname, cfgname); 
+
+
+  //is the once directory a directory? 
+  if (!stat(fname,&st) && S_ISDIR(st.st_mode))
+  {
+    struct dirent **name_list; 
+    int n = scandir(fname, &name_list, cfgfilter,0); 
+
+    //now find which has the earliest ctime
+    int earliest_i = -1; 
+    double min_ctime = INT_MAX; 
+    int dirfd = open(fname,O_PATH); 
+    for (int i = 0; i < n; i++) 
     {
-      if (S_ISREG(st.st_mode))
+      
+      if (!fstatat(dirfd, name_list[i]->d_name,&st,0) &&  
+          S_ISREG(st.st_mode) && 
+          st.st_ctim.tv_sec  + st.st_ctim.tv_nsec*1e-9 < min_ctime)
       {
-        printf("Using cfg file %s\n", cfgpath); 
-        if (found_path) *found_path = strdup(cfgpath); 
-        return fopen(cfgpath,"r"); 
-      }
-      else if (S_ISDIR(st.st_mode))
-      {
-        char * fname = 0; 
-        asprintf(&fname,"%s/%s", cfgpath, cfgname); 
-        if (!access(fname, R_OK))
-        {
-          printf("Using cfg file %s\n", fname); 
-          FILE * f =  fopen(fname,"r"); 
-          if (found_path) 
-          {
-            *found_path = fname; 
-          }
-          else
-          {
-            free(fname); 
-          }
-
-          return f; 
-
-        }
-        free(fname); 
+        earliest_i = i; 
+        min_ctime = st.st_ctim.tv_sec + 1e-9 * st.st_ctim.tv_nsec; 
       }
     }
-    printf("Could not find %s or %s/%s, ignoring passed path and moving to defaults\n", cfgpath, cfgpath,cfgname); 
-  }
+    close(dirfd); 
 
-  //first try CWD
-  if (!access(cfgname, R_OK))
-  {
-    printf("Using cfg file ./%s\n",cfgname); 
-    if (found_path) *found_path = strdup(cfgname); 
-    return fopen(cfgname,"r"); 
-  }
-
-  //try RNO_G_INSTALL_DIR/cfg or /rno-g/cfg 
-  const char * install_dir = getenv("RNO_G_INSTALL_DIR"); 
-  if (install_dir)
-  {
-    char * fname = 0; 
-    asprintf(&fname,"%s/cfg/%s", install_dir,cfgname); 
-    if (!access(fname,R_OK))
+    if (earliest_i >= 0)
     {
-        printf("Using cfg file %s\n", fname); 
-        FILE * fptr = fopen(fname,"r"); 
+      free(fname); 
+      asprintf(&fname,"%s/%s.once/%s", dirname, cfgname,name_list[earliest_i]->d_name); 
+      free(name_list); 
+
+      FILE * f = check_file(fname); 
+      if (f) 
+      {
         if (found_path) *found_path = fname; 
         else free(fname); 
-        return fptr; 
+
+        if (onetime) *onetime = 1; 
+        unlink(fname); 
+        return f; 
+      }
+      else
+      {
+        fprintf(stderr,"Uh oh, was %s deleted from underneath us? Recursively calling ourselves...\n",fname); 
+        free(fname); 
+        // call ourselves again... 
+        return check_dir(dirname,cfgname, found_path,onetime); 
+      }
     }
-    free(fname); 
   }
 
-  char * fname = 0; 
-  asprintf(&fname,"/rno-g/cfg/%s", cfgname); 
-  if (!access(fname,R_OK))
+  //ok, no once directory, just look directly for the file
+  free(fname); 
+  asprintf(&fname,"%s/%s", dirname, cfgname); 
+
+  FILE *maybe = check_file(fname); 
+
+  if (maybe) 
   {
-      FILE * fptr = fopen(fname,"r"); 
-      printf("Using cfg file %s\n", fname); 
-      if (found_path) *found_path = fname; 
-      else free(fname); 
-      return fptr; 
+    if (found_path) *found_path = fname; 
+    else free(fname); 
+    if (onetime) *onetime = 0;
+    return maybe; 
   }
 
   free(fname); 
+  return NULL; 
+}
+
+
+FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path, int * onetime) 
+{
+  //first check if cfgpath is a file 
+  if (cfgpath != NULL ) 
+  {
+    //is it a file? 
+    FILE * maybe= check_file(cfgpath); 
+    if (maybe) 
+    {
+      if (found_path) *found_path = strdup(cfgpath); 
+      if (onetime) *onetime = 0; 
+      return maybe; 
+    }
+    else 
+    {
+        FILE * maybe = check_dir(cfgpath, cfgname, found_path,onetime); 
+        if (maybe) return maybe; 
+    }
+    fprintf(stderr,"Could not find %s or anything like %s in %s/; ignoring passed path and moving to defaults\n", cfgpath, cfgname,cfgpath); 
+  }
+
+  //check CWD 
+  FILE * maybe = check_dir(".",cfgname,found_path,onetime); 
+  if (maybe) return maybe; 
+
+  //check ${RNO_G_INSTALL_DIR}/cfg 
+  char * envdir = getenv("RNO_G_INSTALL_DIR"); 
+  if (envdir !=NULL) 
+  {
+    char * dirname = 0;
+    asprintf(&dirname,"%s/cfg", envdir);
+    maybe = check_dir(dirname,cfgname, found_path,onetime); 
+    free(dirname); 
+    if (maybe) return maybe; 
+  }
+
+  maybe = check_dir("/rno-g/cfg", cfgname, found_path, onetime); 
+  if (maybe) return maybe; 
+
   fprintf(stderr,"Could not find %s in CWD, $RNO_G_INSTALL_DIR/cfg or /rno-g/cfg\n", cfgname); 
   return 0; 
 }
