@@ -61,7 +61,7 @@ static FILE * check_file(const char * fname)
   return f;
 
 }
-static FILE * check_dir(const char * dirname, const char * cfgname, char ** found_path, int * onetime)
+static FILE * check_dir(const char * dirname, const char * cfgname, char ** found_path, char ** renamed_path)
 {
   //first check we have a dir
   struct stat st; 
@@ -69,7 +69,7 @@ static FILE * check_dir(const char * dirname, const char * cfgname, char ** foun
   if (stat(dirname,&st))
       return NULL; //not found
 
-  //not a dir
+  //not a dir.
   if (!S_ISDIR(st.st_mode)) return NULL; 
 
   //check for dirname/cfgname.once dir
@@ -109,11 +109,23 @@ static FILE * check_dir(const char * dirname, const char * cfgname, char ** foun
       FILE * f = check_file(fname); 
       if (f) 
       {
+        char * newname; 
+        asprintf(&newname,"%s.used", fname); 
+
+        //check if already taken 
+        int trysuffix = 1;
+        while (!access(newname,F_OK))
+        {
+          asprintf(&newname,"%s.used.%d", fname,trysuffix++); 
+        }
+
+        rename(fname,newname); 
+
+        if (renamed_path) *renamed_path = newname; 
+        else free(newname); 
         if (found_path) *found_path = fname; 
         else free(fname); 
 
-        if (onetime) *onetime = 1; 
-        unlink(fname); 
         return f; 
       }
       else
@@ -121,7 +133,7 @@ static FILE * check_dir(const char * dirname, const char * cfgname, char ** foun
         fprintf(stderr,"Uh oh, was %s deleted from underneath us? Recursively calling ourselves...\n",fname); 
         free(fname); 
         // call ourselves again... 
-        return check_dir(dirname,cfgname, found_path,onetime); 
+        return check_dir(dirname,cfgname, found_path,renamed_path); 
       }
     }
   }
@@ -136,7 +148,7 @@ static FILE * check_dir(const char * dirname, const char * cfgname, char ** foun
   {
     if (found_path) *found_path = fname; 
     else free(fname); 
-    if (onetime) *onetime = 0;
+    if (renamed_path) *renamed_path = NULL;
     return maybe; 
   }
 
@@ -145,7 +157,7 @@ static FILE * check_dir(const char * dirname, const char * cfgname, char ** foun
 }
 
 
-FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path, int * onetime) 
+FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path, char** renamed_path) 
 {
   //first check if cfgpath is a file 
   if (cfgpath != NULL ) 
@@ -155,19 +167,19 @@ FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path
     if (maybe) 
     {
       if (found_path) *found_path = strdup(cfgpath); 
-      if (onetime) *onetime = 0; 
+      if (renamed_path) *renamed_path = 0; 
       return maybe; 
     }
     else 
     {
-        FILE * maybe = check_dir(cfgpath, cfgname, found_path,onetime); 
+        FILE * maybe = check_dir(cfgpath, cfgname, found_path,renamed_path); 
         if (maybe) return maybe; 
     }
     fprintf(stderr,"Could not find %s or anything like %s in %s/; ignoring passed path and moving to defaults\n", cfgpath, cfgname,cfgpath); 
   }
 
   //check CWD 
-  FILE * maybe = check_dir(".",cfgname,found_path,onetime); 
+  FILE * maybe = check_dir(".",cfgname,found_path,renamed_path); 
   if (maybe) return maybe; 
 
   //check ${RNO_G_INSTALL_DIR}/cfg 
@@ -176,12 +188,12 @@ FILE* find_config(const char * cfgname, const char * cfgpath, char ** found_path
   {
     char * dirname = 0;
     asprintf(&dirname,"%s/cfg", envdir);
-    maybe = check_dir(dirname,cfgname, found_path,onetime); 
+    maybe = check_dir(dirname,cfgname, found_path,renamed_path); 
     free(dirname); 
     if (maybe) return maybe; 
   }
 
-  maybe = check_dir("/rno-g/cfg", cfgname, found_path, onetime); 
+  maybe = check_dir("/rno-g/cfg", cfgname, found_path, renamed_path); 
   if (maybe) return maybe; 
 
   fprintf(stderr,"Could not find %s in CWD, $RNO_G_INSTALL_DIR/cfg or /rno-g/cfg\n", cfgname); 
