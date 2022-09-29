@@ -74,6 +74,7 @@ cfg-install:
 	else \
 		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
 	fi
+	@mkdir -p ${PREFIX}/cfg/acq.cfg.once 
 
 cppcheck: 
 	cppcheck --enable=portability --enable=performance --enable=information  src 
