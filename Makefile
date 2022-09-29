@@ -14,7 +14,7 @@ INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
-BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config ) 
+BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config rno-g-find-config ) 
 
 
 
