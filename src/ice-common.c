@@ -5,6 +5,9 @@
 #include <string.h> 
 #include <sys/stat.h> 
 #include <sys/file.h> 
+#include <sys/types.h> 
+#include <sys/sendfile.h> 
+#include <errno.h>
 #include <sys/statvfs.h>
 #include <unistd.h> 
 #include <dirent.h>
@@ -206,4 +209,90 @@ double get_free_MB_by_path(const char * path)
   statvfs(path,&vfs);
   double MBfree = (((double)vfs.f_bsize) * vfs.f_bavail) / ( (double) (1 << 20)); 
   return MBfree; 
+}
+
+
+int mv_file(const char *oldpath, const char *newpath) 
+{
+
+  int ret = rename(oldpath,newpath); 
+  if (!ret) return 0; 
+
+  if (errno == ENOENT) 
+  {
+    fprintf(stderr,"%s or %s is bad\n",oldpath,newpath);
+    return -ENOENT; 
+  }
+
+  if (errno == EACCES) 
+  {
+    fprintf(stderr,"Access denied trying to copy %s to %s\n",oldpath,newpath);
+    return -EACCES; 
+  }
+
+ if (errno == EISDIR) 
+  {
+    fprintf(stderr,"%s is not a dir but %s  is\n",oldpath,newpath);
+    return -EISDIR; 
+  }
+
+
+  //different partitions, try using sendfile
+  if (errno == EXDEV) 
+  {
+     int old_fd = open(oldpath,O_RDONLY); 
+     if (old_fd < 0) 
+     {
+       fprintf(stderr,"Could not open %s for reading\n", oldpath); 
+       return -ENOENT; 
+     }
+
+     int new_fd = open(newpath,O_WRONLY); 
+     if (new_fd < 0) 
+     {
+       fprintf(stderr,"Could not open %s for reading\n", newpath); 
+       return -ENOENT; 
+     }
+
+
+     struct stat st; 
+     if (fstat(old_fd,&st)) 
+     {
+       fprintf(stderr,"Could not stat %s\n",oldpath); 
+       return -ENOENT;
+     }
+
+     off_t sz = st.st_size; 
+     off_t wr = 0; 
+     off_t of = 0; 
+
+     while (wr < sz) 
+     {
+       int sent = sendfile(new_fd,old_fd, &of, sz-wr); 
+       if (sent < 0) 
+       {
+         fprintf(stderr,"Error %d (%s) in copying bias scan\n", errno, strerror(errno)); 
+         break; 
+       }
+       wr+= sent; 
+     }
+
+     if (wr == sz) 
+     {
+       fchmod(new_fd, st.st_mode); 
+       unlink(oldpath); 
+     }
+     else
+     {
+       unlink(newpath);
+     }
+
+     close(old_fd); 
+     close(new_fd); 
+
+     return -(wr < sz) ;
+  }
+
+  fprintf(stderr,"Some other error %d (%s), in mv_file(%s,%s)\n", errno, strerror(errno), newpath,oldpath);
+  return -errno; 
 }

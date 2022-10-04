@@ -48,9 +48,11 @@
 #include <sys/mman.h>
 #include <sys/file.h> 
 #include <sys/types.h> 
+#include <sys/sendfile.h> 
 #include <zlib.h>
 #include <inttypes.h>
 #include <math.h> 
+#include <errno.h> 
 
 #include <systemd/sd-daemon.h> 
 
@@ -1475,8 +1477,10 @@ static void * wri_thread(void* v)
   if (did_bias_scan) 
   {
     snprintf(bigbuf,bigbuflen,"%s/bias_scan.dat.gz", output_dir); 
-    rename(bias_scan_tmpfile, bigbuf); 
-    add_to_file_list(bigbuf); 
+    if (!mv_file(bias_scan_tmpfile, bigbuf))
+    {
+      add_to_file_list(bigbuf); 
+    }
   }
 
 

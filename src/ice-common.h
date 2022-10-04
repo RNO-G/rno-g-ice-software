@@ -31,6 +31,10 @@ double timespec_difference(const struct timespec *a, const struct timespec* b);
 //
 FILE *find_config(const char * cfgname, const char * cfgpath, char ** found_path, char ** renamed_path);
 
+// mv file from old to new. If on same filesystem, this uses rename, otherwise uses sendfile. 
+int mv_file(const char * old_name, const char * new_name); 
+
+
 double get_free_MB_by_path(const char * path); 
 
 
