@@ -247,10 +247,10 @@ int mv_file(const char *oldpath, const char *newpath)
        return -ENOENT; 
      }
 
-     int new_fd = open(newpath,O_WRONLY); 
+     int new_fd = open(newpath,O_WRONLY | O_CREAT); 
      if (new_fd < 0) 
      {
-       fprintf(stderr,"Could not open %s for reading\n", newpath); 
+       fprintf(stderr,"Could not open %s for writing\n", newpath); 
        return -ENOENT; 
      }
 
