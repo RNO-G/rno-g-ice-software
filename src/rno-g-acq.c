@@ -544,7 +544,6 @@ static float clamp(float val, float min, float max)
 
 int flower_initial_setup() 
 {
-  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
   if (!flower) return -1; 
 
   //do the auto gain if asked to 
@@ -637,10 +636,6 @@ int radiant_initial_setup()
 {
 
 
-  radiant  = radiant_open(cfg.radiant.device.spi_device, 
-                           cfg.radiant.device.uart_device, 
-                           cfg.radiant.device.poll_gpio, 
-                           cfg.radiant.device.spi_enable_gpio); 
 
   if (!radiant) return -1; 
   //just in case 
@@ -1800,11 +1795,37 @@ static int initial_setup()
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
+  //open the radiant
+  radiant  = radiant_open(cfg.radiant.device.spi_device, 
+                           cfg.radiant.device.uart_device, 
+                           cfg.radiant.device.poll_gpio, 
+                           cfg.radiant.device.spi_enable_gpio); 
+
+  if (!radiant) 
+  {
+    fprintf(stderr,"COULD NOT OPEN RADIANT. Waiting 30 seconds before quitting"); 
+    sleep(30);
+    return 1; 
+  }
+
+  
+  //open the flower before doing radiant_initial_setup so we fail faster
+  pthread_rwlock_init(&flower_lock,NULL); 
+
+  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
+  if (!flower && cfg.lt.device.required) 
+  {
+    fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 30 seconds before quitting"); 
+    sleep(30);
+    return 1; 
+  }
+
+  feed_watchdog(0); 
+
   //intitial configure of the radiant, bail if can't open
   if (radiant_initial_setup()) return 1; 
   feed_watchdog(0); 
 
-  pthread_rwlock_init(&flower_lock,NULL); 
 
   //and the flower, bail if can't open  and required 
   if (flower_initial_setup() && cfg.lt.device.required) return 1; 
