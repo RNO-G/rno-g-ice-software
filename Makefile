@@ -8,11 +8,11 @@ BINDIR=bin
 LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
 LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
-INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h 
+INCLUDES=src/ice-config.h src/ice-buf.h src/ice-arena.h  src/ice-common.h 
 
 .PHONY: all clean install uninstall 
 
-OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
+OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-arena.o ice-common.o ice-version.o)
 
 BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config ) 
 
