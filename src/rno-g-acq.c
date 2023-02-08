@@ -7,7 +7,8 @@
  *  This is a multi-threaded design, with the following responsibilities:
  *
  *   - main thread:  sets things up, listens for signals, terminates. 
- *   - acq  thread:  records data from the digitizer boards and puts in the write queue 
+ *   - acq  thread:  records data from the digitizer boards and puts in the proc queue 
+ *   - proc trhead:  processes events, including any prioritization, before putting in write queue
  *   - out  thread:  processes things from the write queue, eventually writing them out
  *   - mon thread:   monitors the scalers and adjusts thresholds 
  *
@@ -31,6 +32,11 @@
  *          * the write lock must be held when configuring the radiant (e.g. the trigger options, 
  *             not just the thresholds changed). In practice this may be completely redundant with the cfg lock 
  *             and be removed. 
+ *
+ *      flower_lock: 
+ *
+ *      ds_lock: (daqstatus)  (not used?) 
+ *
  *      
  *    
  */ 
@@ -60,18 +66,31 @@
 #include "rno-g-cal.h" 
 #include "ice-config.h" 
 #include "ice-buf.h"
+#include "ice-arena.h"
 #include "ice-common.h"
 #include "ice-version.h"
 
 /////// TYPES //////////
 
+typedef struct wfhd_pair
+{
+  rno_g_header_t hd; 
+  rno_g_waveform_t wf; 
+} wfhd_pair_t; 
+
+
 /* An item in the acq buffer */ 
 typedef struct acq_buffer_item
 {
-  rno_g_waveform_t wf; 
-  rno_g_header_t hd; 
+  radiant_raw_event_info_t raw_info; 
+  wfhd_pair_t * wfhd; // pointer in arena
 } acq_buffer_item_t; 
 
+
+typedef struct proc_buffer_item
+{
+  wfhd_pair_t * wfhd; // pointer in arena
+} proc_buffer_item_t; 
 
 typedef struct mon_buffer_item 
 {
@@ -103,6 +122,7 @@ static pthread_rwlock_t ds_lock;
 static pthread_t the_acq_thread; 
 static pthread_t the_mon_thread; 
 static pthread_t the_wri_thread; 
+static pthread_t the_proc_thread; 
 
 /** This counts how many times the config has been read */ 
 static volatile int config_counter;  
@@ -119,6 +139,7 @@ static char * output_dir = NULL;
 
 /** This is set to 1 when it's time to quit.*/ 
 static volatile int quit = 0; 
+static volatile int acq_done = 0; 
 static volatile int cfg_reread = 0; 
 
 
@@ -150,8 +171,14 @@ static rno_g_cal_dev_t * calpulser = 0;
 //acq ring buffer 
 static ice_buf_t *acq_buffer; 
 
+//proc ring buffer 
+static ice_buf_t *proc_buffer; 
+
 //mon ring buffer 
 static ice_buf_t *mon_buffer; 
+
+//arena for wfhd pairs 
+static ice_arena_t * wfhd_arena; 
 
 static FILE * file_list = 0; 
 static int file_list_fd = 0; 
@@ -472,7 +499,7 @@ int flower_configure()
   int ret = flower_configure_trigger(flower, ltcfg); 
   //TODO: configure the enables
   flower_trigger_enables_t trig_enables = {.enable_coinc=1, .enable_pps = 0, .enable_ext = 0};
-  flower_trigout_enables_t trigout_enables = {.enable_sysout=1, .enable_auxout = 0};
+  flower_trigout_enables_t trigout_enables = {.enable_rf_sysout=1, .enable_rf_auxout = 0, .enable_pps_sysout = 0, .enable_pps_auxout = 0};
 
   flower_set_trigger_enables(flower,trig_enables);
   flower_set_trigout_enables(flower,trigout_enables);
@@ -598,7 +625,12 @@ int radiant_initial_setup()
                            cfg.radiant.device.poll_gpio, 
                            cfg.radiant.device.spi_enable_gpio); 
 
+
   if (!radiant) return -1; 
+
+  radiant_set_run_number(radiant, run_number); 
+  radiant_set_station_number(radiant, station_number); 
+
   //just in case 
   radiant_labs_stop(radiant); 
   radiant_sync(radiant); //try to reset counters
@@ -768,12 +800,23 @@ int radiant_initial_setup()
  * Since configuration is always done over UART, this does not need to react to config changes,
  * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock. 
  *
+ * The radiant lock is not released by this thread, but by the process thread!!!
+ *
+ *
  **/ 
 void * acq_thread(void* v) 
 {
   (void) v; 
+  acq_buffer_item_t * mem = NULL; 
+
   while(!quit) 
   {
+    //get the buffer ahead of time 
+    if (mem == NULL) 
+    {
+      mem = ice_buf_getmem(acq_buffer); 
+      mem->wfhd = ice_arena_getmem(wfhd_arena);  // TODO: check if sem_wait is actually faster... 
+    }
 
     //acquire read lock on radiant, flower, and cfg 
     pthread_rwlock_rdlock(&radiant_lock);
@@ -783,18 +826,12 @@ void * acq_thread(void* v)
 
     // wait for the RADIANT to trigger
     //TODO handle clear flag, though we don't really want one
-    
     if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms)) 
     {
-      // Get a buffer , and fill it
-      acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer); 
-      radiant_read_event(radiant, &mem->hd, &mem->wf);
-      flower_fill_header(flower, &mem->hd); 
-      mem->hd.run_number = run_number;
-      mem->wf.run_number = run_number;
-      mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
+      radiant_read_raw_event(radiant, &mem->raw_info, &mem->wfhd->wf);
+      flower_fill_header(flower, &mem->wfhd->hd); 
       ice_buf_commit(acq_buffer); 
+      mem = NULL; 
     }
 
 
@@ -804,6 +841,8 @@ void * acq_thread(void* v)
     pthread_rwlock_unlock(&radiant_lock); 
 
   }
+
+  acq_done = 1; 
 
 
   return 0;
@@ -1268,6 +1307,31 @@ int do_close(rno_g_file_handle_t h, char *path)
 }
 
 
+static void * proc_thread(void *v) 
+{
+  (void) v; 
+
+
+  while (!quit || !acq_done || ice_buf_occupancy(acq_buffer)) 
+  {
+    // grab the acq item from the acq buffer (which we know exists...) 
+    acq_buffer_item_t * acq_item = ice_buf_peek(acq_buffer); 
+    proc_buffer_item_t * proc_item = ice_buf_getmem(proc_buffer); 
+
+    // steal the memory for the actual stuff
+    proc_item->wfhd = acq_item->wfhd; 
+    acq_item->wfhd =0; 
+
+    radiant_process_raw_event(radiant, &acq_item->raw_info, &proc_item->wfhd->hd, &proc_item->wfhd->wf);
+
+    // we are now done with the acq item 
+    ice_buf_pop(acq_buffer,0,(void**) &acq_item); 
+
+  }
+  return NULL; 
+}
+
+
 static void * wri_thread(void* v) 
 {
   (void) v; 
@@ -1281,8 +1345,8 @@ static void * wri_thread(void* v)
   int ds_file_N = 0; 
 
 
-  acq_buffer_item_t acq_item;
-  mon_buffer_item_t mon_item;
+  proc_buffer_item_t *proc_item = NULL;
+  mon_buffer_item_t *mon_item = NULL;
 
   char * wf_file_name = NULL; 
   char * hd_file_name = NULL; 
@@ -1421,18 +1485,17 @@ static void * wri_thread(void* v)
     int have_data = 0; 
     int have_status = 0; 
 
-    int acq_occupancy = ice_buf_occupancy(acq_buffer); 
-    if (acq_occupancy)
+    proc_item = ice_buf_peek(proc_buffer); 
+    if (proc_item)
     {
-      ice_buf_pop(acq_buffer, &acq_item); 
       num_events++; 
       num_events_this_cycle++; 
       have_data = 1; 
     }
 
-    if (ice_buf_occupancy(mon_buffer))
+    mon_item = ice_buf_peek(mon_buffer);
+    if (mon_item)
     {
-      ice_buf_pop(mon_buffer, &mon_item); 
       have_status = 1; 
     }
 
@@ -1442,7 +1505,10 @@ static void * wri_thread(void* v)
       printf("---------after %u seconds-----------\n", (unsigned) (now - start_time)); 
       printf("  total events written: %d\n", num_events); 
       printf("  write rate:  %g Hz\n", (num_events == 0) ? 0. :  ((float) num_events_this_cycle) / (now - last_print_out)); 
-      printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
+      printf("  wfhd arena occupancy: %zu/%d\n", ice_arena_occupancy(wfhd_arena) , cfg.runtime.acq_buf_size); 
+      printf("  acq buffer occupancy: %zu/%d\n", ice_buf_occupancy(acq_buffer) , cfg.runtime.acq_buf_size); 
+      printf("  proc buffer occupancy: %zu/%d\n", ice_buf_occupancy(proc_buffer) , cfg.runtime.acq_buf_size); 
+      printf("  mon buffer occupancy: %zu/%d\n", ice_buf_occupancy(mon_buffer) , cfg.runtime.mon_buf_size); 
       num_events_this_cycle = 0; 
       rno_g_daqstatus_dump(stdout, ds); 
       last_print_out = now; 
@@ -1456,7 +1522,7 @@ static void * wri_thread(void* v)
 
     if (!have_data && !have_status) 
     {
-      if (quit) 
+      if (quit && acq_done) 
       {
       if (wf_file_name) do_close(wf_handle, wf_file_name); 
       if (hd_file_name) do_close(hd_handle, hd_file_name); 
@@ -1481,7 +1547,7 @@ static void * wri_thread(void* v)
         {
           if (wf_file_name) do_close(wf_handle, wf_file_name); 
 
-           snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+           snprintf(bigbuf,bigbuflen,"%s/waveforms/%06u.wf.dat.gz%s", output_dir, proc_item->wfhd->hd.event_number, tmp_suffix ); 
            wf_handle.type = RNO_G_GZIP; 
            wf_handle.handle.gz = gzopen(bigbuf,"w"); 
            gzsetparams(wf_handle.handle.gz,3,Z_FILTERED); 
@@ -1493,14 +1559,20 @@ static void * wri_thread(void* v)
 
 
            if (hd_file_name) do_close(hd_handle, hd_file_name); 
-           snprintf(bigbuf,bigbuflen,"%s/header/%06u.hd.dat.gz%s", output_dir, acq_item.hd.event_number, tmp_suffix ); 
+           snprintf(bigbuf,bigbuflen,"%s/header/%06u.hd.dat.gz%s", output_dir, proc_item->wfhd->hd.event_number, tmp_suffix ); 
            hd_handle.type = RNO_G_GZIP; 
            hd_handle.handle.gz = gzopen(bigbuf,"w"); 
            hd_file_name = strdup(bigbuf); 
         }
 
-        wf_file_size += rno_g_waveform_write(wf_handle, &acq_item.wf); 
-        rno_g_header_write(hd_handle, &acq_item.hd); 
+        wf_file_size += rno_g_waveform_write(wf_handle, &proc_item->wfhd->wf); 
+        rno_g_header_write(hd_handle, &proc_item->wfhd->hd); 
+
+        // release the memory
+        ice_arena_clear(wfhd_arena, proc_item->wfhd); 
+
+        //invalidate proc_item 
+        ice_buf_pop(proc_buffer,0,(void**) &proc_item); 
         wf_file_N++; 
       }
 
@@ -1524,12 +1596,13 @@ static void * wri_thread(void* v)
           ds_file_time = now; 
         }
 
-        memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t)); 
+        memcpy(ds, &mon_item->ds, sizeof(rno_g_daqstatus_t)); 
 
         if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC); 
 
 
-        ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds); 
+        ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item->ds); 
+        ice_buf_pop(mon_buffer,0,(void**) &mon_item); 
         ds_file_N++; 
         ds_i++; 
       }
@@ -1571,11 +1644,6 @@ void fail(const char * why)
 
 static int initial_setup() 
 {
-
-
-
-
-
 
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
@@ -1776,12 +1844,15 @@ static int initial_setup()
   sigaction(SIGTERM,&sa,0);
   sigaction(SIGUSR1,&sa,0);
 
-  //initialize the buffers 
-  acq_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(acq_buffer_item_t)); 
-  mon_buffer = ice_buf_init(cfg.runtime.mon_buf_size, sizeof(mon_buffer_item_t)); 
+  //initialize the buffers and arenas 
+  acq_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(acq_buffer_item_t), "acq_buf"); 
+  proc_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(proc_buffer_item_t), "proc_buf"); 
+  mon_buffer = ice_buf_init(cfg.runtime.mon_buf_size, sizeof(mon_buffer_item_t), "mon_buf"); 
+  wfhd_arena = ice_arena_init(cfg.runtime.acq_buf_size, sizeof(wfhd_pair_t), "wfhd_arena"); 
 
   //now let's make the threads
   pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
+  pthread_create(&the_proc_thread,NULL, proc_thread, NULL); 
   pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
   feed_watchdog(0); 
 
