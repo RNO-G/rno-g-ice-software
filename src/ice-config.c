@@ -726,7 +726,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(runtime,"Runtime settings"); 
     WRITE_STR(runtime,status_shmem_file,"The file holding the current daqstatus");
-    WRITE_INT(runtime,acq_buf_size,"acq circular buffer size (temporarily stores events between acquisition and writing to disk)");
+    WRITE_INT(runtime,acq_buf_size,"acq buffer size (this is actually the size of the arena holding the bulk of the memory; the circular buffers for the proc thread and acq thread will match because they're small )");
     WRITE_INT(runtime,mon_buf_size,"monitoring circular buffer size (temporarily stores daqstatus between recording and writing to disk)");
   UNSECT();
    
