@@ -159,11 +159,21 @@ typedef struct acq_config
   {
     struct 
     {
-      int enable; 
+      int enable_rf_trigger; 
       int vpp ;
       int min_coincidence; 
       int window; 
+      int enable_rf_trigger_sma_out; 
+      int enable_rf_trigger_sys_out; 
+
+      int enable_pps_trigger_sys_out; 
+      int enable_pps_trigger_sma_out; 
+
+      float pps_trigger_delay; 
     } trigger; 
+
+
+
 
 
     struct 
@@ -195,6 +205,7 @@ typedef struct acq_config
     {
       const char * spi_device; 
       int spi_enable_gpio; 
+      int required; 
     } device; 
 
     struct
