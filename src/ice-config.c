@@ -129,7 +129,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.lab4_vbias[0] = 1.5; 
   SECT.lab4_vbias[1] = 1.5; 
   SECT.apply_diode_vbias = 0; 
-  SECT.apply_attenuations = 0; 
+  SECT.apply_attenuations = 1; 
   SECT.settle_time = 0.5; 
 
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
@@ -145,8 +145,8 @@ int init_acq_config(acq_config_t * cfg)
 
   SECT.compute_at_start = 1; 
   SECT.ntriggers_per_computation = 512; 
-  SECT.apply_attenuation = 0; 
-  SECT.attenuation = 0; 
+  SECT.apply_attenuation = 1; 
+  SECT.attenuation = 31.75; 
   SECT.pedestal_file = "/rno-g/var/peds.dat"; 
   SECT.pedestal_subtract = 1; 
   SECT.ntriggers_per_cycle = 128; 
@@ -243,8 +243,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.max_val = 3072; 
   SECT.navg_per_step = 512; 
   SECT.sleep_time = 1; 
-  SECT.apply_attenuation = 0; 
-  SECT.attenuation = 0;
+  SECT.apply_attenuation = 1; 
+  SECT.attenuation = 31.75;
 
 #undef SECT 
 #define SECT cfg->calib

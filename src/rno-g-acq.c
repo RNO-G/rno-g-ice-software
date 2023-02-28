@@ -48,9 +48,11 @@
 #include <sys/mman.h>
 #include <sys/file.h> 
 #include <sys/types.h> 
+#include <sys/sendfile.h> 
 #include <zlib.h>
 #include <inttypes.h>
 #include <math.h> 
+#include <errno.h> 
 
 #include <systemd/sd-daemon.h> 
 
@@ -125,6 +127,7 @@ static volatile int cfg_reread = 0;
 
 /** radiant handle*/ 
 static radiant_dev_t * radiant = 0; 
+static uint32_t radiant_trig_chan = 0; 
 
 /** flower handle */ 
 static flower_dev_t * flower = 0; 
@@ -177,7 +180,7 @@ static void feed_watchdog(time_t * now) ;
 
 struct timespec precise_start_time; 
 
-static uint32_t refclock_estimate = 10000000; 
+static uint32_t delay_clock_estimate = 10000000; 
 
 ///// Implementations /////
 
@@ -214,7 +217,9 @@ static void read_config()
   }
 
   //try to load the same cfgpath each time, if possible. 
-  FILE * fptr =  find_config("acq.cfg", cfgpath, first_time ? &cfgpath : NULL) ; 
+  char * found_config = 0; 
+  char * renamed_cfg = 0; 
+  FILE * fptr =  find_config("acq.cfg", cfgpath, &found_config, &renamed_cfg) ; 
 
 
   if (!fptr) 
@@ -226,6 +231,11 @@ static void read_config()
   }
   else
   {
+    printf("Using%s config file %s\n", renamed_cfg ? " one-time": "", found_config); 
+
+    // try to use the config again the next reread if not onetime? 
+    if (!renamed_cfg) cfgpath = found_config; 
+    else free(found_config); 
     if (read_acq_config(fptr, &cfg))
     {
       fprintf(stderr,"!!! Errors while reading acq config\n"); 
@@ -327,13 +337,20 @@ int radiant_configure()
 
   int ret = radiant_set_global_trigger_mask(radiant, global_mask); 
 
+  radiant_trig_chan = 0; 
+
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_A, 
       cfg.radiant.trigger.RF[0].enabled ? cfg.radiant.trigger.RF[0].mask  : 0, 
       cfg.radiant.trigger.RF[0].num_coincidences, cfg.radiant.trigger.RF[0].window); 
 
+  if (cfg.radiant.trigger.RF[0].enabled) radiant_trig_chan |= cfg.radiant.trigger.RF[0].mask; 
+
   ret += radiant_configure_rf_trigger(radiant, RADIANT_TRIG_B, 
       cfg.radiant.trigger.RF[1].enabled ? cfg.radiant.trigger.RF[1].mask  : 0, 
       cfg.radiant.trigger.RF[1].num_coincidences, cfg.radiant.trigger.RF[1].window); 
+
+  if (cfg.radiant.trigger.RF[1].enabled) radiant_trig_chan |= cfg.radiant.trigger.RF[1].mask; 
+
 
   //make sure the labs are started before setting enables 
   radiant_labs_start(radiant); 
@@ -491,21 +508,23 @@ int flower_configure()
     .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
   };
 
-  flower_set_trigger_enables(flower,trig_enables);
-  flower_set_trigout_enables(flower,trigout_enables);
 
-
-  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
-  {
-    flower_update_pps_offset(); 
-  }
-
+  
 
   if (!cfg.lt.gain.auto_gain) 
   {
     flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes); 
     memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
   }
+
+if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+  {
+    flower_update_pps_offset(); 
+  }
+
+  flower_set_trigger_enables(flower,trig_enables);
+  flower_set_trigout_enables(flower,trigout_enables);
+
 
   pthread_rwlock_unlock(&cfg_lock); 
   pthread_rwlock_unlock(&flower_lock); 
@@ -525,7 +544,6 @@ static float clamp(float val, float min, float max)
 
 int flower_initial_setup() 
 {
-  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
   if (!flower) return -1; 
 
   //do the auto gain if asked to 
@@ -568,7 +586,7 @@ static int do_bias_scan()
   {
      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
      {
-       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.bias_scan.attenuation*4); 
+       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4); 
      }
   }
    
@@ -586,6 +604,7 @@ static int do_bias_scan()
     radiant_set_dc_bias(radiant, val, val); 
     usleep(1e6*cfg.radiant.bias_scan.sleep_time); 
 
+    feed_watchdog(0); //don't get killed by watchdog 
     radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped); 
 
     rno_g_pedestal_write(hbias, &ped); 
@@ -617,10 +636,6 @@ int radiant_initial_setup()
 {
 
 
-  radiant  = radiant_open(cfg.radiant.device.spi_device, 
-                           cfg.radiant.device.uart_device, 
-                           cfg.radiant.device.poll_gpio, 
-                           cfg.radiant.device.spi_enable_gpio); 
 
   if (!radiant) return -1; 
   //just in case 
@@ -715,7 +730,7 @@ int radiant_initial_setup()
     {
        for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
        {
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.pedestals.attenuation*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.pedestals.attenuation,0,31.75)*4); 
        }
     }
 
@@ -764,8 +779,8 @@ int radiant_initial_setup()
   {
        for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++) 
        {
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, cfg.radiant.analog.digi_attenuation[ichan]*4); 
-         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, cfg.radiant.analog.trig_attenuation[ichan]*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.analog.digi_attenuation[ichan],0,31.75)*4); 
+         radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, clamp(cfg.radiant.analog.trig_attenuation[ichan],0,31.75)*4); 
        }
   }
 
@@ -871,6 +886,8 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
 
   for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++) 
   {
+
+
     //calculate adjusted scaler
     float adjusted_scaler = ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1); 
 
@@ -1128,6 +1145,9 @@ static void * mon_thread(void* v)
     {
       for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++) 
       {
+         //only servo channels that are part of the trigger? 
+        if ( 0 == (radiant_trig_chan & (1 << ch))) continue; 
+
          double dthreshold = cfg.radiant.servo.P * rad_servo_state.error[ch] + 
                              cfg.radiant.servo.I * rad_servo_state.sum_error[ch] + 
                              cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]); 
@@ -1154,9 +1174,18 @@ static void * mon_thread(void* v)
     {
       flower_fill_daqstatus(flower, ds); 
 
-      //TODO: here we can update our frequency estimate and reset the pps delay
-
       update_flower_servo_state(&flwr_servo_state, ds); 
+      //if cycle counter is in the right realm, use it... 
+      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6) 
+      {
+        delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
+        //if we have the pps trigger out and it's not 0, let's update our estimate
+        if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out) 
+            && cfg.lt.trigger.pps_trigger_delay)
+        {
+          flower_update_pps_offset(); 
+        }
+      }
       last_scalers_lt = nowf; 
     }
 
@@ -1445,8 +1474,10 @@ static void * wri_thread(void* v)
   if (did_bias_scan) 
   {
     snprintf(bigbuf,bigbuflen,"%s/bias_scan.dat.gz", output_dir); 
-    rename(bias_scan_tmpfile, bigbuf); 
-    add_to_file_list(bigbuf); 
+    if (!mv_file(bias_scan_tmpfile, bigbuf))
+    {
+      add_to_file_list(bigbuf); 
+    }
   }
 
 
@@ -1477,7 +1508,7 @@ static void * wri_thread(void* v)
 
     if (cfg.output.print_interval > 0 && now - last_print_out > cfg.output.print_interval) 
     {
-      printf("---------after %u seconds-----------\n", (unsigned) (now - start_time)); 
+      printf("-------S%d/R%d after %u seconds-----------\n", station_number, run_number, (unsigned) (now - start_time)); 
       printf("  total events written: %d\n", num_events); 
       printf("  write rate:  %g Hz\n", (num_events == 0) ? 0. :  ((float) num_events_this_cycle) / (now - last_print_out)); 
       printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
@@ -1634,6 +1665,7 @@ static int initial_setup()
       sleep(20); 
       feed_watchdog(0); 
     }
+    runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
   }
 
   while ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition) 
@@ -1646,6 +1678,7 @@ static int initial_setup()
       sleep(20); 
       feed_watchdog(0); 
     }
+    output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
   }
 
   clock_gettime(CLOCK_REALTIME, &precise_start_time); 
@@ -1764,11 +1797,37 @@ static int initial_setup()
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
+  //open the radiant
+  radiant  = radiant_open(cfg.radiant.device.spi_device, 
+                           cfg.radiant.device.uart_device, 
+                           cfg.radiant.device.poll_gpio, 
+                           cfg.radiant.device.spi_enable_gpio); 
+
+  if (!radiant) 
+  {
+    fprintf(stderr,"COULD NOT OPEN RADIANT. Waiting 30 seconds before quitting"); 
+    sleep(30);
+    return 1; 
+  }
+
+  
+  //open the flower before doing radiant_initial_setup so we fail faster
+  pthread_rwlock_init(&flower_lock,NULL); 
+
+  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
+  if (!flower && cfg.lt.device.required) 
+  {
+    fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 30 seconds before quitting"); 
+    sleep(30);
+    return 1; 
+  }
+
+  feed_watchdog(0); 
+
   //intitial configure of the radiant, bail if can't open
   if (radiant_initial_setup()) return 1; 
   feed_watchdog(0); 
 
-  pthread_rwlock_init(&flower_lock,NULL); 
 
   //and the flower, bail if can't open  and required 
   if (flower_initial_setup() && cfg.lt.device.required) return 1; 
@@ -1932,10 +1991,11 @@ int flower_update_pps_offset()
 {
   float wanted_delay = cfg.lt.trigger.pps_trigger_delay; 
 
+
   // clamp to a second
   if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
 
-  int delay_cycles = round(wanted_delay * refclock_estimate/1e6); 
-  if (delay_cycles < 0) delay_cycles += refclock_estimate; 
+  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6); 
+  if (delay_cycles < 0) delay_cycles += delay_clock_estimate; 
   return flower_set_delayed_pps_delay(flower,delay_cycles);
 }
