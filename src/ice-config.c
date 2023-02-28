@@ -149,6 +149,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.attenuation = 0; 
   SECT.pedestal_file = "/rno-g/var/peds.dat"; 
   SECT.pedestal_subtract = 1; 
+  SECT.ntriggers_per_cycle = 128; 
 
   //radiant readout
 #undef SECT
@@ -423,6 +424,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(radiant.pedestals.attenuation); 
   LOOKUP_STRING(radiant.pedestals,pedestal_file); 
   LOOKUP_INT(radiant.pedestals.pedestal_subtract); 
+  LOOKUP_INT(radiant.pedestals.ntriggers_per_cycle); 
 
   //readout 
   LOOKUP_UINT(radiant.readout.readout_mask); 
@@ -678,6 +680,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.pedestals,attenuation,"Amount of attenuation to apply when computing pedestals"); 
     WRITE_STR(radiant.pedestals,pedestal_file,"File to load / store pedestals from / to"); 
     WRITE_INT(radiant.pedestals,pedestal_subtract,"Subtract pedestals from waveforms"); 
+    WRITE_INT(radiant.pedestals,ntriggers_per_cycle,"Number of internal triggers taken at once during pedestals (or bias scans)"); 
   UNSECT(); 
   SECT(analog,"Analog settings for the RADIANT"); 
     WRITE_INT(radiant.analog,apply_lab4_vbias, "Apply lab4 vbias at beginning of run (instead of using whatever it is)"); 

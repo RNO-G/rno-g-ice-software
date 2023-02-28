@@ -103,6 +103,7 @@ typedef struct acq_config
       float attenuation; 
       const char * pedestal_file; 
       int pedestal_subtract; 
+      int ntriggers_per_cycle; 
     } pedestals; 
 
 
