@@ -104,6 +104,7 @@ typedef struct acq_config
       const char * pedestal_file; 
       int pedestal_subtract; 
       int ntriggers_per_cycle; 
+      double sleep_per_cycle; 
     } pedestals; 
 
 

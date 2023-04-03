@@ -642,7 +642,7 @@ int radiant_initial_setup()
   radiant_labs_stop(radiant); 
   radiant_sync(radiant); //try to reset counters
 
-  radiant_set_internal_triggers_per_cycle(radiant, cfg.radiant.pedestals.ntriggers_per_cycle); 
+  radiant_set_internal_triggers_per_cycle(radiant, cfg.radiant.pedestals.ntriggers_per_cycle, cfg.radiant.pedestals.sleep_per_cycle); 
 
   //bias scan first, if we do it
   if (cfg.radiant.bias_scan.enable_bias_scan && ((cfg.radiant.bias_scan.skip_runs < 2) || ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
