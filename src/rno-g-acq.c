@@ -1805,8 +1805,22 @@ static int initial_setup()
 
   if (!radiant) 
   {
-    fprintf(stderr,"COULD NOT OPEN RADIANT. Waiting 30 seconds before quitting"); 
-    sleep(30);
+    fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue. Waiting 30 seconds before quitting"); 
+    int fd_drop = open("/sys/vm/drop_caches", O_WRONLY); 
+    if (fd_drop > 0)
+    {
+      sync(); 
+      write(fd_drop,"3",1); 
+      fprintf(stderr,"Caches dropped\n"); 
+      close(fd_drop); 
+    }
+    else
+    {
+      fprintf(stderr,"Couldn't open /sys/vm/drop_caches\n"); 
+    }
+
+    sleep(30); 
+
     return 1; 
   }
 
