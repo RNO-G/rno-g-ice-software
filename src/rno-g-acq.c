@@ -1805,7 +1805,7 @@ static int initial_setup()
 
   if (!radiant) 
   {
-    fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue. Waiting 30 seconds before quitting"); 
+    fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue. Waiting 20 seconds before quitting"); 
     int fd_drop = open("/sys/vm/drop_caches", O_WRONLY); 
     if (fd_drop > 0)
     {
@@ -1819,7 +1819,7 @@ static int initial_setup()
       fprintf(stderr,"Couldn't open /sys/vm/drop_caches\n"); 
     }
 
-    sleep(30); 
+    sleep(20); 
 
     return 1; 
   }
@@ -1831,8 +1831,8 @@ static int initial_setup()
   flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
   if (!flower && cfg.lt.device.required) 
   {
-    fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 30 seconds before quitting"); 
-    sleep(30);
+    fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting"); 
+    sleep(20);
     return 1; 
   }
 
