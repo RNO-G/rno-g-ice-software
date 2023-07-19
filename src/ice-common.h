@@ -34,6 +34,7 @@ FILE *find_config(const char * cfgname, const char * cfgpath, char ** found_path
 // mv file from old to new. If on same filesystem, this uses rename, otherwise uses sendfile. 
 int mv_file(const char * old_name, const char * new_name); 
 
+int get_station_number();  
 
 double get_free_MB_by_path(const char * path); 
 

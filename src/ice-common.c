@@ -296,3 +296,14 @@ int mv_file(const char *oldpath, const char *newpath)
   fprintf(stderr,"Some other error %d (%s), in mv_file(%s,%s)\n", errno, strerror(errno), newpath,oldpath);
   return -errno; 
 }
+
+int get_station_number() 
+{
+  int station_number = -1; 
+  const char * station_number_file = "/STATION_ID"; 
+  FILE *fstation = fopen(station_number_file,"r"); 
+  fscanf(fstation,"%d\n",&station_number); 
+  fclose(fstation); 
+  return station_number; 
+}
+

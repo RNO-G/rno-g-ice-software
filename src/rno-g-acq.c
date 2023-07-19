@@ -1684,10 +1684,7 @@ static int initial_setup()
   clock_gettime(CLOCK_REALTIME, &precise_start_time); 
 
   // Read the station number
-  const char * station_number_file = "/STATION_ID"; 
-  FILE *fstation = fopen(station_number_file,"r"); 
-  fscanf(fstation,"%d\n",&station_number); 
-  fclose(fstation); 
+  station_number = get_station_number(); 
   if (station_number < 0) 
   {
     fprintf(stderr,"Could not get a station number... using 0\n"); 
