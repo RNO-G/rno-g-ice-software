@@ -321,7 +321,7 @@ int radiant_configure()
 
   radiant_set_pps_config(radiant,pps_cfg); 
 
-  radiant_set_delays( radiant,cfg.radiant.trigger.RF0.readout_delay,cfg.radiant.trigger.RF1.readout_delay,
+  radiant_set_delay_settings(radiant,cfg.radiant.trigger.RF0.readout_delay,cfg.radiant.trigger.RF1.readout_delay,
                       cfg.radiant.trigger.RF0.readout_delay_mask,cfg.radiant.trigger.RF1.readout_delay_mask);
 
   radiant_set_scaler_period(radiant, cfg.radiant.scalers.use_pps ? 0 : cfg.radiant.scalers.period); 
