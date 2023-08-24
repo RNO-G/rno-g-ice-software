@@ -80,6 +80,8 @@ typedef struct acq_config
         uint32_t mask; 
         float window; 
         int num_coincidences; 
+        int readout_delay;
+        int readout_delay_mask;
       } RF[2]; 
 
 
@@ -154,6 +156,7 @@ typedef struct acq_config
       int apply_attenuation; 
       float attenuation; 
     } bias_scan; 
+    
   } radiant; 
 
   //low threshold board
