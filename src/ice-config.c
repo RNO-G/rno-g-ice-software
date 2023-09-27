@@ -447,10 +447,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_UINT_RENAME(radiant.trigger.RF[1].mask, radiant.trigger.RF1.mask);
   LOOKUP_FLOAT_RENAME(radiant.trigger.RF[0].window, radiant.trigger.RF0.window);
   LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF0.window);  
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].delay_deep, radiant.trigger.RF1.delay_deep);
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].delay_deep, radiant.trigger.RF1.delay_deep);
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].delay_surface, radiant.trigger.RF1.delay_surface);
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].delay_surface, radiant.trigger.RF1.delay_surface);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay, radiant.trigger.RF1.readout_delay);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay, radiant.trigger.RF1.readout_delay);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay_mask, radiant.trigger.RF1.readout_delay_mask);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay_mask, radiant.trigger.RF1.readout_delay_mask);
   LOOKUP_INT_RENAME(radiant.trigger.RF[0].num_coincidences, radiant.trigger.RF0.num_coincidences)
   LOOKUP_INT_RENAME(radiant.trigger.RF[1].num_coincidences, radiant.trigger.RF1.num_coincidences)
   LOOKUP_INT(radiant.trigger.pps.enabled);
@@ -668,8 +668,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger"); 
       WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
-      WRITE_INT(radiant.trigger.RF[0],delay_deep,"Number of windows to delay readout of deep channels");
-      WRITE_INT(radiant.trigger.RF[0],delay_surface,"Number of windows to delay readout of surface channels");
+      WRITE_INT(radiant.trigger.RF[0],readout_delay,"Number of windows to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
 
     UNSECT()
     SECT(RF1,"Second RF trigger configuration"); 
@@ -677,8 +677,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger"); 
       WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
-      WRITE_INT(radiant.trigger.RF[1],delay_deep,"Number of windows to delay readout of deep channels");
-      WRITE_INT(radiant.trigger.RF[1],delay_surface,"Number of windows to delay readout of surface channels");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay,"Number of windows to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
     UNSECT()
 
     WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)"); 
