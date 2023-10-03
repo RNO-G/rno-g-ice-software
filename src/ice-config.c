@@ -446,10 +446,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_UINT_RENAME(radiant.trigger.RF[0].mask, radiant.trigger.RF0.mask);
   LOOKUP_UINT_RENAME(radiant.trigger.RF[1].mask, radiant.trigger.RF1.mask);
   LOOKUP_FLOAT_RENAME(radiant.trigger.RF[0].window, radiant.trigger.RF0.window);
-  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF0.window);  
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay, radiant.trigger.RF1.readout_delay);
+  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF1.window);  
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay, radiant.trigger.RF0.readout_delay);
   LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay, radiant.trigger.RF1.readout_delay);
-  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay_mask, radiant.trigger.RF1.readout_delay_mask);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay_mask, radiant.trigger.RF0.readout_delay_mask);
   LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay_mask, radiant.trigger.RF1.readout_delay_mask);
   LOOKUP_INT_RENAME(radiant.trigger.RF[0].num_coincidences, radiant.trigger.RF0.num_coincidences)
   LOOKUP_INT_RENAME(radiant.trigger.RF[1].num_coincidences, radiant.trigger.RF1.num_coincidences)
