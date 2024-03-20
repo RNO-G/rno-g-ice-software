@@ -18,7 +18,7 @@
 #define SLACK_WEBHOOK_FILE "/rno-g/var/notify/slack-webhook"
 
 #define DATA_SIZE 256 
-#define MAXMSG_SIZE 140 
+#define MAXMSG_SIZE RNO_G_MAXMSG_SIZE 
 
 CURL * curl  = NULL; 
 char *webhook; 
@@ -58,6 +58,15 @@ static int datesort(const struct dirent ** a, const struct dirent ** b)
   return stat_a.st_ctim.tv_sec + stat_a.st_ctim.tv_nsec*1e-9 < stat_b.st_ctim.tv_sec + stat_b.st_ctim.tv_nsec * 1e-9; 
 }
 
+static int curl_write_fn(void * data, size_t sz, size_t nmemb, void * clientp)
+{
+  (void) data; 
+  (void) sz; 
+  (void) nmemb; 
+  (void) clientp; 
+  return nmemb*sz; 
+
+}
 
 int process_file(const char * file) 
 {
@@ -69,20 +78,28 @@ int process_file(const char * file)
   {
     fprintf(stderr,"Warning: %s truncated\n", file); 
   }
+  close(fd); 
 
-  size_t data_size = snprintf(data,sizeof(data),"{\"text\": *FROM STATION %d* [%s]: %s\n}", station_number, file, msg_data);
+  size_t data_size = snprintf(data,sizeof(data),"{\"text\": \"*FROM STATION %d* [%s]: %s\n\"}", station_number, file, msg_data);
   if(data_size > DATA_SIZE) data_size = DATA_SIZE; 
 
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, data_size); 
 
   CURLcode code = curl_easy_perform(curl); 
-
-  close(fd); 
   if (code) 
   {
     fprintf(stderr, "curl returned: %d (%s) on message %s.\n", code, curl_easy_strerror(code), data);
+    return code; 
   }
-  return code; 
+
+  long response_code =-1; 
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code); 
+  if (response_code != 200) 
+  {
+    fprintf(stderr,"webhook returned code %ld\n", response_code); 
+    return 1; 
+  }
+  return 0; 
 }
 
 void empty_outbox() 
@@ -106,7 +123,7 @@ void empty_outbox()
         fail++; 
     }
 
-    free(d->d_name); 
+    free(d); 
   }
 
   if (!fail) outbox_maybe_dirty = 0; 
@@ -117,7 +134,7 @@ void send_to_outbox(const char * file)
 
   //first check if it's there. There is a slight potential race condition if 
   //a file is moved in after 
-  if (access(file,R_OK)) return; 
+  if (faccessat(inbox_fd,file,R_OK, 0)) return; 
 
   // move it to outbox, try to empty outbox
   renameat(inbox_fd, file, outbox_fd, file); 
@@ -162,7 +179,7 @@ int main()
 
   inbox_fd = open(RNO_G_ICE_NOTIFY_INBOX, O_RDONLY); 
   outbox_fd = open(RNO_G_ICE_NOTIFY_OUTBOX, O_RDONLY); 
-  sent_fd = open(RNO_G_ICE_NOTIFY_OUTBOX, O_RDONLY); 
+  sent_fd = open(RNO_G_ICE_NOTIFY_SENT, O_RDONLY); 
 
   if (!inbox_fd || !outbox_fd || !sent_fd) 
   {
@@ -180,6 +197,7 @@ int main()
   curl_slist_append(hlist, "Content-type: application/json"); 
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER,hlist); 
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data); 
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_fn); 
 
 
   int inotify_fd = inotify_init1(IN_NONBLOCK); 
@@ -220,7 +238,7 @@ int main()
 
   while (!die) 
   {
-    int len = read(watch_fd, watch_buf, sizeof(watch_buf)); 
+    int len = read(inotify_fd, watch_buf, sizeof(watch_buf)); 
     if (len > 0) 
     {
       char * ptr; 

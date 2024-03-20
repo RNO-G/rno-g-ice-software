@@ -14,7 +14,7 @@ INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h  src/ice-notify.h
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o ice-notify.o)
 
-BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config rno-g-find-config rno-g-notifyd) 
+BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config rno-g-find-config rno-g-notifyd rno-g-notify) 
 
 
 
@@ -38,6 +38,7 @@ $(BINDIR)/rno-g-notifyd: src/rno-g-notifyd.c $(INCLUDES) $(OBJS) Makefile | $(BI
 
 
 
+
 $(BUILD_DIR)/%.o: src/%.c $(INCLUDES) | $(BUILD_DIR)
 	@echo Compiling $@
 	@cc -c -o $@ $(CFLAGS) $< 
@@ -58,7 +59,11 @@ setup:
 	mkdir -p $(PREFIX)/run
 	chown rno-g:rno-g $(PREFIX)/run
 	mkdir -p $(PREFIX)/var
-	chown rno-g:rno-g $(PREFIX)/var
+	mkdir -p $(PREFIX)/var/notify
+	mkdir -p $(PREFIX)/var/notify/inbox
+	mkdir -p $(PREFIX)/var/notify/outbox
+	mkdir -p $(PREFIX)/var/notify/sent
+	chown -R rno-g:rno-g $(PREFIX)/var
 	mkdir -p $(PREFIX)/cfg
 	chown rno-g:rno-g $(PREFIX)/cfg
 	mkdir -p $(PREFIX)/bin

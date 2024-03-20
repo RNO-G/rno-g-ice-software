@@ -33,9 +33,11 @@ void rno_g_notify(const char * msg)
   }
 
 
-  snprintf(buf, sizeof(buf), ".%s-%s-p%u-%u.%u", hostname, program_invocation_short_name, pid, ts.tv_sec, ts.tv_nsec); 
+  unsigned sec = ts.tv_sec;
+  unsigned nsec = ts.tv_nsec;
+  snprintf(buf, sizeof(buf), ".%s-%s-p%u-%u.%u", hostname, program_invocation_short_name, pid, sec, nsec); 
 
-  int fd = openat(inbox_fd, buf, O_CREAT | O_WRONLY); 
+  int fd = openat(inbox_fd, buf, O_CREAT | O_WRONLY, S_IRUSR | S_IRGRP | S_IROTH); 
   write(fd, msg, strlen(msg)); 
   fsync(fd); 
   close(fd); 
