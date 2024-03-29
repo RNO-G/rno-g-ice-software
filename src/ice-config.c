@@ -69,7 +69,11 @@ int init_acq_config(acq_config_t * cfg)
   SECT.vpp =1; 
   SECT.min_coincidence=2; 
   SECT.window = 5; 
-  SECT.enable_rf_trigger = 1; 
+  SECT.enable_rf_coinc_trigger = 0; 
+  SECT.enable_rf_phased_trigger = 1; 
+  SECT.rf_coinc_channel_mask=0xf;
+  SECT.rf_phased_beam_mask=0xffff;
+
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
 
@@ -83,14 +87,22 @@ int init_acq_config(acq_config_t * cfg)
   SECT.load_from_threshold_file = 1; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    SECT.initial[i] = 30; 
+    SECT.initial_coinc_thresholds[i] = 30; 
+  }
+    for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  {
+    SECT.initial_phased_thresholds[i] = 90; 
   }
 #undef SECT
 #define SECT cfg->lt.servo
   SECT.enable = 1; 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    SECT.scaler_goals[i] = 2500; 
+    SECT.coinc_scaler_goals[i] = 2500; 
+  }
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  {
+    SECT.phased_scaler_goals[i] = 1; 
   }
   SECT.servo_thresh_frac = 0.95; 
   SECT.servo_thresh_offset = 0; 
@@ -520,9 +532,14 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   //LT 
   LOOKUP_INT(lt.trigger.vpp);
   //for backwards compatibility 
-  LOOKUP_INT_RENAME(lt.trigger.enable_rf_trigger, lt.trigger.enable);
+  LOOKUP_INT_RENAME(lt.trigger.enable_rf_phased_trigger, lt.trigger.phased_enable);
+  LOOKUP_INT_RENAME(lt.trigger.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
 
-  LOOKUP_INT(lt.trigger.enable_rf_trigger);
+  LOOKUP_INT(lt.trigger.enable_rf_phased_trigger);
+  LOOKUP_INT(lt.trigger.enable_rf_coinc_trigger);
+
+  LOOKUP_INT(lt.trigger.rf_phased_beam_mask);
+  LOOKUP_INT(lt.trigger.rf_coinc_channel_mask);
 
   LOOKUP_INT(lt.trigger.min_coincidence);
   LOOKUP_INT(lt.trigger.window);
@@ -533,12 +550,20 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.trigger.pps_trigger_delay);
 
   LOOKUP_INT(lt.thresholds.load_from_threshold_file);
+
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
   {
-    LOOKUP_INT_ELEM(lt.thresholds.initial,i);
-    LOOKUP_INT_ELEM(lt.servo.scaler_goals,i);
+    LOOKUP_INT_ELEM(lt.thresholds.initial_coinc_thresholds,i);
+    LOOKUP_INT_ELEM(lt.servo.coinc_scaler_goals,i);
     LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i); 
   }
+
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  {
+    LOOKUP_INT_ELEM(lt.thresholds.initial_phased_thresholds,i);
+    LOOKUP_INT_ELEM(lt.servo.phased_scaler_goals,i);
+  }
+
   LOOKUP_INT(lt.servo.subtract_gated);
   LOOKUP_FLOAT(lt.servo.servo_thresh_frac);
   LOOKUP_FLOAT(lt.servo.servo_thresh_offset);
@@ -739,7 +764,10 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board"); 
     SECT(trigger,"Trigger settings for the low-threshold-board"); 
-       WRITE_INT(lt.trigger,enable_rf_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,enable_rf_coinc_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,rf_coinc_channel_mask, "Coincidence trigger channel mask"); 
+       WRITE_INT(lt.trigger,rf_phased_beam_mask, "Phased trigger beam mask");
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
        WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
        WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger"); 
@@ -753,12 +781,15 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
     SECT(thresholds,"Threshold settings for the low-threshold board"); 
        WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)"); 
-       WRITE_ARR(lt.thresholds,initial,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.thresholds,initial_coinc_thresholds,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.thresholds,initial_phased_thresholds,"Initial thresholds if not loaded from file (in ADC^2)",RNO_G_NUM_LT_BEAMS,"%u"); 
+
     UNSECT(); 
     SECT(servo, "Servo settings for the low-threshold board"); 
        WRITE_INT(lt.servo,enable,"Enable servoing"); 
        WRITE_INT(lt.servo,subtract_gated,"Subtract gated scalers"); 
-       WRITE_ARR(lt.servo,scaler_goals,"",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.servo,coinc_scaler_goals,"",RNO_G_NUM_LT_CHANNELS,"%u"); 
+       WRITE_ARR(lt.servo,phased_scaler_goals,"",RNO_G_NUM_LT_BEAMS,"%u"); 
        WRITE_FLT(lt.servo,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (1Hz?) scalers in calculating PID goal");
