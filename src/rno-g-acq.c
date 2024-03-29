@@ -673,7 +673,7 @@ int radiant_initial_setup()
     wait_for_analog_settle = 1; 
     for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) 
     {
-      radiant_set_td_bias(radiant, i, cfg.radiant.analog.diode_vbias[i]/2.*4095); 
+      radiant_set_td_bias(radiant, i, (int) (cfg.radiant.analog.diode_vbias[i]*2000)); 
     }
   }
 
