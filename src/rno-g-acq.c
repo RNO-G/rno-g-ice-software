@@ -470,9 +470,6 @@ int calpulser_configure()
 }
 
 
-
-
-
 int write_gain_codes(char * buf) 
 {
   if (!flower) return -1; 
@@ -508,8 +505,7 @@ int flower_configure()
   ltcfg.vpp_mode = cfg.lt.trigger.vpp; 
   ltcfg.num_coinc =cfg.lt.trigger.enable_rf_coinc_trigger ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   ltcfg.channel_mask=cfg.lt.trigger.rf_coinc_channel_mask;
-  ltcfg_phased=cfg.lt.trigger.rf_phased_beam_mask;
-  ltcfg. =cfg.lt.trigger.enable_rf_coinc_trigger ?  cfg.lt.trigger.min_coincidence-1 : 4; 
+  ltcfg_phased.beam_mask=cfg.lt.trigger.rf_phased_beam_mask;
 
   int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased); 
 
@@ -577,7 +573,7 @@ int flower_initial_setup()
   
 
   flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
-  flower_set_phased_thresholds(flower,  ds->lt_phased_triggerthresholds, ds->lt_phased_servo_thresholds, 0xffff); 
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0xffff); 
   
   //then the rest of the configuration; 
   flower_configure(); 
@@ -985,7 +981,7 @@ static void setup_flower_phased_servo_state(flower_phased_servo_state_t * st)
 }
 
 
-static void update_flower_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds) 
+static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds) 
 {
 
   float sw = cfg.lt.servo.slow_scaler_weight; 
@@ -1187,7 +1183,9 @@ static void * mon_thread(void* v)
     {
       last_cfg_counter = config_counter; 
       setup_radiant_servo_state(&rad_servo_state); 
-      setup_flower_servo_state(&flwr_servo_state); 
+      setup_flower_coinc_servo_state(&flwr_coinc_servo_state); 
+      setup_flower_phased_servo_state(&flwr_phased_servo_state); 
+
       min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5; 
       max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5; 
       max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5; 
@@ -1323,12 +1321,9 @@ static void * mon_thread(void* v)
       flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
       flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0xffff); 
 
-      
-
       last_servo_lt = nowf; 
     }
     
-
     //do we need to write out the DAQ status? 
 
     if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval < diff_last_daqstatus_out)  
