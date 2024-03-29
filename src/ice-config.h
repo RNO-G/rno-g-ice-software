@@ -187,8 +187,8 @@ typedef struct acq_config
     struct 
     {
       int load_from_threshold_file; 
-      uint8_t coinc_initial[RNO_G_NUM_LT_CHANNELS];
-      uint16_t phased_initial[RNO_G_NUM_LT_BEAMS];
+      uint8_t initial_coinc_thresholds[RNO_G_NUM_LT_CHANNELS];
+      uint16_t initial_phased_thresholds[RNO_G_NUM_LT_BEAMS];
 
     } thresholds; 
 
