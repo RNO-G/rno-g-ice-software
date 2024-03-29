@@ -174,7 +174,10 @@ typedef struct acq_config
   {
     struct
     {
-      int enable_rf_trigger;
+      int enable_rf_coinc_trigger; 
+      int enable_rf_phased_trigger; 
+      int rf_phased_beam_mask;
+      int rf_coinc_channel_mask;
       int vpp ;
       int min_coincidence;
       int window;
@@ -193,15 +196,19 @@ typedef struct acq_config
 
     struct
     {
-      int load_from_threshold_file;
-      uint8_t initial[RNO_G_NUM_LT_CHANNELS];
-    } thresholds;
+      int load_from_threshold_file; 
+      uint8_t coinc_initial[RNO_G_NUM_LT_CHANNELS];
+      uint16_t phased_initial[RNO_G_NUM_LT_BEAMS];
+
+    } thresholds; 
 
     struct
     {
-      int enable;
-      int subtract_gated;
-      uint16_t scaler_goals[RNO_G_NUM_LT_CHANNELS];
+      int enable; 
+      int subtract_gated; 
+      uint16_t coinc_scaler_goals[RNO_G_NUM_LT_CHANNELS]; 
+      uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS]; 
+
 
       float servo_thresh_frac;
       float servo_thresh_offset;
