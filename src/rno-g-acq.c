@@ -1872,7 +1872,7 @@ static int initial_setup()
     {
       ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i]; 
       ds->lt_phased_servo_thresholds[i] = 
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095); 
     }
 
   }
