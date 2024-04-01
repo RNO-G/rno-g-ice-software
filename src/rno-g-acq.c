@@ -1314,7 +1314,7 @@ static void * mon_thread(void* v)
          
          flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold,4,4095); 
          ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam]; 
-         ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.phased_servo.servo_thresh_frac, 1, 4095);
+         ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
       }
 
 
