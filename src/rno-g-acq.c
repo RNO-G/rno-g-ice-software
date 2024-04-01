@@ -321,10 +321,7 @@ int radiant_configure()
 
   radiant_set_pps_config(radiant,pps_cfg); 
 
-  uint16_t rf0_clock_delay=round(cfg.radiant.trigger.RF[0].readout_delay*radiant_get_sample_rate(radiant)/(128*1000));
-  uint16_t rf1_clock_delay=round(cfg.radiant.trigger.RF[1].readout_delay*radiant_get_sample_rate(radiant)/(128*1000));
-  
-  radiant_set_delay_settings(radiant,rf0_clock_delay,rf1_clock_delay,
+  radiant_set_delay_settings(radiant,cfg.radiant.trigger.RF[0].readout_delay,cfg.radiant.trigger.RF[1].readout_delay,
                       cfg.radiant.trigger.RF[0].readout_delay_mask,cfg.radiant.trigger.RF[1].readout_delay_mask);
 
   radiant_set_scaler_period(radiant, cfg.radiant.scalers.use_pps ? 0 : cfg.radiant.scalers.period); 
