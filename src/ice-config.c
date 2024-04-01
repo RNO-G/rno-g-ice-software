@@ -73,7 +73,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable_rf_phased_trigger = 1; 
   SECT.rf_coinc_channel_mask=0xf;
   SECT.rf_phased_beam_mask=0xffff;
-  SECT.rf_phased_power_low_bit=0;
 
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
@@ -561,7 +560,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.trigger.enable_rf_coinc_trigger);
 
   LOOKUP_INT(lt.trigger.rf_phased_beam_mask);
-  LOOKUP_INT(lt.trigger.rf_phased_power_low_bit);
   LOOKUP_INT(lt.trigger.rf_coinc_channel_mask);
 
   LOOKUP_INT(lt.trigger.min_coincidence);
@@ -805,12 +803,20 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_INT(lt.trigger,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
        WRITE_INT(lt.trigger,rf_coinc_channel_mask, "Coincidence trigger channel mask"); 
        WRITE_INT(lt.trigger,rf_phased_beam_mask, "Phased trigger beam mask");
+<<<<<<< HEAD
        WRITE_INT(lt.trigger,rf_phased_power_low_bit, "Phased trigger - power threshold's position of lowest bit (ie LSB is position 0, 1, 2 ...)");
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger");
        WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
        WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger");
        WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out");
        WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)");
+=======
+       WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
+       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
+       WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)"); 
+>>>>>>> 2ac1f90 (Revert "add power bit location")
 
        WRITE_INT(lt.trigger,enable_pps_trigger_sma_out,"Send PPS trigger to SMA out");
        WRITE_INT(lt.trigger,enable_pps_trigger_sys_out,"Send PPS trigger to system out (i.e. to RADIANT)");
