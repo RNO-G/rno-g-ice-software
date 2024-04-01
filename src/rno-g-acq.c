@@ -494,8 +494,6 @@ int flower_configure()
   ltcfg.num_coinc =cfg.lt.trigger.enable_rf_coinc_trigger ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   ltcfg.channel_mask=cfg.lt.trigger.rf_coinc_channel_mask;
   ltcfg_phased.beam_mask=cfg.lt.trigger.rf_phased_beam_mask;
-  ltcfg_phased.power_low_bit=cfg.lt.trigger.rf_phased_power_low_bit;
-
 
   int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased); 
 
