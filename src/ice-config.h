@@ -201,6 +201,8 @@ typedef struct acq_config
 
 
       float servo_thresh_frac; 
+      float phased_servo_thresh_frac; 
+
       float servo_thresh_offset; 
 
       float fast_scaler_weight; 
@@ -209,6 +211,8 @@ typedef struct acq_config
       float scaler_update_interval; 
       float servo_interval; 
       float P; 
+      float phased_P; 
+
       float I; 
       float D; 
     } servo; 

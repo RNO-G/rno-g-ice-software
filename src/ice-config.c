@@ -105,13 +105,17 @@ int init_acq_config(acq_config_t * cfg)
     SECT.phased_scaler_goals[i] = 1; 
   }
   SECT.servo_thresh_frac = 0.95; 
+  SECT.phased_servo_thresh_frac = 0.7; 
+
   SECT.servo_thresh_offset = 0; 
   SECT.fast_scaler_weight = 0.3; 
   SECT.slow_scaler_weight = 0.7; 
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
   SECT.subtract_gated = 0; 
-  SECT.P = 0.0002; 
+  SECT.P = 0.0002;
+  SECT.phased_P = 0.002; 
+
   SECT.I = 0; 
   SECT.D = 0; 
 
@@ -566,6 +570,8 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   LOOKUP_INT(lt.servo.subtract_gated);
   LOOKUP_FLOAT(lt.servo.servo_thresh_frac);
+  LOOKUP_FLOAT(lt.servo.phased_servo_thresh_frac);
+
   LOOKUP_FLOAT(lt.servo.servo_thresh_offset);
   LOOKUP_FLOAT(lt.servo.servo_interval);
   LOOKUP_FLOAT(lt.servo.scaler_update_interval);
@@ -573,6 +579,8 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.servo.fast_scaler_weight); 
   LOOKUP_FLOAT(lt.servo.slow_scaler_weight); 
   LOOKUP_FLOAT(lt.servo.P);
+  LOOKUP_FLOAT(lt.servo.phased_P);
+
   LOOKUP_FLOAT(lt.servo.I);
   LOOKUP_FLOAT(lt.servo.D);
 
@@ -791,12 +799,14 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_ARR(lt.servo,coinc_scaler_goals,"",RNO_G_NUM_LT_CHANNELS,"%u"); 
        WRITE_ARR(lt.servo,phased_scaler_goals,"",RNO_G_NUM_LT_BEAMS,"%u"); 
        WRITE_FLT(lt.servo,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
+       WRITE_FLT(lt.servo,phased_servo_thresh_frac,"The phased servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (1Hz?) scalers in calculating PID goal");
        WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (10Hz?) scalers in calculating PID goal");
        WRITE_FLT(lt.servo,scaler_update_interval,"How often we update the scalers");
        WRITE_FLT(lt.servo,servo_interval,"How often we run the scaler");
        WRITE_FLT(lt.servo,P,"PID loop P term");
+       WRITE_FLT(lt.servo,phased_P,"Phased Trigger PID loop P term");
        WRITE_FLT(lt.servo,I,"PID loop I term");
        WRITE_FLT(lt.servo,D,"PID loop D term ");
     UNSECT(); 
