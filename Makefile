@@ -80,5 +80,5 @@ cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src 
 
 service-install: 
-	sudo install systemd/*.service /etc/systemd/system 
-	sudo systemctl daemon-reload
+	install systemd/*.service /etc/systemd/system 
+	systemctl daemon-reload
