@@ -73,6 +73,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable_rf_phased_trigger = 1; 
   SECT.rf_coinc_channel_mask=0xf;
   SECT.rf_phased_beam_mask=0xffff;
+  SECT.rf_phased_power_low_bit=0;
 
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
@@ -560,6 +561,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.trigger.enable_rf_coinc_trigger);
 
   LOOKUP_INT(lt.trigger.rf_phased_beam_mask);
+  LOOKUP_INT(lt.trigger.rf_phased_power_low_bit);
   LOOKUP_INT(lt.trigger.rf_coinc_channel_mask);
 
   LOOKUP_INT(lt.trigger.min_coincidence);
@@ -775,6 +777,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(radiant.pps,pps_holdoff,"Amount of PPS holdoff (in some units...) for debouncing (I think?)");
   UNSECT();
 
+<<<<<<< HEAD
   SECT(bias_scan, "Bias Scan Settings");
     WRITE_INT(radiant.bias_scan,enable_bias_scan,"Enable bias scan");
     WRITE_INT(radiant.bias_scan,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
@@ -794,12 +797,15 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_STR(radiant.timing_recording,directory, "Define directory in which to store timing recordings");
   UNSECT();
 
-<<<<<<< HEAD
  UNSECT() ;
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board");
     SECT(trigger,"Trigger settings for the low-threshold-board");
-       WRITE_INT(lt.trigger,enable_rf_trigger, "Enable the LT RF trigger (currently a coincidence trigger)");
+      WRITE_INT(lt.trigger,enable_rf_coinc_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger,rf_coinc_channel_mask, "Coincidence trigger channel mask"); 
+       WRITE_INT(lt.trigger,rf_phased_beam_mask, "Phased trigger beam mask");
+       WRITE_INT(lt.trigger,rf_phased_power_low_bit, "Phased trigger - power threshold's position of lowest bit (ie LSB is position 0, 1, 2 ...)");
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger");
        WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
        WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger");
