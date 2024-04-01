@@ -333,7 +333,7 @@ int radiant_configure()
                     maybe_rf1_clock_delay > 0x7f ? 0x7f :
                     maybe_rf1_clock_delay;
 
-  radiant_set_delay_settings(radiant,rf0_clock_delay,rf1_clock_delay,
+  radiant_set_delay_settings(radiant,cfg.radiant.trigger.RF[0].readout_delay,cfg.radiant.trigger.RF[1].readout_delay,
                       cfg.radiant.trigger.RF[0].readout_delay_mask,cfg.radiant.trigger.RF[1].readout_delay_mask);
 
   radiant_set_scaler_period(radiant, cfg.radiant.scalers.use_pps ? 0 : cfg.radiant.scalers.period); 

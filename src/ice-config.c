@@ -698,7 +698,49 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.servo,P,"servo PID loop P");
     WRITE_FLT(radiant.servo,I,"servo PID loop I");
     WRITE_FLT(radiant.servo,D,"servo PID loop D");
-    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)");
+    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)"); 
+  UNSECT(); 
+
+  SECT(trigger,"Trigger configuration"); 
+    SECT(soft,"Software trigger configuration"); 
+      WRITE_INT(radiant.trigger.soft,enabled,"Enable soft trigger"); 
+      WRITE_INT(radiant.trigger.soft,use_exponential_distribution,"Use exponential distribution of inter-soft trigger timing"); 
+      WRITE_FLT(radiant.trigger.soft,interval,"Soft trigger interval"); 
+      WRITE_FLT(radiant.trigger.soft,interval_jitter,"Jitter (uniform) on soft trigger interval"); 
+      WRITE_INT(radiant.trigger.soft,output_enabled,"Enable output for soft trigger"); 
+    UNSECT(); 
+    SECT(ext,"External (Low-threshold!) trigger configuration") ;
+      WRITE_INT(radiant.trigger.ext,enabled,"Enable ext trigger (note: this is the low threshold trigger!)"); 
+    UNSECT(); 
+    SECT(pps,"PPS trigger configuration"); 
+      WRITE_INT(radiant.trigger.pps,enabled,"Enable PPS trigger"); 
+      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable PPS trigger output"); 
+    UNSECT(); 
+    SECT(RF0,"First RF trigger configuration"); 
+      WRITE_INT(radiant.trigger.RF[0],enabled,"Enable this RF trigger"); 
+      WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger"); 
+      WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger"); 
+      WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+      WRITE_INT(radiant.trigger.RF[0],readout_delay,"Number of windows to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
+
+    UNSECT()
+    SECT(RF1,"Second RF trigger configuration"); 
+      WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger"); 
+      WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger"); 
+      WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
+      WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+      WRITE_INT(radiant.trigger.RF[1],readout_delay,"Number of windows to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
+    UNSECT()
+
+    WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)"); 
+    WRITE_INT(radiant.trigger,output_enabled,"Enable trigger output"); 
+  UNSECT(); 
+  SECT(readout,"Readout settings for the RADIANT"); 
+    WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)"); 
+    WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2..."); 
+    WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity"); 
   UNSECT();
 
   SECT(trigger,"Trigger configuration");
@@ -775,7 +817,6 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(radiant.pps,pps_holdoff,"Amount of PPS holdoff (in some units...) for debouncing (I think?)");
   UNSECT();
 
-<<<<<<< HEAD
   SECT(bias_scan, "Bias Scan Settings");
     WRITE_INT(radiant.bias_scan,enable_bias_scan,"Enable bias scan");
     WRITE_INT(radiant.bias_scan,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
@@ -803,20 +844,11 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_INT(lt.trigger,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
        WRITE_INT(lt.trigger,rf_coinc_channel_mask, "Coincidence trigger channel mask"); 
        WRITE_INT(lt.trigger,rf_phased_beam_mask, "Phased trigger beam mask");
-<<<<<<< HEAD
-       WRITE_INT(lt.trigger,rf_phased_power_low_bit, "Phased trigger - power threshold's position of lowest bit (ie LSB is position 0, 1, 2 ...)");
-       WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger");
-       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
-       WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger");
-       WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out");
-       WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)");
-=======
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
        WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
        WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger"); 
        WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out"); 
        WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)"); 
->>>>>>> 2ac1f90 (Revert "add power bit location")
 
        WRITE_INT(lt.trigger,enable_pps_trigger_sma_out,"Send PPS trigger to SMA out");
        WRITE_INT(lt.trigger,enable_pps_trigger_sys_out,"Send PPS trigger to system out (i.e. to RADIANT)");
