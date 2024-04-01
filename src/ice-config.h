@@ -183,10 +183,8 @@ typedef struct acq_config
       int window;
       int enable_rf_trigger_sma_out;
       int enable_rf_trigger_sys_out;
-
       int enable_pps_trigger_sys_out;
       int enable_pps_trigger_sma_out;
-
       float pps_trigger_delay;
     } trigger;
 
@@ -208,20 +206,18 @@ typedef struct acq_config
       int subtract_gated; 
       uint16_t coinc_scaler_goals[RNO_G_NUM_LT_CHANNELS]; 
       uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS]; 
-
-
-      float servo_thresh_frac;
-      float servo_thresh_offset;
-
+      float servo_thresh_frac; 
+      float phased_servo_thresh_frac; 
+      float servo_thresh_offset; 
       float fast_scaler_weight;
       float slow_scaler_weight;
-
-      float scaler_update_interval;
-      float servo_interval;
-      float P;
-      float I;
-      float D;
-    } servo;
+      float scaler_update_interval; 
+      float servo_interval; 
+      float P; 
+      float phased_P; 
+      float I; 
+      float D; 
+    } servo; 
 
     struct
     {

@@ -1307,14 +1307,14 @@ static void * mon_thread(void* v)
 
       for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++) 
       {
-         double d_servo_threshold = cfg.lt.servo.P * flwr_phased_servo_state.error[beam] + 
+         double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] + 
                                     cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] + 
                                     cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]); 
 
          
          flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold,4,4095); 
          ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam]; 
-         ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 4095);
+         ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.phased_servo.servo_thresh_frac, 1, 4095);
       }
 
 
