@@ -102,7 +102,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
   {
-    SECT.phased_scaler_goals[i] = 1; 
+    SECT.phased_scaler_goals[i] = 100; 
   }
   SECT.servo_thresh_frac = 0.95; 
   SECT.phased_servo_thresh_frac = 0.7; 
