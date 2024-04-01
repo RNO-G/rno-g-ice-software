@@ -170,7 +170,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
   SECT.RF[0].window = 50 ; // ?!?? 
   SECT.RF[0].num_coincidences = 2; 
-  SECT.RF[0].readout_delay=30; //delay 30*(53.3ns)=1600ns
+  SECT.RF[0].readout_delay=19; //delay 19*(53.3ns)=1013ns
   SECT.RF[0].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
 
   //Downward Surface
