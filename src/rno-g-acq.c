@@ -323,12 +323,12 @@ int radiant_configure()
 
   uint16_t sampling_rate=radiant_get_sample_rate(radiant);
 
-  int maybe_rf0_clock_delay = round(cfg.radiant.trigger.RF[0].readout_delay*sampling_rate/(128*1000));
+  int maybe_rf0_clock_delay = round(cfg.radiant.trigger.RF[0].readout_delay*sampling_rate/(128.*1000));
   uint8_t rf0_clock_delay = maybe_rf0_clock_delay < 0 ?  0 :
                     maybe_rf0_clock_delay > 0x7f ? 0x7f :
                     maybe_rf0_clock_delay;
 
-  int maybe_rf1_clock_delay = round(cfg.radiant.trigger.RF[1].readout_delay*sampling_rate/(128*1000));
+  int maybe_rf1_clock_delay = round(cfg.radiant.trigger.RF[1].readout_delay*sampling_rate/(128.*1000));
   uint8_t rf1_clock_delay = maybe_rf1_clock_delay < 0 ?  0 :
                     maybe_rf1_clock_delay > 0x7f ? 0x7f :
                     maybe_rf1_clock_delay;
