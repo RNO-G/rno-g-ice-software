@@ -678,7 +678,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
       WRITE_INT(radiant.trigger.RF[1],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
-      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
     UNSECT()
 
     WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)"); 
