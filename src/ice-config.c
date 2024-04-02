@@ -165,17 +165,22 @@ int init_acq_config(acq_config_t * cfg)
   SECT.clear_mode = 0; 
   SECT.output_enabled =1; 
 
-  //SURFACE TRIGGER? 
+  //Upward Surface
   SECT.RF[0].enabled = 1; 
   SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
   SECT.RF[0].window = 50 ; // ?!?? 
   SECT.RF[0].num_coincidences = 2; 
+  SECT.RF[0].readout_delay=1014; //delay 19*(53.3ns)=1013.3ns
+  SECT.RF[0].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
 
-  //DEEP TRIGGER? 
+  //Downward Surface
   SECT.RF[1].enabled = 1; 
   SECT.RF[1].mask = 0x16d000; // downward pointing LPDAs
   SECT.RF[1].window = 50; 
   SECT.RF[1].num_coincidences = 2; 
+  SECT.RF[1].readout_delay=587; //delay 11*(53.333ns)=586.666ns
+  SECT.RF[1].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
+
 
   //LT 
   SECT.ext.enabled = 1; 
@@ -437,11 +442,15 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(radiant.trigger.clear_mode); 
   LOOKUP_INT(radiant.trigger.output_enabled); 
   LOOKUP_INT_RENAME(radiant.trigger.RF[0].enabled, radiant.trigger.RF0.enabled);
-  LOOKUP_INT_RENAME(radiant.trigger.RF[1].enabled, radiant.trigger.RF1.enabled)
+  LOOKUP_INT_RENAME(radiant.trigger.RF[1].enabled, radiant.trigger.RF1.enabled);
   LOOKUP_UINT_RENAME(radiant.trigger.RF[0].mask, radiant.trigger.RF0.mask);
   LOOKUP_UINT_RENAME(radiant.trigger.RF[1].mask, radiant.trigger.RF1.mask);
   LOOKUP_FLOAT_RENAME(radiant.trigger.RF[0].window, radiant.trigger.RF0.window);
-  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF0.window);
+  LOOKUP_FLOAT_RENAME(radiant.trigger.RF[1].window, radiant.trigger.RF1.window);  
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay, radiant.trigger.RF0.readout_delay);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay, radiant.trigger.RF1.readout_delay);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[0].readout_delay_mask, radiant.trigger.RF0.readout_delay_mask);
+  LOOKUP_UINT_RENAME(radiant.trigger.RF[1].readout_delay_mask, radiant.trigger.RF1.readout_delay_mask);
   LOOKUP_INT_RENAME(radiant.trigger.RF[0].num_coincidences, radiant.trigger.RF0.num_coincidences)
   LOOKUP_INT_RENAME(radiant.trigger.RF[1].num_coincidences, radiant.trigger.RF1.num_coincidences)
   LOOKUP_INT(radiant.trigger.pps.enabled);
@@ -659,12 +668,17 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger"); 
       WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+      WRITE_INT(radiant.trigger.RF[0],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
+
     UNSECT()
     SECT(RF1,"Second RF trigger configuration"); 
       WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger"); 
       WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger"); 
       WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
       WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+      WRITE_INT(radiant.trigger.RF[1],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
     UNSECT()
 
     WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)"); 
