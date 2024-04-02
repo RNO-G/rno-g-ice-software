@@ -321,17 +321,17 @@ int radiant_configure()
 
   radiant_set_pps_config(radiant,pps_cfg); 
 
-  uint8_t rf0_clock_delay;
-  uint8_t rf1_clock_delay;
   uint16_t sampling_rate=radiant_get_sample_rate(radiant);
 
-  if(cfg.radiant.trigger.RF[0].readout_delay<0) rf0_clock_delay=0;
-  else if(cfg.radiant.trigger.RF[0].readout_delay>(128*1000*0x7f/sampling_rate)) rf0_clock_delay=0x7f;
-  else rf0_clock_delay=round(cfg.radiant.trigger.RF[0].readout_delay*sampling_rate/(128*1000));
+  int maybe_rf0_clock_delay = round(cfg.radiant.trigger.RF[0].readout_delay*sampling_rate/(128*1000));
+  uint8_t rf0_clock_delay = maybe_rf0_clock_delay < 0 ?  0 :
+                    maybe_rf0_clock_delay > 0x7f ? 0x7f :
+                    maybe_rf0_clock_delay;
 
-  if(cfg.radiant.trigger.RF[1].readout_delay<0) rf1_clock_delay=0;
-  else if(cfg.radiant.trigger.RF[1].readout_delay>(128*1000*0x7f/sampling_rate)) rf1_clock_delay=0x7f;
-  else rf1_clock_delay=round(cfg.radiant.trigger.RF[1].readout_delay*sampling_rate/(128*1000));
+  int maybe_rf1_clock_delay = round(cfg.radiant.trigger.RF[1].readout_delay*sampling_rate/(128*1000));
+  uint8_t rf1_clock_delay = maybe_rf1_clock_delay < 0 ?  0 :
+                    maybe_rf1_clock_delay > 0x7f ? 0x7f :
+                    maybe_rf1_clock_delay;
 
   radiant_set_delay_settings(radiant,rf0_clock_delay,rf1_clock_delay,
                       cfg.radiant.trigger.RF[0].readout_delay_mask,cfg.radiant.trigger.RF[1].readout_delay_mask);
