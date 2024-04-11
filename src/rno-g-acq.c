@@ -925,6 +925,11 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
       st->value[chan] += st->period_weights[j]*sumthis/nthis; 
     }
 
+    if (cfg.radiant.servo.use_log)
+    {
+      st->value[chan] = log10(cfg.radiant.servo.log_offset + st->value[chan]);
+    }
+
     st->last_error[chan] = st->error[chan]; 
     st->error[chan] = (st->value[chan] - cfg.radiant.servo.scaler_goals[chan]); 
     st->sum_error[chan] += st->error[chan]; 

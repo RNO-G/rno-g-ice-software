@@ -39,6 +39,8 @@ typedef struct acq_config
     struct 
     {
       int enable; 
+      int use_log; 
+      float log_offset; 
       float scaler_update_interval; 
       float servo_interval; 
       int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];

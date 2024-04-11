@@ -203,6 +203,8 @@ int init_acq_config(acq_config_t * cfg)
 
   SECT.enable = 1; 
   SECT.scaler_update_interval = 0.5; 
+  SECT.use_log = 0;
+  SECT.log_offset = 0.1;
   SECT.servo_interval = 1; 
   for (int i = 0; i < NUM_SERVO_PERIODS; i++) 
   {
@@ -464,8 +466,11 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //servo 
   LOOKUP_INT(radiant.servo.enable);
+  LOOKUP_INT(radiant.servo.use_log);
   LOOKUP_FLOAT(radiant.servo.scaler_update_interval);
   LOOKUP_FLOAT(radiant.servo.servo_interval);
+  LOOKUP_FLOAT(radiant.servo.log_offset);
+  if (cfg->radiant.servo.log_offset <= 0) cfg->radiant.servo.log_offset = 1e-10;
   for (int i = 0; i < NUM_SERVO_PERIODS; i++) 
   {
     LOOKUP_INT_ELEM(radiant.servo.nscaler_periods_per_servo_period,i);
@@ -633,6 +638,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
    SECT(servo, "Threshold servo configuration"); 
     WRITE_INT(radiant.servo, enable, "Enable servoing of RADIANT thresholds");
+    WRITE_INT(radiant.servo, use_log, "Use log10(log_offset + value) for servo instead of servo directly");
+    WRITE_FLT(radiant.servo, log_offset, "Log offset when using log servoing. Should be > 0 (otherwise forced to 1e-10).");
     WRITE_FLT(radiant.servo, scaler_update_interval, "Time interval (in seconds) that scalers are updated at"); 
     WRITE_FLT(radiant.servo, servo_interval, "Time interval (in seconds) that thresholds are updated at"); 
     WRITE_ARR(radiant.servo, nscaler_periods_per_servo_period, 
