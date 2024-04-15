@@ -1312,6 +1312,7 @@ static void * mon_thread(void* v)
       {
         for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++) 
         {
+           if(!cfg.lt.trigger.rf_phased_beam_mask&(1<<i)) continue;//ignore turned off beams
            double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] + 
                                     cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] + 
                                     cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]); 
