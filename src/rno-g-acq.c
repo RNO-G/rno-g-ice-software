@@ -497,6 +497,7 @@ int flower_configure()
   ltcfg.num_coinc =cfg.lt.trigger.enable_rf_coinc_trigger ?  cfg.lt.trigger.min_coincidence-1 : 4; 
   ltcfg.channel_mask=cfg.lt.trigger.rf_coinc_channel_mask;
   ltcfg_phased.beam_mask=cfg.lt.trigger.rf_phased_beam_mask;
+  ltcfg_phased.phased_threshold_offset=cfg.lt.trigger.rf_phased_threshold_offset;
 
   int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased); 
 
@@ -513,9 +514,6 @@ int flower_configure()
     .enable_pps_sysout=cfg.lt.trigger.enable_pps_trigger_sys_out, 
     .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
   };
-
-
-  
 
   if (!cfg.lt.gain.auto_gain) 
   {

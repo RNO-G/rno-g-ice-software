@@ -167,6 +167,7 @@ typedef struct acq_config
       int enable_rf_coinc_trigger; 
       int enable_rf_phased_trigger; 
       int rf_phased_beam_mask;
+      int rf_phased_threshold_offset;
       int rf_coinc_channel_mask;
       int vpp ;
       int min_coincidence; 
