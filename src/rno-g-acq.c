@@ -1295,6 +1295,7 @@ static void * mon_thread(void* v)
       {
         for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
         {
+           if(!cfg.lt.trigger.rf_coinc_channel_mask&(1<<i)) continue;//ignore turned off beams
            double d_servo_threshold = cfg.lt.servo.P * flwr_coinc_servo_state.error[ch] + 
                                     cfg.lt.servo.I * flwr_coinc_servo_state.sum_error[ch] + 
                                     cfg.lt.servo.D * (flwr_coinc_servo_state.error[ch] - flwr_coinc_servo_state.last_error[ch]); 
