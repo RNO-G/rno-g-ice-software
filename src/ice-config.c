@@ -544,7 +544,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.trigger.enable_rf_coinc_trigger);
 
   LOOKUP_INT(lt.trigger.rf_phased_beam_mask);
-  LOOKUP_INT(lt.rf_phased_threshold_offset);
+  LOOKUP_INT(lt.trigger.rf_phased_threshold_offset);
   LOOKUP_INT(lt.trigger.rf_coinc_channel_mask);
 
   LOOKUP_INT(lt.trigger.min_coincidence);
