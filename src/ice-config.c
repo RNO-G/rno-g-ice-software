@@ -73,6 +73,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable_rf_phased_trigger = 1; 
   SECT.rf_coinc_channel_mask=0xf;
   SECT.rf_phased_beam_mask=0xffff;
+  SECT.rf_phased_threshold_offset=0xbb8;
 
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
@@ -560,6 +561,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.trigger.enable_rf_coinc_trigger);
 
   LOOKUP_INT(lt.trigger.rf_phased_beam_mask);
+  LOOKUP_INT(lt.rf_phased_threshold_offset);
   LOOKUP_INT(lt.trigger.rf_coinc_channel_mask);
 
   LOOKUP_INT(lt.trigger.min_coincidence);
