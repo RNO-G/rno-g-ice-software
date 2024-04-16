@@ -1321,7 +1321,7 @@ static void * mon_thread(void* v)
          ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam]; 
          ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
         }
-        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased_beam_mask);
+        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.rf_phased_beam_mask);
       }
 
       //flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
