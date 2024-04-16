@@ -778,6 +778,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_INT(lt.trigger,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
        WRITE_INT(lt.trigger,rf_coinc_channel_mask, "Coincidence trigger channel mask"); 
        WRITE_INT(lt.trigger,rf_phased_beam_mask, "Phased trigger beam mask");
+       WRITE_INT(lt.trigger,rf_phased_threshold_offset, "Phased trigger threshold base offset - affects scalers too");
        WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
        WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
        WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger"); 
