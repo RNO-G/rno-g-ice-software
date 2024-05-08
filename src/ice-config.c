@@ -72,8 +72,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.enable_rf_coinc_trigger = 0; 
   SECT.enable_rf_phased_trigger = 1; 
   SECT.rf_coinc_channel_mask=0xf;
-  SECT.rf_phased_beam_mask=0xffff;
-  SECT.rf_phased_threshold_offset=0xbb8;
+  SECT.rf_phased_beam_mask=0x00ff;
+  SECT.rf_phased_threshold_offset=0xbb8; //unused
 
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
@@ -103,7 +103,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
   {
-    SECT.phased_scaler_goals[i] = 100; 
+    SECT.phased_scaler_goals[i] = 500; 
   }
   SECT.servo_thresh_frac = 0.95; 
   SECT.phased_servo_thresh_frac = 0.7; 
@@ -114,7 +114,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
   SECT.subtract_gated = 0; 
-  SECT.P = 0.0002;
+  SECT.P = 0.002;
   SECT.phased_P = 0.002; 
   SECT.I = 0; 
   SECT.D = 0; 
