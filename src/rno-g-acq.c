@@ -2004,7 +2004,10 @@ int teardown()
   //turn off the calpulser on teardown, if it's on?  
   if (calpulser) 
   {
-    rno_g_cal_disable(calpulser); 
+    if (cfg.calib.turn_off_at_exit)
+    {
+      rno_g_cal_disable(calpulser); 
+    }
     rno_g_cal_close(calpulser); 
   }
 
