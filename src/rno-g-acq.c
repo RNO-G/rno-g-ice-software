@@ -1814,36 +1814,36 @@ static int initial_setup()
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
 
+  int nattempts = 0;
   //open the radiant
-  radiant  = radiant_open(cfg.radiant.device.spi_device, 
-                           cfg.radiant.device.uart_device, 
-                           cfg.radiant.device.poll_gpio, 
-                           cfg.radiant.device.spi_enable_gpio); 
-
-  if (!radiant) 
+  do
   {
-    fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue. Waiting 20 seconds before quitting"); 
-    int fd_drop = open("/proc/sys/vm/drop_caches", O_WRONLY); 
-    if (fd_drop > 0)
+    radiant  = radiant_open(cfg.radiant.device.spi_device,
+                             cfg.radiant.device.uart_device,
+                             cfg.radiant.device.poll_gpio,
+                             cfg.radiant.device.spi_enable_gpio);
+
+    if (!radiant)
     {
-      sync(); 
-      write(fd_drop,"3",1); 
-      fprintf(stderr,"Caches dropped\n"); 
-      close(fd_drop); 
+      fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
+      if (nattempts++ > 3)
+      {
+        fprintf(stderr,"Giving up...\n");
+        return 1;
+      }
+      sleep(1);
+      system("/rno-g/bin/bbb-drop-caches");
     }
-    else
+
+    if (radiant && nattempts > 0)
     {
-      fprintf(stderr,"Couldn't open /proc/sys/vm/drop_caches\n"); 
+      fprintf(stderr,"Ok, we could open it! Yay!\n");
     }
+  } while (!radiant);
 
-    sleep(20); 
 
-    return 1; 
-  }
-
-  
   //open the flower before doing radiant_initial_setup so we fail faster
-  pthread_rwlock_init(&flower_lock,NULL); 
+  pthread_rwlock_init(&flower_lock,NULL);
 
   flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio); 
   if (!flower && cfg.lt.device.required) 
