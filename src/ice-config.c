@@ -244,7 +244,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT 
 
 #define SECT cfg->radiant.bias_scan 
-  SECT.enable_bias_scan = 0; 
+  SECT.enable_bias_scan = 1; 
   SECT.skip_runs = 13; 
   SECT.min_val = 0; 
   SECT.step_val = 16; 
