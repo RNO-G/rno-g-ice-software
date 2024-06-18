@@ -257,6 +257,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT 
 #define SECT cfg->calib
   SECT.enable_cal = 0; 
+  SECT.turn_off_at_exit = 1;
   SECT.i2c_bus = 2; 
   SECT.gpio = 49; 
   SECT.rev = "/REV"; 
@@ -567,6 +568,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.gain.target_rms); 
 
   LOOKUP_INT(calib.enable_cal); 
+  LOOKUP_INT(calib.turn_off_at_exit); 
   LOOKUP_INT(calib.i2c_bus); 
   LOOKUP_INT(calib.gpio); 
   LOOKUP_STRING(calib,rev); 
@@ -813,6 +815,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(calib, "In-situ Calibration settings"); 
     WRITE_INT(calib, enable_cal,"Enable in-situ pulser"); 
+    WRITE_INT(calib, turn_off_at_exit,"Turn off at exit (if turned on)"); 
     WRITE_INT(calib, i2c_bus, "the calpulser i2c-bus"); 
     WRITE_INT(calib, gpio, "the calpulser control gpio"); 
     WRITE_STR(calib,rev, "the board revision (e.g. D or E), or the absolute path to the name of a file containing the board revision"); 

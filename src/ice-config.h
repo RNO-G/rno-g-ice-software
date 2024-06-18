@@ -256,6 +256,7 @@ typedef struct acq_config
   //calibration 
   struct 
   {
+    int turn_off_at_exit;
     int enable_cal; 
     int i2c_bus; 
     int gpio; 
