@@ -66,6 +66,10 @@ install: $(BINS) setup
 	install $(BINS) $(PREFIX)/bin
 	install scripts/* $(PREFIX)/bin
 
+cfg-update: $(BINDIR)/update-rno-g-config
+	@ echo "Updating acq configs" 
+	@ for i in cfg/acq*.cfg ; do echo $$i ; $(BINDIR)/update-rno-g-config acq $$i ; done 
+
 cfg-install: 
 	@ echo "Installing configuration..."
 	@ if [ -f cfg/acq-${STATION_NUMBER}.cfg ] ; \
