@@ -229,9 +229,9 @@ static void fill_current_status_sys()
   current_status.mem_buf =info.bufferram;
   current_status.mem_shared =info.sharedram;
 
-  current_status.mem_free *= info.mem_unit / (1024*1024);
-  current_status.mem_buf *= info.mem_unit / (1024*1024);
-  current_status.mem_shared *= info.mem_unit / (1024*1024);
+  current_status.mem_free *= info.mem_unit / (1024*1024.);
+  current_status.mem_buf *= info.mem_unit / (1024*1024.);
+  current_status.mem_shared *= info.mem_unit / (1024*1024.);
   current_status.nprocs = info.procs;
   current_status.uptime = info.uptime;
   current_status.load_avgs[0] = info.loads[0]/65536.;
