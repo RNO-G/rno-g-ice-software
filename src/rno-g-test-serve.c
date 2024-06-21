@@ -13,7 +13,7 @@ static int handler(const ice_serve_request_t *req, ice_serve_response_t *resp, v
   int len = 64;
   if (strlen(req->resource)>1) len= atoi(req->resource +1);
 
-  resp->code = 200;
+  resp->code = ICE_SERVE_OK;
   char * buf = malloc(len+1);
   resp->content = buf;
   resp->content_length = len;
