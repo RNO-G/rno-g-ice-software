@@ -21,7 +21,7 @@ struct ice_serve_ctx
 int echo_handler(const ice_serve_request_t * req, ice_serve_response_t * resp, void *udata)
 {
   (void) udata;
-  resp->code = 200;
+  resp->code = ICE_SERVE_OK;
   resp->content_type = "text/plain";
   resp->content = req->resource;
   return 0;
@@ -158,7 +158,7 @@ int ice_serve_run(ice_serve_ctx_t * ctx)
       }
 
 
-      if (!resp.code != ICE_SERVE_OK)
+      if (resp.code != ICE_SERVE_OK)
       {
         switch(resp.code)
         {

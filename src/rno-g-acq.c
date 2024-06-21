@@ -1491,7 +1491,7 @@ static int request_handler(const ice_serve_request_t * req, ice_serve_response_t
   (void) udata;
   if (!strcmp(req->resource,"/"))
   {
-    resp->code = 200;
+    resp->code = ICE_SERVE_OK;
     maybe_update_current_status_text();
     pthread_rwlock_rdlock(&current_status_text_lock);
     resp->content = current_status_text;
