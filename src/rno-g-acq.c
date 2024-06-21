@@ -181,14 +181,15 @@ static void fail(const char *);
 static int add_to_file_list(const char * path); 
 static void feed_watchdog(time_t * now) ; 
 
-struct timespec precise_start_time; 
+struct timespec precise_start_time;
 
 static uint32_t delay_clock_estimate = 10000000; 
 
 static pthread_rwlock_t current_status_lock;
+static pthread_rwlock_t current_status_text_lock;
 static char current_status_text[4096];
-int current_status_text_len; 
-char * tmp_current_state_file = 0;
+static int current_status_text_len;
+static char * tmp_current_state_file = 0;
 
 static struct
 {
@@ -196,7 +197,7 @@ static struct
   struct timespec run_start;
   struct timespec sys_last_updated;
   int num_events; //-1 if not started
-  int num_events_last_cycle; 
+  int num_events_last_cycle;
   int num_force_events;
   struct timespec event_last_updated;
   int current_run; // -1 if not started
@@ -241,7 +242,6 @@ static void fill_current_status_sys()
   pthread_rwlock_unlock(&current_status_lock);
 }
 
-//must be holding readlock when calling this...
 static void maybe_update_current_status_text()
 {
   static time_t last_updated= 0;
@@ -252,6 +252,10 @@ static void maybe_update_current_status_text()
   {
     return;
   }
+
+  pthread_rwlock_rdlock(&current_status_lock);
+  pthread_rwlock_wrlock(&current_status_text_lock);
+
   last_updated = now;
 
 
@@ -292,6 +296,9 @@ static void maybe_update_current_status_text()
   current_status.nprocs,
   current_status.uptime
   );
+
+  pthread_rwlock_unlock(&current_status_text_lock);
+  pthread_rwlock_unlock(&current_status_lock);
 }
 
 
@@ -1481,12 +1488,12 @@ static int request_handler(const ice_serve_request_t * req, ice_serve_response_t
   if (!strcmp(req->resource,"/"))
   {
     resp->code = 200;
-    pthread_rwlock_rdlock(&current_status_lock); 
     maybe_update_current_status_text();
+    pthread_rwlock_rdlock(&current_status_text_lock);
     resp->content = current_status_text;
     resp->content_length = current_status_text_len;
     resp->free_fun = unlock_wrapper;
-    resp->free_fun_arg = &current_status_lock;
+    resp->free_fun_arg = &current_status_text_lock;
   }
   return 0;
 }
@@ -1717,10 +1724,10 @@ static void * wri_thread(void* v)
     {
 
       FILE * fcurrent = fopen(tmp_current_state_file,"w");
-      pthread_rwlock_rdlock(&current_status_lock);
       maybe_update_current_status_text();
+      pthread_rwlock_rdlock(&current_status_text_lock);
       fwrite(current_status_text,current_status_text_len,1,fcurrent);
-      pthread_rwlock_unlock(&current_status_lock);
+      pthread_rwlock_unlock(&current_status_text_lock);
       fclose(fcurrent);
       rename(tmp_current_state_file,cfg.output.current_state_location);
     }
@@ -1859,6 +1866,8 @@ static int initial_setup()
   pthread_rwlock_init(&cfg_lock,NULL); 
   read_config();
 
+  pthread_rwlock_init(&current_status_lock,NULL); 
+  pthread_rwlock_init(&current_status_text_lock,NULL); 
 
   // initialize the server and start the socket thread
 
