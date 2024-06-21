@@ -49,6 +49,7 @@
 #include <sys/file.h> 
 #include <sys/types.h> 
 #include <sys/sendfile.h> 
+#include <sys/sysinfo.h>
 #include <zlib.h>
 #include <inttypes.h>
 #include <math.h> 
@@ -61,6 +62,7 @@
 #include "rno-g.h" 
 #include "rno-g-cal.h" 
 #include "ice-config.h" 
+#include "ice-serve.h"
 #include "ice-buf.h"
 #include "ice-common.h"
 #include "ice-version.h"
@@ -106,6 +108,7 @@ static pthread_rwlock_t ds_lock;
 static pthread_t the_acq_thread; 
 static pthread_t the_mon_thread; 
 static pthread_t the_wri_thread; 
+static pthread_t the_sck_thread; 
 
 /** This counts how many times the config has been read */ 
 static volatile int config_counter;  
@@ -181,6 +184,118 @@ static void feed_watchdog(time_t * now) ;
 struct timespec precise_start_time; 
 
 static uint32_t delay_clock_estimate = 10000000; 
+
+static pthread_rwlock_t current_status_lock;
+static char current_status_text[4096];
+int current_status_text_len; 
+char * tmp_current_state_file = 0;
+
+static struct
+{
+  const char * state;
+  struct timespec run_start;
+  struct timespec sys_last_updated;
+  int num_events; //-1 if not started
+  int num_events_last_cycle; 
+  int num_force_events;
+  struct timespec event_last_updated;
+  int current_run; // -1 if not started
+  float runfile_partition_free;
+  float output_partition_free;
+  float mem_free;
+  float mem_buf;
+  float mem_shared;
+  float load_avgs[3];
+  int nprocs;
+  long uptime;
+} current_status =  {.num_events = -1, .current_run = -1, .state = "initializing" };
+
+// fills in system part of current_status
+static void fill_current_status_sys()
+{
+
+  struct sysinfo info;
+  sysinfo(&info);
+  double runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
+  double output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
+
+  pthread_rwlock_wrlock(&current_status_lock);
+
+  current_status.runfile_partition_free = runfile_partition_free;
+  current_status.output_partition_free = output_partition_free;
+
+  current_status.mem_free =info.freeram;
+  current_status.mem_buf =info.bufferram;
+  current_status.mem_shared =info.sharedram;
+
+  current_status.mem_free *= info.mem_unit / (1024*1024);
+  current_status.mem_buf *= info.mem_unit / (1024*1024);
+  current_status.mem_shared *= info.mem_unit / (1024*1024);
+  current_status.nprocs = info.procs;
+  current_status.uptime = info.uptime;
+  current_status.load_avgs[0] = info.loads[0]/65536.;
+  current_status.load_avgs[1] = info.loads[1]/65536.;
+  current_status.load_avgs[2] = info.loads[2]/65536.;
+  clock_gettime(CLOCK_REALTIME,&current_status.sys_last_updated);
+
+  pthread_rwlock_unlock(&current_status_lock);
+}
+
+//must be holding readlock when calling this...
+static void maybe_update_current_status_text()
+{
+  static time_t last_updated= 0;
+  //update at most once a second
+  time_t now;
+  time(&now);
+  if (now == last_updated)
+  {
+    return;
+  }
+  last_updated = now;
+
+
+  current_status_text_len = snprintf(
+  current_status_text, sizeof(current_status_text),
+  "{\n"
+  "  \"state\":\"%s\",\n"
+  "  \"run_start\":%ld.%09ld,\n"
+  "  \"sys_last_updated\":%ld.%09ld,\n"
+  "  \"event_last_updated\":%ld.%09ld,\n"
+  "  \"current_run\":%d,\n"
+  "  \"num_events\":%d,\n"
+  "  \"num_last_cycle\":%d,\n"
+  "  \"num_force_events\":%d,\n"
+  "  \"runfile_partition_free\":%f,\n"
+  "  \"output_partition_free\":%f,\n"
+  "  \"mem_free\":%f,\n"
+  "  \"mem_buf\":%f,\n"
+  "  \"mem_shared\":%f,\n"
+  "  \"load_avg\":[%f,%f,%f],\n"
+  "  \"nprocs\":%d,\n"
+  "  \"uptime\":%ld\n"
+  "}",
+  current_status.state,
+  current_status.run_start.tv_sec, current_status.run_start.tv_nsec,
+  current_status.sys_last_updated.tv_sec, current_status.sys_last_updated.tv_nsec,
+  current_status.event_last_updated.tv_sec, current_status.event_last_updated.tv_nsec, 
+  current_status.current_run,
+  current_status.num_events,
+  current_status.num_events_last_cycle,
+  current_status.num_force_events,
+  current_status.runfile_partition_free,
+  current_status.output_partition_free,
+  current_status.mem_free,
+  current_status.mem_buf,
+  current_status.mem_shared,
+  current_status.load_avgs[0], current_status.load_avgs[1], current_status.load_avgs[2],
+  current_status.nprocs,
+  current_status.uptime
+  );
+}
+
+
+
 
 ///// Implementations /////
 
@@ -258,6 +373,9 @@ static void read_config()
     add_to_file_list(ofname); 
     free(ofname); 
   }
+
+  if (tmp_current_state_file) free(tmp_current_state_file);
+  asprintf(&tmp_current_state_file,"%s.tmp", cfg.output.current_state_location);
 
   //incremente the config counter (so threads know config may have changed) 
   config_counter++; 
@@ -584,6 +702,10 @@ static int did_bias_scan = 0;
 static int do_bias_scan() 
 {
 
+  pthread_rwlock_wrlock(&current_status_lock);
+  current_status.state = "bias scan";
+  pthread_rwlock_unlock(&current_status_lock);
+
   //write to a temporary file, then we'll move ite
   rno_g_file_handle_t hbias; 
   if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
@@ -824,6 +946,11 @@ int radiant_initial_setup()
  **/ 
 void * acq_thread(void* v) 
 {
+  pthread_rwlock_wrlock(&current_status_lock);
+  current_status.state = "acquiring";
+  pthread_rwlock_unlock(&current_status_lock);
+
+
   (void) v; 
   while(!quit) 
   {
@@ -1338,16 +1465,47 @@ int do_close(rno_g_file_handle_t h, char *path)
   {
     add_to_file_list(path); 
   }
-  free(path); 
-  return ret; 
+  free(path);
+  return ret;
 }
 
+
+static void unlock_wrapper(void *v)
+{
+  pthread_rwlock_unlock((pthread_rwlock_t*)v);
+}
+
+static int request_handler(const ice_serve_request_t * req, ice_serve_response_t * resp, void *udata)
+{
+  (void) udata;
+  if (!strcmp(req->resource,"/"))
+  {
+    resp->code = 200;
+    pthread_rwlock_rdlock(&current_status_lock); 
+    maybe_update_current_status_text();
+    resp->content = current_status_text;
+    resp->content_length = current_status_text_len;
+    resp->free_fun = unlock_wrapper;
+    resp->free_fun_arg = &current_status_lock;
+  }
+  return 0;
+}
+
+static void * sck_thread(void *vctx)
+{
+  ice_serve_ctx_t * ctx = (ice_serve_ctx_t*) vctx;
+  ice_serve_run(ctx);
+  ice_serve_destroy(ctx);
+  return NULL;
+}
 
 static void * wri_thread(void* v) 
 {
   (void) v; 
   time_t start_time = time(0); 
   time_t last_print_out = start_time; 
+  time_t last_current_state = start_time;
+
 
   int wf_file_size = 0; 
   int ds_file_size = 0; 
@@ -1379,7 +1537,9 @@ static void * wri_thread(void* v)
     return 0; 
   }
 
-  int num_events = 0; 
+  int num_events = 0;
+  int num_force = 0;
+  int num_events_last_cycle = 0;
   int num_events_this_cycle = 0; 
 
   int ds_i = 0; 
@@ -1511,9 +1671,19 @@ static void * wri_thread(void* v)
     if (acq_occupancy)
     {
       ice_buf_pop(acq_buffer, &acq_item); 
-      num_events++; 
+      if (acq_item.hd.trigger_type & RNO_G_TRIGGER_SOFT) num_force++;
+      num_events++;
+      if (!pthread_rwlock_trywrlock(&current_status_lock))
+      {
+        current_status.num_events = num_events;
+        current_status.num_force_events = num_force;
+        current_status.num_events_last_cycle = num_events_last_cycle;
+        clock_gettime(CLOCK_REALTIME,&current_status.event_last_updated);
+        pthread_rwlock_unlock(&current_status_lock);
+      }
+
       num_events_this_cycle++; 
-      have_data = 1; 
+      have_data = 1;
     }
 
     if (ice_buf_occupancy(mon_buffer))
@@ -1529,9 +1699,30 @@ static void * wri_thread(void* v)
       printf("  total events written: %d\n", num_events); 
       printf("  write rate:  %g Hz\n", (num_events == 0) ? 0. :  ((float) num_events_this_cycle) / (now - last_print_out)); 
       printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
+
+
+      num_events_last_cycle = num_events_this_cycle; 
+      if (pthread_rwlock_trywrlock(&current_status_lock))
+      {
+        clock_gettime(CLOCK_REALTIME,&current_status.event_last_updated);
+        current_status.num_events_last_cycle = num_events_last_cycle;
+        pthread_rwlock_unlock(&current_status_lock);
+      }
       num_events_this_cycle = 0; 
       rno_g_daqstatus_dump(stdout, ds); 
-      last_print_out = now; 
+      last_print_out = now;
+    }
+
+    if (cfg.output.current_state_interval > 0 && now - last_current_state > cfg.output.current_state_interval)
+    {
+
+      FILE * fcurrent = fopen(tmp_current_state_file,"w");
+      pthread_rwlock_rdlock(&current_status_lock);
+      maybe_update_current_status_text();
+      fwrite(current_status_text,current_status_text_len,1,fcurrent);
+      pthread_rwlock_unlock(&current_status_lock);
+      fclose(fcurrent);
+      rename(tmp_current_state_file,cfg.output.current_state_location);
     }
 
     //feed the watchdog in the write thread, since it might wait longer at the end
@@ -1655,24 +1846,38 @@ void fail(const char * why)
   please_stop(); 
 }
 
+
 static int initial_setup() 
 {
 
+  clock_gettime(CLOCK_REALTIME, &precise_start_time); 
 
-
-
+  memcpy(&current_status.run_start, &precise_start_time, sizeof(precise_start_time));
 
 
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
-  read_config(); 
+  read_config();
 
+
+  // initialize the server and start the socket thread
+
+  if (cfg.output.current_state_port)
+  {
+    ice_serve_setup_t s = {.port = cfg.output.current_state_port, .handler = request_handler, .exit_sentinel = &quit};
+    ice_serve_ctx_t * ctx = ice_serve_init(&s);
+    if (ctx)
+    {
+      pthread_create(&the_sck_thread,NULL,sck_thread,ctx);
+    }
+  }
+
+
+  fill_current_status_sys();
   // Check that there is sufficient free space before proceeding any farther; 
 
-  runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
-  output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
 
-  while ( cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition) 
+  while ( cfg.output.min_free_space_MB_runfile_partition && current_status.runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition) 
   {
     fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition); 
 
@@ -1680,12 +1885,12 @@ static int initial_setup()
     for (int i = 0; i < 15; i++) 
     {
       sleep(20); 
+      fill_current_status_sys();
       feed_watchdog(0); 
     }
-    runfile_partition_free = get_free_MB_by_path(cfg.output.runfile); 
   }
 
-  while ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition) 
+  while ( cfg.output.min_free_space_MB_output_partition && current_status.output_partition_free  < cfg.output.min_free_space_MB_output_partition) 
   {
     fprintf(stderr,"Insufficient free space on output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", output_partition_free, cfg.output.min_free_space_MB_output_partition); 
 
@@ -1694,11 +1899,10 @@ static int initial_setup()
     {
       sleep(20); 
       feed_watchdog(0); 
+      fill_current_status_sys();
     }
-    output_partition_free = get_free_MB_by_path(cfg.output.base_dir); 
   }
 
-  clock_gettime(CLOCK_REALTIME, &precise_start_time); 
 
   // Read the station number
   const char * station_number_file = "/STATION_ID"; 
@@ -1748,6 +1952,11 @@ static int initial_setup()
       }
     }
   }
+  pthread_rwlock_wrlock(&current_status_lock);
+  current_status.current_run = run_number;
+  pthread_rwlock_unlock(&current_status_lock);
+
+
 
 
   //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such 
@@ -1932,6 +2141,7 @@ int please_stop()
 
 
 
+
 int main(int nargs, char ** args) 
 {
    if (nargs >1 ) cfgpath = args[1]; 
@@ -1955,10 +2165,11 @@ int main(int nargs, char ** args)
      }
 
      //check disk space 
+     fill_current_status_sys();
 
      if (cfg.output.min_free_space_MB_output_partition > 0 ) 
      {
-       double MBfree = get_free_MB_by_path(cfg.output.base_dir); 
+       double MBfree = current_status.output_partition_free;
        if (MBfree < cfg.output.min_free_space_MB_output_partition) 
        {
          fprintf(stderr,"Output partition free space is just %f MB, smaller than minimum %d MB\n", MBfree, cfg.output.min_free_space_MB_output_partition); 
@@ -1972,7 +2183,7 @@ int main(int nargs, char ** args)
      {
        please_stop(); 
      }
-     usleep(500e3); 
+     usleep(1e6);
      sched_yield(); 
    }
 
@@ -1984,6 +2195,8 @@ int teardown()
   pthread_join(the_acq_thread,0);
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
+
+  //no need to join the sck thread.
 
   //disable the trigger OVLD
   radiant_trigger_enable(radiant,0,0); 

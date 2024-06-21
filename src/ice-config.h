@@ -241,6 +241,9 @@ typedef struct acq_config
     const char * base_dir; 
     const char * runfile; 
     const char * comment; 
+    const char *current_state_location; 
+    int current_state_port; 
+    float current_state_interval;
     float daqstatus_interval; 
     int seconds_per_run; 
     int max_events_per_file; 

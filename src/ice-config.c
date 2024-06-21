@@ -27,6 +27,9 @@ int init_acq_config(acq_config_t * cfg)
 
   SECT.base_dir = "/data/daq/"; 
   SECT.runfile = "/rno-g/var/runfile"; 
+  SECT.current_state_location = "/rno-g/run/state";
+  SECT.current_state_port = 1056;
+  SECT.current_state_interval = 5; 
   SECT.max_events_per_file = 100; 
   SECT.max_daqstatuses_per_file= 100; 
   SECT.max_seconds_per_file = 60; 
@@ -381,13 +384,15 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_STRING(output,base_dir); 
   LOOKUP_STRING(output,runfile); 
   LOOKUP_STRING(output,comment); 
-
+  LOOKUP_STRING(output,current_state_location); 
+  LOOKUP_INT(output.current_state_port);
   LOOKUP_INT(output.seconds_per_run); 
   LOOKUP_INT(output.max_events_per_file); 
   LOOKUP_INT(output.max_daqstatuses_per_file); 
   LOOKUP_INT(output.max_seconds_per_file); 
   LOOKUP_INT(output.max_kB_per_file); 
   LOOKUP_INT(output.print_interval); 
+  LOOKUP_FLOAT(output.current_state_interval);
   LOOKUP_FLOAT(output.daqstatus_interval); 
   LOOKUP_INT(output.min_free_space_MB_output_partition); 
   LOOKUP_INT(output.min_free_space_MB_runfile_partition); 
@@ -801,7 +806,10 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_STR(output,base_dir,"Base directory for writing out data");
     WRITE_STR(output,runfile,"The file used to persist the run");
     WRITE_STR(output,comment,"A human-readable comment that you can fill what whatever hopefully useful comment (or, an excuse not to take good notes?)");
+    WRITE_STR(output,current_state_location,"File to write current state to");
     WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages) ");
+    WRITE_FLT(output,current_state_interval,"Interval to write out current state");
+    WRITE_INT(output,current_state_port, "Port to provide current state via HTTP"); 
     WRITE_INT(output,seconds_per_run,"Number of seconds per run");
     WRITE_INT(output,max_events_per_file,"Maximum number of events per event (and header) file, or 0 to ignore");
     WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ignore");
