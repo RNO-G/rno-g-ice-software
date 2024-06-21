@@ -1496,6 +1496,7 @@ static int request_handler(const ice_serve_request_t * req, ice_serve_response_t
     pthread_rwlock_rdlock(&current_status_text_lock);
     resp->content = current_status_text;
     resp->content_length = current_status_text_len;
+    resp->content_type = "application/json";
     resp->free_fun = unlock_wrapper;
     resp->free_fun_arg = &current_status_text_lock;
   }
