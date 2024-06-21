@@ -709,6 +709,7 @@ static int did_bias_scan = 0;
 static int do_bias_scan() 
 {
 
+  printf("Starting bias scan...\n");
   pthread_rwlock_wrlock(&current_status_lock);
   current_status.state = "bias scan";
   pthread_rwlock_unlock(&current_status_lock);
@@ -742,6 +743,7 @@ static int do_bias_scan()
       val <= cfg.radiant.bias_scan.max_val; 
       val+= cfg.radiant.bias_scan.step_val)
   {
+    printf("Setting bias to %d\n", val);
     radiant_set_dc_bias(radiant, val, val); 
     usleep(1e6*cfg.radiant.bias_scan.sleep_time); 
 
@@ -762,6 +764,8 @@ static int do_bias_scan()
        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0); 
      }
   }
+
+  printf("Done with bias scan\n");
 
   return 0; 
 }
