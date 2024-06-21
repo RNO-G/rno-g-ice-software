@@ -198,6 +198,7 @@ static struct
   struct timespec sys_last_updated;
   int num_events; //-1 if not started
   int num_events_last_cycle;
+  int last_cycle_length; 
   int num_force_events;
   struct timespec event_last_updated;
   int current_run; // -1 if not started
@@ -269,6 +270,7 @@ static void maybe_update_current_status_text()
   "  \"current_run\":%d,\n"
   "  \"num_events\":%d,\n"
   "  \"num_last_cycle\":%d,\n"
+  "  \"last_cycle_length\":%d,\n"
   "  \"num_force_events\":%d,\n"
   "  \"runfile_partition_free\":%f,\n"
   "  \"output_partition_free\":%f,\n"
@@ -286,6 +288,7 @@ static void maybe_update_current_status_text()
   current_status.current_run,
   current_status.num_events,
   current_status.num_events_last_cycle,
+  current_status.last_cycle_length,
   current_status.num_force_events,
   current_status.runfile_partition_free,
   current_status.output_partition_free,
@@ -1553,6 +1556,7 @@ static void * wri_thread(void* v)
   int num_force = 0;
   int num_events_last_cycle = 0;
   int num_events_this_cycle = 0; 
+  int last_cycle_length = 0;
 
   int ds_i = 0; 
 
@@ -1690,6 +1694,7 @@ static void * wri_thread(void* v)
         current_status.num_events = num_events;
         current_status.num_force_events = num_force;
         current_status.num_events_last_cycle = num_events_last_cycle;
+        current_status.last_cycle_length = last_cycle_length;
         clock_gettime(CLOCK_REALTIME,&current_status.event_last_updated);
         pthread_rwlock_unlock(&current_status_lock);
       }
@@ -1713,11 +1718,14 @@ static void * wri_thread(void* v)
       printf("  write buffer occupancy: %d/%d\n", acq_occupancy , cfg.runtime.acq_buf_size); 
 
 
-      num_events_last_cycle = num_events_this_cycle; 
+      num_events_last_cycle = num_events_this_cycle;
+      last_cycle_length = now-last_print_out;
+
       if (pthread_rwlock_trywrlock(&current_status_lock))
       {
         clock_gettime(CLOCK_REALTIME,&current_status.event_last_updated);
         current_status.num_events_last_cycle = num_events_last_cycle;
+        current_status.last_cycle_length = last_cycle_length;
         pthread_rwlock_unlock(&current_status_lock);
       }
       num_events_this_cycle = 0; 
