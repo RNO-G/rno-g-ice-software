@@ -530,7 +530,7 @@ int flower_configure()
     memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
   }
 
-if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
   {
     flower_update_pps_offset(); 
   }
@@ -571,7 +571,7 @@ int flower_initial_setup()
   
 
   flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
-  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0xffff); 
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff); 
   
   //then the rest of the configuration; 
   flower_configure(); 
@@ -1910,7 +1910,7 @@ static int initial_setup()
     {
       ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i]; 
       ds->lt_phased_servo_thresholds[i] = 
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095); 
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095); 
     }
 
   }
