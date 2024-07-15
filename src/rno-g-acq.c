@@ -583,7 +583,7 @@ static int did_bias_scan = 0;
 
 static int do_bias_scan() 
 {
-
+  printf("Performing bias scan. This will take a while (20-30 min).\n");
   //write to a temporary file, then we'll move ite
   rno_g_file_handle_t hbias; 
   if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
