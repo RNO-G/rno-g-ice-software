@@ -578,9 +578,9 @@ int flower_initial_setup()
 }
 
 
-static int record_timimg()
+static void record_timimg()
 {
-  printf("Performing timing measurements. This should just take a few minutes.");
+  printf("Performing timing measurements. This should just take a few minutes.\n");
   system("python3 /home/rno-g/stationrc/record_timings.py -n 5 --data_dir /power/timing");
 }
 
@@ -590,7 +590,7 @@ static int did_bias_scan = 0;
 
 static int do_bias_scan() 
 {
-  printf("Performing bias scan. This will take a while (20-30 min).");
+  printf("Performing bias scan. This will take a while (20-30 min).\n");
   //write to a temporary file, then we'll move ite
   rno_g_file_handle_t hbias; 
   if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
