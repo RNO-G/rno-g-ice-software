@@ -583,6 +583,15 @@ static int did_bias_scan = 0;
 
 static int do_bias_scan() 
 {
+  printf("Performing timing measurements. This should just take a few minutes (but bias scan is coming next ...).");
+
+  string filename = "/home/rno-g/stationrc/record_timings.py ";
+  string command = "python ";
+  string flags = "-n 5 --data_dir /power/timing";
+
+  command += filename + flags;
+  system(command.c_str());
+
   printf("Performing bias scan. This will take a while (20-30 min).");
   //write to a temporary file, then we'll move ite
   rno_g_file_handle_t hbias; 
