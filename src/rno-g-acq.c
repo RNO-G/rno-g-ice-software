@@ -578,20 +578,18 @@ int flower_initial_setup()
 }
 
 
+static int record_timimg()
+{
+  printf("Performing timing measurements. This should just take a few minutes.");
+  system("python3 /home/rno-g/stationrc/record_timings.py -n 5 --data_dir /power/timing");
+}
+
+
 const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz"; 
 static int did_bias_scan = 0; 
 
 static int do_bias_scan() 
 {
-  printf("Performing timing measurements. This should just take a few minutes (but bias scan is coming next ...).");
-
-  string filename = "/home/rno-g/stationrc/record_timings.py ";
-  string command = "python ";
-  string flags = "-n 5 --data_dir /power/timing";
-
-  command += filename + flags;
-  system(command.c_str());
-
   printf("Performing bias scan. This will take a while (20-30 min).");
   //write to a temporary file, then we'll move ite
   rno_g_file_handle_t hbias; 
@@ -1712,7 +1710,7 @@ static int initial_setup()
   // Read the station number
   const char * station_number_file = "/STATION_ID"; 
   FILE *fstation = fopen(station_number_file,"r"); 
-  fscanf(fstation,"%d\n",&station_number); 
+  fscanf(fstation, "%d\n", &station_number);
   fclose(fstation); 
   if (station_number < 0) 
   {
@@ -1757,7 +1755,6 @@ static int initial_setup()
       }
     }
   }
-
 
   //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such 
   rno_g_cal_disable_no_handle(cfg.calib.gpio); 
@@ -1818,10 +1815,15 @@ static int initial_setup()
   }
   pthread_rwlock_init(&ds_lock,NULL); 
 
-
-
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock,NULL); 
+
+  // When it is time to do a bias scan record the timing before setting up the radiant
+  if (cfg.radiant.bias_scan.enable_bias_scan && ((cfg.radiant.bias_scan.skip_runs < 2) ||
+      ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
+  {
+    record_timimg();
+  }
 
   int nattempts = 0;
   //open the radiant
@@ -1834,10 +1836,10 @@ static int initial_setup()
 
     if (!radiant)
     {
-      fprintf(stderr,"COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
+      fprintf(stderr, "COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
       if (nattempts++ > 3)
       {
-        fprintf(stderr,"Giving up...\n");
+        fprintf(stderr, "Giving up...\n");
         return 1;
       }
       sleep(1);
@@ -1943,7 +1945,7 @@ int please_stop()
 
 int main(int nargs, char ** args) 
 {
-   if (nargs >1 ) cfgpath = args[1]; 
+   if (nargs > 1) cfgpath = args[1];
 
    if (initial_setup()) 
    {
