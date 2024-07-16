@@ -580,6 +580,7 @@ int flower_initial_setup()
 
 static void record_timimg()
 {
+  feed_watchdog(0); //don't get killed by watchdog
   printf("Performing timing measurements. This should just take a few minutes.\n");
   system("python3 /home/rno-g/stationrc/record_timings.py -n 5 --data_dir /data/timing");
   sleep(1);  // Probably not necessary but does not harm
