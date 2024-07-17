@@ -54,10 +54,6 @@ do
   fi
 
 
-  # temporarily don't try deleting until sure this works
-  sleep 60
-  continue
-
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
 
