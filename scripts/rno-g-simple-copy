@@ -27,7 +27,8 @@ while true;
 do
 
   ## parallel rsync
-  find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V -r | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
+  ## ok, this is not GNU Parallel but moreutils parallel. So confusing... 
+  parallel -i -j5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/ -- /data/daq/*
 
 
   # only delete if rsync succeeds correctly
@@ -45,7 +46,7 @@ do
   fi
 
   #rsync AGAIN in case we were behind
-  find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V -r | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
+  parallel -i -j5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/ -- /data/daq/*
 
   # only delete if rsync succeeds correctly
   if [ $? -ne 0 ] ; then
@@ -53,6 +54,9 @@ do
   fi
 
 
+  # temporarily don't try deleting until sure this works
+  sleep 60
+  continue
 
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
