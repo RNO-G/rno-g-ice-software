@@ -26,7 +26,10 @@ fi
 while true; 
 do 
   sleep 60; 
-  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+
+  ## parallel rsync
+  find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V - n | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
+
 
   # only delete if rsync succeeds correctly 
   if [ $? -ne 0 ] ; then 
@@ -43,7 +46,14 @@ do
   fi 
 
   #rsync AGAIN in case we were behind
-  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+  find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V - n | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
+
+  # only delete if rsync succeeds correctly 
+  if [ $? -ne 0 ] ; then 
+    continue ; 
+  fi 
+
+
 
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
