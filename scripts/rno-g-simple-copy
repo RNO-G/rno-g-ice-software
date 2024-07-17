@@ -1,81 +1,81 @@
-#! /bin/sh 
+#! /bin/sh
 
 STN=`cat /STATION_ID | tr -d '\n'`
 
 CMP=mtime
 THRESH1=64000000
-AGE1=5 
+AGE1=5
 THRESH2=32000000
-AGE2=3 
+AGE2=3
 THRESH3=16000000
-AGE3=1 
+AGE3=1
 
-if test -f /mnt/sdcard/SDCARD ; then 
-  echo "SD card detected" 
+if test -f /mnt/sdcard/SDCARD ; then
+  echo "SD card detected"
 else
-  echo "SD card not detected" 
+  echo "SD card not detected"
   CMP=mmin
   THRESH1=640000
-  AGE1=360 
+  AGE1=360
   THRESH2=320000
-  AGE2=180 
+  AGE2=180
   THRESH3=160000
-  AGE3=120 
+  AGE3=120
 fi
 
-while true; 
-do 
-  sleep 60; 
+while true;
+do
+  sleep 60;
 
   ## parallel rsync
   find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V - n | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
 
 
-  # only delete if rsync succeeds correctly 
-  if [ $? -ne 0 ] ; then 
-    continue ; 
-  fi 
+  # only delete if rsync succeeds correctly
+  if [ $? -ne 0 ] ; then
+    continue ;
+  fi
 
 
-  if test -d /data/windmon ; then 
-    rsync -avh /data/windmon 10.1.0.1:/data/ingress/station$STN/ 
-    # only delete if rsync succeeds correctly 
-    if [ $? -ne 0 ] ; then 
-      continue ; 
-    fi 
-  fi 
+  if test -d /data/windmon ; then
+    rsync -avh /data/windmon 10.1.0.1:/data/ingress/station$STN/
+    # only delete if rsync succeeds correctly
+    if [ $? -ne 0 ] ; then
+      continue ;
+    fi
+  fi
 
   #rsync AGAIN in case we were behind
   find /data/daq -mindepth 1 -maxdepth 1 -type d | sort -V - n | parallel -j 5 rsync -avh --exclude '*.tmp' {} 10.1.0.1:/data/ingress/station$STN/
 
-  # only delete if rsync succeeds correctly 
-  if [ $? -ne 0 ] ; then 
-    continue ; 
-  fi 
+  # only delete if rsync succeeds correctly
+  if [ $? -ne 0 ] ; then
+    continue ;
+  fi
 
 
 
   #in 1K blocks
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
 
-  if [ $FREESPACE -lt $THRESH1 ] ; 
-  then  
-    find /data/daq -${CMP} +${AGE1} -delete 
+  if [ $FREESPACE -lt $THRESH1 ] ;
+  then
+    find /data/daq -${CMP} +${AGE1} -delete
 
-    # delete wind monitoring 
-    if test -d /data/windmon ; then 
-      find /data/windmon -mtime  +3 -delete 
-    fi 
-  fi 
+    # delete wind monitoring
+    if test -d /data/windmon ; then
+      find /data/windmon -mtime  +3 -delete
+    fi
+  fi
 
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-  if [ $FREESPACE -lt $THRESH2 ] ; 
-  then 
-    find /data/daq -${CMP} +${AGE2} -delete 
-  fi 
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-  if [ $FREESPACE -lt $THRESH3 ] ; 
-  then 
-    find /data/daq -${CMP} +${AGE3} -delete 
-  fi 
-done 
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  if [ $FREESPACE -lt $THRESH2 ] ;
+  then
+    find /data/daq -${CMP} +${AGE2} -delete
+  fi
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  if [ $FREESPACE -lt $THRESH3 ] ;
+  then
+    find /data/daq -${CMP} +${AGE3} -delete
+  fi
+done
