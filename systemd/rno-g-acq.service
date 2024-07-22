@@ -1,21 +1,19 @@
 [Unit]
 Description=Record RNO-G Data
-Wants=rno-g-copy.service 
-# Eventually, for now must be started manually 
-#Requires=rno-g-startup.service 
+Wants=rno-g-copy.service
+# Eventually, for now must be started manually
+#Requires=rno-g-startup.service
 
 [Service]
 #Just hardcode /rno-g for now
 #EnvironmentFile=/rno-g
-User=rno-g 
+User=rno-g
 Restart=always
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
-WatchdogSec=33s 
+WatchdogSec=90s
 
 [Install]
 #event
 #WantedBy=rno-g.target
-
-
