@@ -1641,6 +1641,10 @@ static void * wri_thread(void* v)
 
   }
 
+  if (runinfo)
+  {
+    fprintf(runinfo, "TOTAL-NUMBER-OF-EVENTS-WRITTEN = %d\n", num_events);
+  }
 
   return 0; 
 }
