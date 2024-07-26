@@ -584,12 +584,12 @@ static void record_timimg()
   printf("Performing timing measurements. This should just take a few minutes.\n");
 
   char command[200];
-  snprintf(command, sizeof(command), "%s -n %s --data_dir %s",
+  snprintf(command, sizeof(command), "%s -n %d --data_dir %s",
       "python3 /home/rno-g/stationrc/record_timings.py",
       cfg.radiant.timing_recording.n_recordings,
       cfg.radiant.timing_recording.directory);
 
-  system(command.c_str());
+  system(command);
   sleep(1);  // Probably not necessary but does not harm
 }
 
