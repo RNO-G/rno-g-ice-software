@@ -756,10 +756,10 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   UNSECT();
 
   SECT(timing_recording, "Timing recording Settings");
-    WRITE_INT(radiant.timing_recording,enable,"Enable");
+    WRITE_INT(radiant.timing_recording,enable, "Enable");
     WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
     WRITE_INT(radiant.timing_recording,n_recordings, "Take n recordings per channel and sample.");
-    WRITE_STR(radiant.timing_recording,step_val, "Define directory in which to store timing recordings");
+    WRITE_STR(radiant.timing_recording,directory, "Define directory in which to store timing recordings");
   UNSECT();
 
  UNSECT() ;
