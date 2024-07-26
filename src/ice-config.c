@@ -258,7 +258,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->radiant.timing_recording
   SECT.enable= 1;
   SECT.skip_runs = 4;
-  SECT.n_recording = 5;
+  SECT.n_recordings = 5;
   SECT.directory = "/data/timing/";
 
 #undef SECT
