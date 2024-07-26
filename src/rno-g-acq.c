@@ -582,7 +582,14 @@ static void record_timimg()
 {
   feed_watchdog(0); //don't get killed by watchdog
   printf("Performing timing measurements. This should just take a few minutes.\n");
-  system("python3 /home/rno-g/stationrc/record_timings.py -n 5 --data_dir /data/timing");
+
+  char command[200];
+  snprintf(command, sizeof(command), "%s -n %s --data_dir %s",
+      "python3 /home/rno-g/stationrc/record_timings.py",
+      cfg.radiant.timing_recording.n_recordings,
+      cfg.radiant.timing_recording.directory);
+
+  system(command.c_str());
   sleep(1);  // Probably not necessary but does not harm
 }
 
@@ -655,9 +662,6 @@ static int do_bias_scan()
  * */ 
 int radiant_initial_setup() 
 {
-
-
-
   if (!radiant) return -1; 
   //just in case 
   radiant_labs_stop(radiant); 
@@ -1126,7 +1130,7 @@ static void * mon_thread(void* v)
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
 
-    if (next_sw_trig  < 0) 
+    if (next_sw_trig < 0)
     {
       next_sw_trig = calc_next_sw_trig(nowf); 
     }
@@ -1666,12 +1670,6 @@ void fail(const char * why)
 
 static int initial_setup() 
 {
-
-
-
-
-
-
   /** Initialize config lock and try to read the config */ 
   pthread_rwlock_init(&cfg_lock,NULL); 
   read_config(); 
@@ -1821,8 +1819,8 @@ static int initial_setup()
   pthread_rwlock_init(&radiant_lock,NULL); 
 
   // When it is time to do a bias scan record the timing before setting up the radiant
-  if (cfg.radiant.bias_scan.enable_bias_scan && ((cfg.radiant.bias_scan.skip_runs < 2) ||
-      ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
+  if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
+      ((run_number % cfg.radiant.timing_recording.skip_runs) == 0)))
   {
     record_timimg();
   }

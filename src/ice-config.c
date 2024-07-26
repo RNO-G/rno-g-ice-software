@@ -255,6 +255,13 @@ int init_acq_config(acq_config_t * cfg)
   SECT.attenuation = 31.75;
 
 #undef SECT
+#define SECT cfg->radiant.timing_recording
+  SECT.enable= 1;
+  SECT.skip_runs = 4;
+  SECT.n_recording = 5;
+  SECT.directory = "/data/timing/";
+
+#undef SECT
 #define SECT cfg->calib
   SECT.enable_cal = 0;
   SECT.turn_off_at_exit = 1;
@@ -516,6 +523,11 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(radiant.bias_scan.apply_attenuation);
   LOOKUP_FLOAT(radiant.bias_scan.attenuation);
 
+  //timing_recording
+  LOOKUP_INT(radiant.timing_recording.enable);
+  LOOKUP_INT(radiant.timing_recording.skip_runs);
+  LOOKUP_INT(radiant.timing_recording.n_recordings);
+  LOOKUP_STRING(radiant.timing_recording, directory);
 
 
   //runtime
@@ -743,6 +755,12 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.bias_scan,attenuation, "Attenuation to apply during bias scan");
   UNSECT();
 
+  SECT(timing_recording, "Timing recording Settings");
+    WRITE_INT(radiant.timing_recording,enable,"Enable");
+    WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
+    WRITE_INT(radiant.timing_recording,n_recordings, "Take n recordings per channel and sample.");
+    WRITE_STR(radiant.timing_recording,step_val, "Define directory in which to store timing recordings");
+  UNSECT();
 
  UNSECT() ;
 

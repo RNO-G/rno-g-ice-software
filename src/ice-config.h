@@ -159,6 +159,14 @@ typedef struct acq_config
       float attenuation;
     } bias_scan;
 
+    struct
+    {
+      int enable;
+      int skip_runs;
+      int n_recordings;
+      const char * directory;
+    } timing_recording;
+
   } radiant;
 
   //low threshold board
