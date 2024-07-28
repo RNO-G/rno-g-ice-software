@@ -2,9 +2,13 @@
 
 STN=`cat /STATION_ID | tr -d '\n'`
 
+# Defines flag for `find` used to delete files.
 CMP=mtime
+# Threshold of FREESPACE to delete files/folders
 THRESH1=64000000
+# Combined with `mtime` -> Files which are older than 5 days are deleted.
 AGE1=5 
+# Same as for 1.
 THRESH2=32000000
 AGE2=3 
 THRESH3=16000000
@@ -47,7 +51,6 @@ do
 
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-
   if [ $FREESPACE -lt $THRESH1 ] ; 
   then  
     find /data/daq -${CMP} +${AGE1} -delete 
@@ -62,10 +65,12 @@ do
   if [ $FREESPACE -lt $THRESH2 ] ; 
   then 
     find /data/daq -${CMP} +${AGE2} -delete 
-  fi 
+  fi
+
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
   if [ $FREESPACE -lt $THRESH3 ] ; 
   then 
     find /data/daq -${CMP} +${AGE3} -delete 
-  fi 
+  fi
+
 done 
