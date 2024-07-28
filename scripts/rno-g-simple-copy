@@ -53,7 +53,8 @@ do
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH1 ] ;
   then
-    find /data/daq -${CMP} +${AGE1} -delete
+    # Try to copy a last time and delete if / after copied
+    find /data/daq -${CMP} +${AGE1} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
 
     # delete wind monitoring
     if test -d /data/windmon ; then
@@ -64,13 +65,13 @@ do
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH2 ] ;
   then
-    find /data/daq -${CMP} +${AGE2} -delete
+    find /data/daq -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
   fi
 
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH3 ] ;
   then
-    find /data/daq -${CMP} +${AGE3} -delete
+    find /data/daq -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
   fi
 
 done
