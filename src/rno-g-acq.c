@@ -1273,6 +1273,7 @@ static void * mon_thread(void* v)
     //do we need radiant scalers? 
     if (cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
     {
+      pthread_rwlock_wrlock(&ds_lock);
       while (1) 
       {
         //read twice and make sure equal
@@ -1292,6 +1293,8 @@ static void * mon_thread(void* v)
         printf("WARNING: Unequal sequential DAQStatus, trying again\n"); 
       }
 
+      pthread_rwlock_unlock(&ds_lock); //we don't need to hold the READ lock in this thread
+
       //update the running averages for the radiant 
       update_radiant_servo_state(&rad_servo_state, ds); 
       last_scalers_radiant = nowf; 
@@ -1301,6 +1304,7 @@ static void * mon_thread(void* v)
     if (cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
         && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)  
     {
+      pthread_rwlock_wrlock(&ds_lock);
       for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++) 
       {
          //only servo channels that are part of the trigger? 
@@ -1320,6 +1324,8 @@ static void * mon_thread(void* v)
          if (ds->radiant_thresholds[ch] > max_rad_thresh)  ds->radiant_thresholds[ch] = max_rad_thresh; 
       }
 
+      pthread_rwlock_unlock(&ds_lock);
+
       //set the thresholds
 
       radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds); 
@@ -1330,7 +1336,9 @@ static void * mon_thread(void* v)
     // do we need LT scalers? 
     if (cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)   
     {
+      pthread_rwlock_wrlock(&ds_lock);
       flower_fill_daqstatus(flower, ds); 
+      pthread_rwlock_unlock(&ds_lock);
 
       update_flower_servo_state(&flwr_servo_state, ds); 
       //if cycle counter is in the right realm, use it... 
@@ -1352,6 +1360,7 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
         && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)  
     {
+      pthread_rwlock_wrlock(&ds_lock);
       for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
       {
          double d_servo_threshold = cfg.lt.servo.P * flwr_servo_state.error[ch] + 
@@ -1363,6 +1372,7 @@ static void * mon_thread(void* v)
          ds->lt_servo_thresholds[ch] = flower_float_thresh[ch]; 
          ds->lt_trigger_thresholds[ch] = clamp( (flower_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
       }
+      pthread_rwlock_unlock(&ds_lock);
 
       flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
       last_servo_lt = nowf; 
@@ -1729,6 +1739,10 @@ static void * wri_thread(void* v)
         pthread_rwlock_unlock(&current_status_lock);
       }
       num_events_this_cycle = 0; 
+      rno_g_daqstatus_t tmp_ds;
+      pthread_rwlock_rdlock(&ds_lock);
+      memcpy(&tmp_ds,ds, sizeof(tmp_ds));
+      pthread_rwlock(nlock(&ds_lock); 
       rno_g_daqstatus_dump(stdout, ds); 
       last_print_out = now;
     }
