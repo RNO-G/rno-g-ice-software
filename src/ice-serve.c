@@ -11,11 +11,16 @@
 #include <netinet/in.h>
 #include <errno.h>
 
+
 struct ice_serve_ctx
 {
-  int serve_fd;
   ice_serve_setup_t setup;
-  char reqbuf[];
+  int serve_fd;
+  int nheaders;
+  ice_serve_http_header_t * headers;
+  char * reqbuf;
+  //CAREFUL ABOUT ALIGNMENT HERE!!!!
+  char data[];
 };
 
 int echo_handler(const ice_serve_request_t * req, ice_serve_response_t * resp, void *udata)
@@ -52,12 +57,12 @@ ice_serve_ctx_t * ice_serve_init(const ice_serve_setup_t *setup)
   if (bind_ok < 0)
   {
     close(serve_fd);
-    fprintf(stderr,"Couldn't bind to %hu\n", setup->port); 
+    fprintf(stderr,"Couldn't bind to %hu\n", setup->port);
     return NULL;
   }
 
-  int listen_ok = listen(serve_fd,10); 
-  if (listen_ok < 0) 
+  int listen_ok = listen(serve_fd,10);
+  if (listen_ok < 0)
   {
     fprintf(stderr,"Couldn't listen");
     close(serve_fd);
@@ -65,8 +70,9 @@ ice_serve_ctx_t * ice_serve_init(const ice_serve_setup_t *setup)
   }
 
   int reqsize = setup->reqbuf_size ?: 512;
+  int max_headers = setup->max_headers ?: 16;
 
-  ice_serve_ctx_t * ctx = malloc(sizeof(ice_serve_ctx_t) + reqsize);
+  ice_serve_ctx_t * ctx = malloc(sizeof(ice_serve_ctx_t) + max_headers * sizeof(ice_serve_http_header_t) + reqsize);
   if (!ctx)
   {
     fprintf(stderr,"Couldn't allocate memory\n");
@@ -77,7 +83,10 @@ ice_serve_ctx_t * ice_serve_init(const ice_serve_setup_t *setup)
   ctx->serve_fd = serve_fd;
   memcpy(&ctx->setup, setup, sizeof(*setup));
   ctx->setup.reqbuf_size = reqsize;
-
+  ctx->setup.max_headers = max_headers;
+  // TODO: check to make sure alignment is ok; I think it should be
+  ctx->headers = (ice_serve_http_header_t*) ctx->data;
+  ctx->reqbuf = ctx->data + max_headers * sizeof(ice_serve_http_header_t);
   return ctx;
 }
 
@@ -88,24 +97,6 @@ static const char * msg404 = "HTTP/1.1 404 Not Found\r\nConnection: close";
 static const char * msg500 = "HTTP/1.1 500 Internal Server Error\r\nConnection: close";
 static const char * msg501 = "HTTP/1.1 501 Not Implemented\r\nConnection: close";
 
-static char * get_header(ice_serve_ctx_t *ctx,  const char * what, char ** make_null)
-{
-  char searchbuf[128];
-  int searchlen = snprintf(searchbuf,sizeof(searchbuf),"\r\n%s: ",what);
-
-  char * maybe = strstr(ctx->reqbuf,searchbuf);
-  if (maybe)
-  {
-    maybe+=searchlen;
-    char * lineterm = strstr(maybe,"\r\n");
-    if (lineterm)
-    {
-      if (make_null) *make_null = lineterm;
-      return maybe;
-    }
-  }
-  return NULL;
-}
 
 int ice_serve_run(ice_serve_ctx_t * ctx)
 {
@@ -118,7 +109,7 @@ int ice_serve_run(ice_serve_ctx_t * ctx)
       continue;
 
     if (pfd.revents != POLLIN) continue;
- 
+
     struct sockaddr_in caddr;
     socklen_t caddrlen = sizeof(caddr);
     int  client_fd = accept(ctx->serve_fd,(struct sockaddr*) &caddr, &caddrlen);
@@ -131,24 +122,58 @@ int ice_serve_run(ice_serve_ctx_t * ctx)
 
       //we are a very dumb HTTP server
       char * GET = strstr(ctx->reqbuf,"GET ");
+      if (GET != ctx->reqbuf)
+      {
+           write(client_fd, msg400, strlen(msg400));
+           continue;
+      }
       char * HTTP = strstr(ctx->reqbuf," HTTP/1");
-      if (!GET || !HTTP)
+      char * CRNL = strstr(ctx->reqbuf,"\r\n");
+      if (!HTTP || CRNL < HTTP)
       {
            write(client_fd, msg400, strlen(msg400));
            continue;
       }
 
-      char * what = GET + 4;
-      char * uagent_null = 0; 
-      char * host_null = 0;
-      char * uagent = get_header(ctx, "User-Agent", &uagent_null);
-      char * host = get_header(ctx, "Host", &host_null);
+      char * resource = GET + 4;
 
       HTTP[0] = 0;//null terminate URI and headers
-      if (uagent_null) *uagent_null = 0;
-      if (host_null) *host_null = 0;
 
-      ice_serve_request_t req = {.resource = what, .uagent = uagent, .host = host};
+      // parse headers
+      int iheader = 0;
+      char * uagent = NULL;
+      char * host = NULL;
+      while (CRNL)
+      {
+        *CRNL = 0;
+        char * maybe_key = CRNL+2;
+        char * COLON = strstr(maybe_key,":");
+        char * NEXT_CRNL = strstr(CRNL+2,"\r\n");
+        if (COLON)
+        {
+
+
+          //find first non-whitespace char for value
+          char * val = COLON+1;
+          while (*val==' ') val++;
+          *COLON=0;
+
+          if (iheader < ctx->setup.max_headers)
+          {
+            ctx->headers[iheader].key = maybe_key;
+            ctx->headers[iheader].val = val;
+            iheader++;
+          }
+
+          //get these even if we've exceeded max header
+          if (!strcmp(maybe_key,"Host")) host = val;
+          if (!strcmp(maybe_key,"User-Agent")) uagent = val;
+        }
+        CRNL = NEXT_CRNL;
+      }
+
+
+      ice_serve_request_t req = {.resource = resource, .uagent = uagent, .host = host, .nheaders = iheader, .headers = ctx->headers};
 
       ice_serve_response_t resp = {.code = ICE_SERVE_OK, .content_type = "text/html"};
 

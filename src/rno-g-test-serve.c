@@ -9,6 +9,12 @@ static int handler(const ice_serve_request_t *req, ice_serve_response_t *resp, v
 {
   (void) udata;
   printf("Resource: %s\nHost: %s\nUA: %s\n", req->resource, req->host ?: "(none)", req->uagent ?: "(none)");
+  printf(" HEADERS: ");
+  for (int i = 0; i < req->nheaders; i++) 
+  {
+    printf(" [%s=%s]", req->headers[i].key, req->headers[i].val);
+  }
+  printf("\n"); 
 
   int len = 64;
   if (strlen(req->resource)>1) len= atoi(req->resource +1);

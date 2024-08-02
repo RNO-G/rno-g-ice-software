@@ -7,6 +7,12 @@
  *  Minimalist http/1.1 server for in-memory data
  *
  */
+typedef struct ice_serve_http_header
+{
+  const char * key;
+  const char * val;
+} ice_serve_http_header_t;
+
 
 
 typedef struct ice_serve_request
@@ -14,6 +20,8 @@ typedef struct ice_serve_request
   const char * resource;
   const char * uagent;
   const char * host;
+  uint16_t nheaders;
+  const ice_serve_http_header_t * headers;
 } ice_serve_request_t;
 
 
@@ -42,7 +50,8 @@ typedef int (*ice_serve_handler_t) (const ice_serve_request_t * req, ice_serve_r
 typedef struct ice_serve_setup
 {
   uint16_t port;
-  uint16_t reqbuf_size; //size of request buf for reading headers, 0 for default (most headers are ignored anyway...)
+  uint16_t reqbuf_size; //size of request buf for reading headers, 0 for default (most headers are ignored anyway...).
+  uint16_t max_headers; // maximum number of parsed headers
   volatile int * exit_sentinel; // if not null, setting the value pointed to this by non-zero will stop run
   ice_serve_handler_t handler;
   void * userdata;
