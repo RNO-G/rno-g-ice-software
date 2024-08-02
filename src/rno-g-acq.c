@@ -198,8 +198,10 @@ static struct
   struct timespec sys_last_updated;
   int num_events; //-1 if not started
   int num_events_last_cycle;
-  int last_cycle_length; 
+  int last_cycle_length;
   int num_force_events;
+  int num_radiant_events;
+  int num_lt_events;
   struct timespec event_last_updated;
   int current_run; // -1 if not started
   float runfile_partition_free;
@@ -272,6 +274,8 @@ static void maybe_update_current_status_text()
   "  \"num_last_cycle\":%d,\n"
   "  \"last_cycle_length\":%d,\n"
   "  \"num_force_events\":%d,\n"
+  "  \"num_radiant_events\":%d,\n"
+  "  \"num_lt_events\":%d,\n"
   "  \"runfile_partition_free\":%f,\n"
   "  \"output_partition_free\":%f,\n"
   "  \"mem_free\":%f,\n"
@@ -284,12 +288,14 @@ static void maybe_update_current_status_text()
   current_status.state,
   current_status.run_start.tv_sec, current_status.run_start.tv_nsec,
   current_status.sys_last_updated.tv_sec, current_status.sys_last_updated.tv_nsec,
-  current_status.event_last_updated.tv_sec, current_status.event_last_updated.tv_nsec, 
+  current_status.event_last_updated.tv_sec, current_status.event_last_updated.tv_nsec,
   current_status.current_run,
   current_status.num_events,
   current_status.num_events_last_cycle,
   current_status.last_cycle_length,
   current_status.num_force_events,
+  current_status.num_radiant_events,
+  current_status.num_lt_events,
   current_status.runfile_partition_free,
   current_status.output_partition_free,
   current_status.mem_free,
@@ -1513,6 +1519,17 @@ static int request_handler(const ice_serve_request_t * req, ice_serve_response_t
     resp->free_fun = unlock_wrapper;
     resp->free_fun_arg = &current_status_text_lock;
   }
+  else if (!strcmp(req->resource,"/git-hash"))
+  {
+    resp->code = ICE_SERVE_OK;
+    resp->content = get_ice_software_git_hash();
+    resp->content_type = "text/plain";
+  }
+  else
+  {
+    resp->code = ICE_SERVE_NOT_FOUND;
+  }
+
   return 0;
 }
 
@@ -1564,6 +1581,8 @@ static void * wri_thread(void* v)
 
   int num_events = 0;
   int num_force = 0;
+  int num_radiant = 0;
+  int num_lt = 0;
   int num_events_last_cycle = 0;
   int num_events_this_cycle = 0; 
   int last_cycle_length = 0;
@@ -1583,9 +1602,9 @@ static void * wri_thread(void* v)
   //open the run info and start filling it in
   sprintf(bigbuf,"%s/aux/runinfo.txt", output_dir); 
   runinfo = fopen(bigbuf,"w"); 
-  if (runinfo) 
+  if (runinfo)
   {
-    add_to_file_list(bigbuf); 
+    add_to_file_list(bigbuf);
     fprintf(runinfo, "STATION = %d\n", station_number);
     fprintf(runinfo, "RUN = %d\n", run_number);
     fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
@@ -1698,11 +1717,15 @@ static void * wri_thread(void* v)
     {
       ice_buf_pop(acq_buffer, &acq_item); 
       if (acq_item.hd.trigger_type & RNO_G_TRIGGER_SOFT) num_force++;
+      if (acq_item.hd.trigger_type & RNO_G_TRIGGER_RF_RADIANTX) num_radiant++;
+      if (acq_item.hd.trigger_type & RNO_G_TRIGGER_EXT) num_lt++;
       num_events++;
       if (!pthread_rwlock_trywrlock(&current_status_lock))
       {
         current_status.num_events = num_events;
         current_status.num_force_events = num_force;
+        current_status.num_radiant_events = num_radiant;
+        current_status.num_lt_events = num_lt;
         current_status.num_events_last_cycle = num_events_last_cycle;
         current_status.last_cycle_length = last_cycle_length;
         clock_gettime(CLOCK_REALTIME,&current_status.event_last_updated);
