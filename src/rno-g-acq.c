@@ -1742,7 +1742,7 @@ static void * wri_thread(void* v)
       rno_g_daqstatus_t tmp_ds;
       pthread_rwlock_rdlock(&ds_lock);
       memcpy(&tmp_ds,ds, sizeof(tmp_ds));
-      pthread_rwlock(nlock(&ds_lock); 
+      pthread_rwlock_unlock(&ds_lock); 
       rno_g_daqstatus_dump(stdout, ds); 
       last_print_out = now;
     }
