@@ -30,7 +30,7 @@ fi
 while true;
 do
   sleep 60;
-  timeout 2d rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+  timeout 2d rsync -avh --exclude '*.tmp' --exclude 'aux/*' --exclude 'cfg/*' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   # only delete if rsync succeeds correctly
   if [ $? -ne 0 ] ; then
@@ -47,7 +47,7 @@ do
   fi
 
   #rsync AGAIN in case we were behind
-  timeout 2d rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+  timeout 2d rsync -avh --exclude '*.tmp' --exclude 'aux/*' --exclude 'cfg/*' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   #in 1K blocks
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
