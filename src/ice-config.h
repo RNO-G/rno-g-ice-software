@@ -174,14 +174,22 @@ typedef struct acq_config
   {
     struct
     {
-      int enable_rf_coinc_trigger; 
-      int enable_rf_phased_trigger; 
-      int rf_phased_beam_mask;
-      int rf_phased_threshold_offset;
-      int rf_coinc_channel_mask;
-      int vpp ;
-      int min_coincidence;
-      int window;
+      struct
+      {
+        int enable_rf_coinc_trigger;       
+        int rf_coinc_channel_mask;
+        int vpp ;
+        int min_coincidence;
+        int window;
+      }coinc;
+      
+      struct
+      {
+        int enable_rf_phased_trigger; 
+        int rf_phased_beam_mask;
+        int rf_phased_threshold_offset;
+      }phased;
+
       int enable_rf_trigger_sma_out;
       int enable_rf_trigger_sys_out;
       int enable_pps_trigger_sys_out;
