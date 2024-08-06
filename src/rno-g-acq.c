@@ -1292,7 +1292,7 @@ static void * mon_thread(void* v)
     if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
         && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)  
     {
-      if(cfg.lt.trigger.enable_rf_coinc_trigger)
+      if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
       {
         for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
         {
@@ -1306,7 +1306,7 @@ static void * mon_thread(void* v)
            ds->lt_coinc_servo_thresholds[ch] = flower_coinc_float_thresh[ch]; 
            ds->lt_coinc_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
         }
-        flower_set_coinc_thresholds(flower,ds->lt_coinc_trigger_thresholds,ds->lt_coinc_servo_thresholds,cfg.lt.trigger.rf_coinc_channel_mask);
+        flower_set_coinc_thresholds(flower,ds->lt_coinc_trigger_thresholds,ds->lt_coinc_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
       }
       if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
       {
@@ -1322,7 +1322,7 @@ static void * mon_thread(void* v)
          ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam]; 
          ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
         }
-        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.rf_phased_beam_mask);
+        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased.rf_phased_beam_mask);
       }
 
       last_servo_lt = nowf; 

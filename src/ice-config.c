@@ -554,7 +554,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //LT
   //for backwards compatibility 
-  LOOKUP_INT_RENAME(lt.trigger.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
+  LOOKUP_INT_RENAME(lt.trigger.coinc.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
 
   LOOKUP_INT(lt.trigger.coinc.enable_rf_coinc_trigger);
   LOOKUP_INT(lt.trigger.coinc.rf_coinc_channel_mask);
@@ -741,48 +741,6 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)"); 
     WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2..."); 
     WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity"); 
-  UNSECT();
-
-  SECT(trigger,"Trigger configuration");
-    SECT(soft,"Software trigger configuration");
-      WRITE_INT(radiant.trigger.soft,enabled,"Enable soft trigger");
-      WRITE_INT(radiant.trigger.soft,use_exponential_distribution,"Use exponential distribution of inter-soft trigger timing");
-      WRITE_FLT(radiant.trigger.soft,interval,"Soft trigger interval");
-      WRITE_FLT(radiant.trigger.soft,interval_jitter,"Jitter (uniform) on soft trigger interval");
-      WRITE_INT(radiant.trigger.soft,output_enabled,"Enable output for soft trigger");
-    UNSECT();
-    SECT(ext,"External (Low-threshold!) trigger configuration") ;
-      WRITE_INT(radiant.trigger.ext,enabled,"Enable ext trigger (note: this is the low threshold trigger!)");
-    UNSECT();
-    SECT(pps,"PPS trigger configuration");
-      WRITE_INT(radiant.trigger.pps,enabled,"Enable PPS trigger");
-      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable PPS trigger output");
-    UNSECT();
-    SECT(RF0,"First RF trigger configuration");
-      WRITE_INT(radiant.trigger.RF[0],enabled,"Enable this RF trigger");
-      WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger");
-      WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger");
-      WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
-      WRITE_INT(radiant.trigger.RF[0],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
-      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
-
-    UNSECT()
-    SECT(RF1,"Second RF trigger configuration");
-      WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger");
-      WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger");
-      WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger");
-      WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
-      WRITE_INT(radiant.trigger.RF[1],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
-      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
-    UNSECT()
-
-    WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)");
-    WRITE_INT(radiant.trigger,output_enabled,"Enable trigger output");
-  UNSECT();
-  SECT(readout,"Readout settings for the RADIANT");
-    WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)");
-    WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2...");
-    WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
   UNSECT();
   SECT(pedestals,"Pedestal settings for RADIANT");
     WRITE_INT(radiant.pedestals,compute_at_start,"Compute pedestals at start of run");
