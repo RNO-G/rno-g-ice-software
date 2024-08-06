@@ -798,8 +798,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board");
     SECT(trigger,"Trigger settings for the low-threshold-board");
-      SECT(coincidence,"Trigger settings specific to the coincidence threshold trigger")
-       WRITE_INT(lt.trigger.coinc,enable_rf_coinc_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+      SECT(coinc,"Trigger settings specific to the coincidence threshold trigger")
+       WRITE_INT(lt.trigger.coinc,enable_rf_coinc_trigger, "Enable the LT RF coincidence trigger"); 
        WRITE_INT(lt.trigger.coinc,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
        WRITE_INT(lt.trigger.coinc,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
        WRITE_INT(lt.trigger.coinc,window,"Coincidence window for RF trigger"); 
@@ -807,7 +807,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
       UNSECT();
       SECT(phased,"Trigger settings specific to the phased power trigger"); 
-       WRITE_INT(lt.trigger.phased,enable_rf_phased_trigger, "Enable the LT RF trigger (currently a coincidence trigger)"); 
+       WRITE_INT(lt.trigger.phased,enable_rf_phased_trigger, "Enable the LT RF phased array trigger"); 
        WRITE_INT(lt.trigger.phased,rf_phased_beam_mask, "Phased trigger beam mask");
        WRITE_INT(lt.trigger.phased,rf_phased_threshold_offset, "Phased trigger threshold base offset - affects scalers too");
       UNSECT();

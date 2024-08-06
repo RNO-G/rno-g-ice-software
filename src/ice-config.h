@@ -197,10 +197,6 @@ typedef struct acq_config
       float pps_trigger_delay;
     } trigger;
 
-
-
-
-
     struct
     {
       int load_from_threshold_file; 
@@ -245,15 +241,12 @@ typedef struct acq_config
 
   } lt;
 
-
   struct
   {
     const char * status_shmem_file;
     int acq_buf_size;
     int mon_buf_size;
   } runtime;
-
-
 
   //output
   struct
@@ -295,7 +288,6 @@ typedef struct acq_config
     } sweep;
 
   } calib;
-
 
 } acq_config_t;
 
