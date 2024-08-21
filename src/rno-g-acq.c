@@ -120,6 +120,10 @@ static int station_number = -1;
 static char * output_dir = NULL; 
 
 
+//temporary buffer (TODO: replace all asprintf with this...)
+static int bigbuflen = 0;
+static char * bigbuf = 0;
+
 /** This is set to 1 when it's time to quit.*/ 
 static volatile int quit = 0; 
 static volatile int cfg_reread = 0; 
@@ -1303,7 +1307,6 @@ static void * mon_thread(void* v)
 //returns 0 on success. 
 static int make_dirs_for_output(const char * prefix) 
 { 
-  char buf[strlen(prefix) + 512];  
 
   //check to see that prefix exists and is a directory
   if (mkdir_if_needed(prefix))
@@ -1318,10 +1321,10 @@ static int make_dirs_for_output(const char * prefix)
   const int nsubdirs = sizeof(subdirs) / sizeof(*subdirs); 
   for (i = 0; i < nsubdirs; i++)
   {
-    snprintf(buf,sizeof(buf), "%s/%s",prefix,subdirs[i]); 
-    if (mkdir_if_needed(buf))
+    snprintf(bigbuf,bigbuflen,"%s/%s",prefix,subdirs[i]); 
+    if (mkdir_if_needed(bigbuf))
     {
-        fprintf(stderr,"Couldn't make %s. Bad things will happen!\n",buf); 
+        fprintf(stderr,"Couldn't make %s. Bad things will happen!\n",bigbuf); 
         return 1; 
     }
   }
@@ -1383,24 +1386,10 @@ static void * wri_thread(void* v)
   time_t wf_file_time = 0; 
   time_t ds_file_time = 0; 
 
-  int bigbuflen = strlen(cfg.output.base_dir)+512+1; 
-  char * bigbuf = calloc(bigbuflen,1); 
-
-  if (!bigbuf) 
-  {
-    fail("Could not allocate buffer... that's not good!"); 
-    return 0; 
-  }
-
   int num_events = 0; 
   int num_events_this_cycle = 0; 
 
   int ds_i = 0; 
-
-  //let's make the output directories
-  mkdir_if_needed(output_dir); 
-
-  make_dirs_for_output(output_dir); 
 
   //open the file list 
   sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir); 
@@ -1906,7 +1895,18 @@ static int initial_setup()
     free(tmp_run_file); 
   }
 
- 
+  bigbuflen = strlen(output_dir)+512+1;
+  bigbuf = calloc(1,bigbuflen);
+
+  if (!bigbuf)
+  {
+    fprintf(stderr,"Could not allocate buffer... that's not good!"); 
+    return 1;
+  }
+
+  //let's make the output directories here now
+  make_dirs_for_output(output_dir);
+
   //set up signal handlers 
   sigset_t empty; 
   sigemptyset(&empty); 
