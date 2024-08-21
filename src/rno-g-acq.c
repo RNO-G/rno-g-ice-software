@@ -1987,7 +1987,7 @@ static int initial_setup()
     if (rename(tmp_run_file, cfg.output.runfile))
     {
       fprintf(stderr,"Problem moving %s to %s\n", tmp_run_file, cfg.output.runfile); 
-      return 1; 
+      return 1;
     }
     free(tmp_run_file); 
   }
@@ -2024,7 +2024,8 @@ static int initial_setup()
   sigaction(SIGTERM,&sa,0);
   sigaction(SIGUSR1,&sa,0);
 
-  //initialize the buffers 
+
+  //initialize the buffers
   acq_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(acq_buffer_item_t)); 
   mon_buffer = ice_buf_init(cfg.runtime.mon_buf_size, sizeof(mon_buffer_item_t)); 
 
