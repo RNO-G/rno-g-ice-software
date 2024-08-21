@@ -601,7 +601,7 @@ int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec
   //could be an RF trigger here, actually, shoiuld probably check trigger type...
  flower_buffer_clear(flower);
  if (force) flower_force_trigger(flower);
- int avail = 0; 
+ int avail = 0;
  struct timespec now;
  while (!avail)
  {
@@ -620,29 +620,27 @@ int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec
    {
      feed_watchdog(NULL);
    }
-
-
-
  }
 
  flower_read_waveforms(flower, LEN, flower_waveforms);
 
 
- gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s;\n", iev > 0 ? "," : "", force ? "true" : "false"); 
- for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++) 
- {
-   gzprintf(of,"\t\t{\n\t\t\t\"ch%d\": [",i); 
-   for (int j = 0; j < LEN; j++) 
-   {
-     gzprintf(of,"%d",((int)flower_waveforms[i][j])-128); 
-     if (j < LEN-1)
-       gzprintf(of,","); 
-      }
-      gzprintf(of,"];\n"); 
-    }
-    gzprintf(of,"\n\t\t}");
+ gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s;\n", iev > 0 ? "," : "", force ? "true" : "false");
 
-    return 0;
+ for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
+ {
+   gzprintf(of,"\t\t{\n\t\t\t\"ch%d\": [",i);
+   for (int j = 0; j < LEN; j++)
+   {
+     gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
+     if (j < LEN-1)
+       gzprintf(of,",");
+    }
+    gzprintf(of,"];\n");
+  }
+  gzprintf(of,"\n\t\t}");
+
+  return 0;
 }
 
 //right now this can only run in the main thread before and after data taking!!!
