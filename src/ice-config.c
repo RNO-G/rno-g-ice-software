@@ -46,6 +46,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256;
   SECT.mon_buf_size = 128;
 
+//lt  (low-threshold)
+//
 #undef SECT
 #define SECT cfg->lt.gain
   SECT.auto_gain=1;
@@ -55,8 +57,6 @@ int init_acq_config(acq_config_t * cfg)
     SECT.fixed_gain_codes[i] =5;
   }
 
-  //lt  (low-threshold)
-  //
 #undef SECT
 #define SECT cfg->lt.device
   SECT.spi_enable_gpio = 0;
@@ -102,6 +102,22 @@ int init_acq_config(acq_config_t * cfg)
   SECT.P = 0.0002;
   SECT.I = 0;
   SECT.D = 0;
+
+#undef SECT
+#define SECT cfg->lt.waveforms
+  SECT.length = 1024;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_finish
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_start
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
 
 
 ////RADIANT
@@ -579,6 +595,14 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.gain.auto_gain);
   LOOKUP_FLOAT(lt.gain.target_rms);
 
+  LOOKUP_INT(lt.waveforms.at_finish.enable);
+  LOOKUP_INT(lt.waveforms.at_finish.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_finish.nforce);
+  LOOKUP_INT(lt.waveforms.at_start.enable);
+  LOOKUP_INT(lt.waveforms.at_start.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_start.nforce);
+  LOOKUP_INT(lt.waveforms.length);
+
   LOOKUP_INT(calib.enable_cal);
   LOOKUP_INT(calib.turn_off_at_exit);
   LOOKUP_INT(calib.i2c_bus);
@@ -797,6 +821,23 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_FLT(lt.servo,D,"PID loop D term ");
     UNSECT();
     SECT(gain,"Settings related to HMCAD1511 gain");
+      WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
+      WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
+      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
+    UNSECT();
+    SECT(waveforms,"Settings related to waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually)");
+
+      WRITE_INT(lt.waveforms,length,"Number of samples");
+      SECT(at_finish,"Post-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms after run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
+      SECT(at_start,"Pre-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms before run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
       WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
