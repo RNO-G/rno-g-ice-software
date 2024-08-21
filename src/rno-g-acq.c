@@ -137,6 +137,8 @@ static uint32_t radiant_trig_chan = 0;
 static flower_dev_t * flower = 0; 
 
 uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS]; 
+uint8_t *flower_waveforms_data;
+uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
 
 /** radiant pedestals*/ 
 static rno_g_pedestal_t * pedestals = 0; 
@@ -571,14 +573,109 @@ int flower_initial_setup()
     flower_set_trigger_enables(flower,trig_enables);
     flower_equalize(flower, target,flower_codes,FLOWER_EQUALIZE_VERBOSE); 
   }
-  
+
+
+  if ( cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
+  {
+    flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, cfg.lt.waveforms.length);
+    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+    {
+      flower_waveforms[i] = flower_waveforms_data + i * cfg.lt.waveforms.length;
+    }
+  }
 
   flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
   //then the rest of the configuration; 
   flower_configure(); 
 
 
+
   return 0; 
+}
+
+
+//right now this can only run in the main thread before and after data taking!!!
+int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec * deadline)
+{
+
+  //could be an RF trigger here, actually, shoiuld probably check trigger type...
+ flower_buffer_clear(flower);
+ if (force) flower_force_trigger(flower);
+ int avail = 0; 
+ struct timespec now;
+ while (!avail)
+ {
+   clock_gettime(CLOCK_MONOTONIC, &now);
+   if (deadline && timespec_difference(&now,deadline) > 0) return -1;
+
+   flower_buffer_check(flower,&avail);
+
+   if (!avail)
+   {
+     usleep(50000); // 50 ms
+   }
+
+   // maybe feed watchdog
+   if (last_watchdog < now.tv_sec - 5)
+   {
+     feed_watchdog(NULL);
+   }
+
+
+
+ }
+
+ flower_read_waveforms(flower, LEN, flower_waveforms);
+
+
+ gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s;\n", iev > 0 ? "," : "", force ? "true" : "false"); 
+ for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++) 
+ {
+   gzprintf(of,"\t\t{\n\t\t\t\"ch%d\": [",i); 
+   for (int j = 0; j < LEN; j++) 
+   {
+     gzprintf(of,"%d",((int)flower_waveforms[i][j])-128); 
+     if (j < LEN-1)
+       gzprintf(of,","); 
+      }
+      gzprintf(of,"];\n"); 
+    }
+    gzprintf(of,"\n\t\t}");
+
+    return 0;
+}
+
+//right now this can only run in the main thread before and after data taking!!!
+int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
+{
+  if (cfg.lt.waveforms.length <= 0) return -1;
+
+  gzFile of = gzopen(outfile,"w");
+
+  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\"\n;\n\t\"events\" : [", station_number);
+
+  int nev = 0;
+
+  //force first
+  for (int iev = 0; iev < nforce; iev++)
+  {
+    flower_take_waveform(of, cfg.lt.waveforms.length, 1,nev++, NULL);
+  }
+
+
+  if (nsecs_rf > 0)
+  {
+    struct timespec rf_start;
+    clock_gettime(CLOCK_MONOTONIC, &rf_start);
+    struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec };
+
+    while (!flower_take_waveform(of,cfg.lt.waveforms.length, 0, nev, &deadline)) nev++;
+  }
+
+  gzprintf(of,"\t];\n}");
+
+  gzclose(of);
+  return 0;
 }
 
 
@@ -1907,6 +2004,15 @@ static int initial_setup()
   //let's make the output directories here now
   make_dirs_for_output(output_dir);
 
+
+  //HACK, take initial flower data if we need to
+  if (flower && cfg.lt.waveforms.at_start.enable)
+  {
+    snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
+    flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
+  }
+
+
   //set up signal handlers 
   sigset_t empty; 
   sigemptyset(&empty); 
@@ -1999,6 +2105,14 @@ int teardown()
   pthread_join(the_acq_thread,0);
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
+
+  //HACK, take initial flower data if we need to
+  if (flower && cfg.lt.waveforms.at_finish.enable)
+  {
+    snprintf(bigbuf,bigbuflen,"%s/aux/flower_end.json.gz", output_dir);
+    flower_take_waveforms(cfg.lt.waveforms.at_finish.nforce, cfg.lt.waveforms.at_finish.nsecs_rf, bigbuf);
+  }
+
 
   //disable the trigger OVLD
   radiant_trigger_enable(radiant,0,0); 
