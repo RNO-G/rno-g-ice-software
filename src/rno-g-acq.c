@@ -180,7 +180,7 @@ static int flower_update_pps_offset();
 static int calpulser_configure(); 
 static int teardown(); 
 static int please_stop(); 
-static void fail(const char *); 
+//static void fail(const char *); 
 static int add_to_file_list(const char * path); 
 static void feed_watchdog(time_t * now) ; 
 
@@ -1750,11 +1750,11 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 }
 
 
-void fail(const char * why)
-{
-  fprintf(stderr,"FAIL!: %s\n", why); 
-  please_stop(); 
-}
+//void fail(const char * why)
+//{
+//  fprintf(stderr,"FAIL!: %s\n", why); 
+//  please_stop(); 
+//}
 
 static int initial_setup() 
 {
