@@ -825,7 +825,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
     UNSECT();
-    SECT(waveforms,"Settings related to waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually)");
+    SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually)");
 
       WRITE_INT(lt.waveforms,length,"Number of samples");
       SECT(at_finish,"Post-run waveform taking");
