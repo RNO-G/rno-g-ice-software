@@ -65,13 +65,13 @@ do
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH2 ] ;
   then
-    find /data/daq -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
+    find /data/daq -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- / 10.1.0.1:/data/ingress/station$STN/
   fi
 
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH3 ] ;
   then
-    find /data/daq -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
+    find /data/daq -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- / 10.1.0.1:/data/ingress/station$STN/
   fi
 
 done
