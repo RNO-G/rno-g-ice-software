@@ -10,7 +10,7 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
