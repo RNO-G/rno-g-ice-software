@@ -27,6 +27,10 @@ else
   AGE3=120
 fi
 
+# We jump into the data directory. This seems necessary for the later:
+# `find . ... | rsync  --remove-source-files --files-from=- ./ ...`
+cd /data/daq
+
 while true;
 do
   sleep 60;
@@ -54,8 +58,8 @@ do
   if [ $FREESPACE -lt $THRESH1 ] ;
   then
     # Try to copy a last time and delete if / after copied
-    find /data/daq -${CMP} +${AGE1} | rsync  -avh --remove-source-files --files-from=- /data/daq 10.1.0.1:/data/ingress/station$STN/
-
+    find . -${CMP} +${AGE1} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE1} -delete
     # delete wind monitoring
     if test -d /data/windmon ; then
       find /data/windmon -mtime  +3 -delete
@@ -65,13 +69,15 @@ do
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH2 ] ;
   then
-    find /data/daq -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- / 10.1.0.1:/data/ingress/station$STN/
+    find . -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE2} -delete
   fi
 
   FREESPACE=`df /data | awk 'NR>1 {print $4}'`
   if [ $FREESPACE -lt $THRESH3 ] ;
   then
-    find /data/daq -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- / 10.1.0.1:/data/ingress/station$STN/
+    find . -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE3} -delete
   fi
 
 done
