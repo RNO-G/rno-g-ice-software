@@ -72,6 +72,7 @@ install: $(BINS) setup
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
+	@$(BINDIR)/make-default-rno-g-config acq cfg/acq.cfg
 	@ for i in cfg/acq*.cfg ; do echo $$i ; $(BINDIR)/update-rno-g-config acq $$i ; done
 
 cfg-install:
