@@ -838,9 +838,6 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
         WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
       UNSECT()
-      WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
-      WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
-      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
     UNSECT();
     SECT(device,"Settings related to device interface");
       WRITE_STR(lt.device,spi_device,"The SPI device for the low-threshold board");
