@@ -139,6 +139,7 @@ static flower_dev_t * flower = 0;
 uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS]; 
 uint8_t *flower_waveforms_data;
 uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
+int flower_waveforms_len;
 
 /** radiant pedestals*/ 
 static rno_g_pedestal_t * pedestals = 0; 
@@ -577,10 +578,11 @@ int flower_initial_setup()
 
   if ( cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
   {
-    flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, cfg.lt.waveforms.length);
-    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+    flower_waveforms_len = cfg.lt.waveforms.length;
+    flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, flower_waveforms_len);
+    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
     {
-      flower_waveforms[i] = flower_waveforms_data + i * cfg.lt.waveforms.length;
+      flower_waveforms[i] = flower_waveforms_data + i * flower_waveforms_len;
     }
   }
 
@@ -595,7 +597,7 @@ int flower_initial_setup()
 
 
 //right now this can only run in the main thread before and after data taking!!!
-int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec * deadline)
+int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
 {
 
   //could be an RF trigger here, actually, shoiuld probably check trigger type...
@@ -622,7 +624,7 @@ int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec
    }
  }
 
- flower_read_waveforms(flower, LEN, flower_waveforms);
+ flower_read_waveforms(flower, flower_waveforms_len, flower_waveforms);
 
 
  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s;\n", iev > 0 ? "," : "", force ? "true" : "false");
@@ -630,10 +632,10 @@ int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec
  for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
  {
    gzprintf(of,"\t\t{\n\t\t\t\"ch%d\": [",i);
-   for (int j = 0; j < LEN; j++)
+   for (int j = 0; j < flower_waveforms_len; j++)
    {
      gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
-     if (j < LEN-1)
+     if (j < flower_waveforms_len-1)
        gzprintf(of,",");
     }
     gzprintf(of,"];\n");
@@ -646,7 +648,6 @@ int flower_take_waveform(gzFile of, int LEN, int force, int iev, struct timespec
 //right now this can only run in the main thread before and after data taking!!!
 int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 {
-  if (cfg.lt.waveforms.length <= 0) return -1;
 
   gzFile of = gzopen(outfile,"w");
 
@@ -657,7 +658,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
   //force first
   for (int iev = 0; iev < nforce; iev++)
   {
-    flower_take_waveform(of, cfg.lt.waveforms.length, 1,nev++, NULL);
+    flower_take_waveform(of, 1,nev++, NULL);
   }
 
 
@@ -667,7 +668,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
     clock_gettime(CLOCK_MONOTONIC, &rf_start);
     struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec };
 
-    while (!flower_take_waveform(of,cfg.lt.waveforms.length, 0, nev, &deadline)) nev++;
+    while (!flower_take_waveform(of, 0, nev, &deadline)) nev++;
   }
 
   gzprintf(of,"\t];\n}");
