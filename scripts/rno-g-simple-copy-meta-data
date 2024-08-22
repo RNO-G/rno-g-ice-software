@@ -6,13 +6,12 @@ STN=$(cat /STATION_ID | tr -d '\n')
 
 while true;
 do
-  sleep 60;
-  rsync -avh --exclude "*" --include 'aux/*' --include 'cfg/*' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+  rsync -avh --exclude 'header/' --exclude 'waveforms/' --exclude 'daqstatus/' --exclude 'pedestals.dat.gz' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   # only delete if rsync succeeds correctly
   if [ $? -ne 0 ] ; then
     continue ;
   fi
 
-
+  sleep 60;
 done
