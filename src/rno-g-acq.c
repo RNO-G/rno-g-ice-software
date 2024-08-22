@@ -600,7 +600,7 @@ int flower_initial_setup()
 int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
 {
 
-  //could be an RF trigger here, actually, shoiuld probably check trigger type...
+  //could be an RF trigger here, actually, should probably check trigger type...
  flower_buffer_clear(flower);
  if (force) flower_force_trigger(flower);
  int avail = 0;
