@@ -10,7 +10,7 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install
+.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
@@ -84,6 +84,12 @@ cfg-install:
 		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
 	fi
 	@mkdir -p ${PREFIX}/cfg/acq.cfg.once
+
+cfg-round-trip-check:
+	@echo checking config round trip for acq.cfg
+	@$(BINDIR)/check-rno-g-config acq cfg/acq.cfg | diff cfg/acq.cfg -
+
+
 
 cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
