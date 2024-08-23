@@ -620,10 +620,14 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
    }
  }
 
+ flower_waveform_metadata_t meta = {0};
  flower_read_waveforms(flower, flower_waveforms_len, flower_waveforms);
+ flower_read_waveform_metadata(flower,&meta);
 
 
  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s;\n", iev > 0 ? "," : "", force ? "true" : "false");
+ gzprintf(of,"\t\t\t\"metadata\": { \"event_counter\": %u, \"trigger_counter\": %u, \"trigger_type\": \"%s\", \"pps_flag\": %s, \"timestamp\": %"PRIu64 ", \"recent_pps_timestamp\": %"PRIu64 "},\n",
+      meta.event_counter, meta.trigger_counter, flower_trigger_type_as_string(meta.trigger_type), meta.pps_flag ? "true" : "false",  meta.timestamp, meta.recent_pps_timestamp);
 
  for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
  {
