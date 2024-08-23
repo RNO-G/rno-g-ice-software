@@ -247,6 +247,7 @@ typedef struct acq_config
       } at_start;
 
       int length;
+      int preclear_force_trigger;
     } waveforms;
 
 

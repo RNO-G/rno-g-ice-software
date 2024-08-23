@@ -527,8 +527,7 @@ int flower_configure()
     .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
   };
 
-
-  
+  flower_enable_force_trigger_preclear(flower, cfg.lt.waveforms.preclear_force_trigger);
 
   if (!cfg.lt.gain.auto_gain) 
   {
@@ -587,12 +586,10 @@ int flower_initial_setup()
   }
 
   flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
-  //then the rest of the configuration; 
-  flower_configure(); 
+  //then the rest of the configuration;
+  flower_configure();
 
-
-
-  return 0; 
+  return 0;
 }
 
 
@@ -600,8 +597,7 @@ int flower_initial_setup()
 int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
 {
 
-  //could be an RF trigger here, actually, should probably check trigger type...
- flower_buffer_clear(flower);
+ if (!force || !cfg.lt.waveforms.preclear_force_trigger) flower_buffer_clear(flower);
  if (force) flower_force_trigger(flower);
  int avail = 0;
  struct timespec now;

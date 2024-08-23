@@ -106,6 +106,7 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->lt.waveforms
   SECT.length = 1024;
+  SECT.preclear_force_trigger = 1;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_finish
@@ -602,6 +603,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.waveforms.at_start.nsecs_rf);
   LOOKUP_INT(lt.waveforms.at_start.nforce);
   LOOKUP_INT(lt.waveforms.length);
+  LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
   LOOKUP_INT(calib.enable_cal);
   LOOKUP_INT(calib.turn_off_at_exit);
@@ -828,6 +830,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
 
       WRITE_INT(lt.waveforms,length,"Number of samples");
+      WRITE_INT(lt.waveforms,preclear_force_trigger,"Clear force trigger before sending in same SPI ioctl tranasaction");
       SECT(at_finish,"Post-run waveform taking");
         WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms after run");
         WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
