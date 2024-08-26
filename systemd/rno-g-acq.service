@@ -1,6 +1,6 @@
 [Unit]
 Description=Record RNO-G Data
-Wants=rno-g-copy.service
+Wants=rno-g-copy.service rno-g-copy-meta.service
 # Eventually, for now must be started manually
 #Requires=rno-g-startup.service
 
