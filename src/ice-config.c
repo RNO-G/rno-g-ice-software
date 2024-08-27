@@ -46,6 +46,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256;
   SECT.mon_buf_size = 128;
 
+//lt  (low-threshold)
+//
 #undef SECT
 #define SECT cfg->lt.gain
   SECT.auto_gain=1;
@@ -55,8 +57,6 @@ int init_acq_config(acq_config_t * cfg)
     SECT.fixed_gain_codes[i] =5;
   }
 
-  //lt  (low-threshold)
-  //
 #undef SECT
 #define SECT cfg->lt.device
   SECT.spi_enable_gpio = 0;
@@ -102,6 +102,23 @@ int init_acq_config(acq_config_t * cfg)
   SECT.P = 0.0002;
   SECT.I = 0;
   SECT.D = 0;
+
+#undef SECT
+#define SECT cfg->lt.waveforms
+  SECT.length = 1024;
+  SECT.preclear_force_trigger = 1;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_finish
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_start
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
 
 
 ////RADIANT
@@ -579,6 +596,15 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.gain.auto_gain);
   LOOKUP_FLOAT(lt.gain.target_rms);
 
+  LOOKUP_INT(lt.waveforms.at_finish.enable);
+  LOOKUP_INT(lt.waveforms.at_finish.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_finish.nforce);
+  LOOKUP_INT(lt.waveforms.at_start.enable);
+  LOOKUP_INT(lt.waveforms.at_start.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_start.nforce);
+  LOOKUP_INT(lt.waveforms.length);
+  LOOKUP_INT(lt.waveforms.preclear_force_trigger);
+
   LOOKUP_INT(calib.enable_cal);
   LOOKUP_INT(calib.turn_off_at_exit);
   LOOKUP_INT(calib.i2c_bus);
@@ -632,7 +658,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   fprintf(f,"// Main configuration file for rno-g-acq (typically /rno-g/cfg/acq.cfg is used)\n");
   fprintf(f,"// This file is in libconfig format, though your syntax highligher might mistake it for json\n");
   fprintf(f,"// Changing values in this file may adversely affect the operation of the DAQ.\n");
-  fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor. \n");
+  fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor.\n");
   fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n\n");
 
 
@@ -794,12 +820,27 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
        WRITE_FLT(lt.servo,servo_interval,"How often we run the scaler");
        WRITE_FLT(lt.servo,P,"PID loop P term");
        WRITE_FLT(lt.servo,I,"PID loop I term");
-       WRITE_FLT(lt.servo,D,"PID loop D term ");
+       WRITE_FLT(lt.servo,D,"PID loop D term");
     UNSECT();
     SECT(gain,"Settings related to HMCAD1511 gain");
       WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
+    UNSECT();
+    SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
+
+      WRITE_INT(lt.waveforms,length,"Number of samples");
+      WRITE_INT(lt.waveforms,preclear_force_trigger,"Clear force trigger before sending in same SPI ioctl tranasaction");
+      SECT(at_finish,"Post-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms after run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
+      SECT(at_start,"Pre-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms before run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
     UNSECT();
     SECT(device,"Settings related to device interface");
       WRITE_STR(lt.device,spi_device,"The SPI device for the low-threshold board");
@@ -819,13 +860,13 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_STR(output,base_dir,"Base directory for writing out data");
     WRITE_STR(output,runfile,"The file used to persist the run");
     WRITE_STR(output,comment,"A human-readable comment that you can fill what whatever hopefully useful comment (or, an excuse not to take good notes?)");
-    WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages) ");
+    WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages)");
     WRITE_INT(output,seconds_per_run,"Number of seconds per run");
     WRITE_INT(output,max_events_per_file,"Maximum number of events per event (and header) file, or 0 to ignore");
     WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ignore");
     WRITE_INT(output,max_seconds_per_file,"Maximum seconds per file (or 0 to ignore)");
     WRITE_INT(output,max_kB_per_file,"Maximum kB per file (or 0 to ignore), not including any compression");
-    WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored. ");
+    WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored.");
     WRITE_INT(output,min_free_space_MB_runfile_partition,"Minimum free space on the partition where the runfile gets stored");
     WRITE_INT(output,allow_rundir_overwrite,"Allow overwriting output directories (only effective if there's a runfile)");
     WRITE_INT(output,print_interval,"Interval for printing a bunch of stuff to a screen nobody will see. Ideally done in green text with The Matrix font...");
