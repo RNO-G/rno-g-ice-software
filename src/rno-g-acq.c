@@ -603,10 +603,12 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
   struct timespec now;
   while (!avail)
   {
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    if (deadline && timespec_difference(&now,deadline) > 0) return -1;
+    clock_gettime(CLOCK_REALTIME, &now);
+    if (deadline && timespec_difference(&now, deadline) > 0) {
+      return -1;
+    }
 
-    flower_buffer_check(flower,&avail);
+    flower_buffer_check(flower, &avail);
 
     if (!avail)
     {
@@ -616,7 +618,7 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
     // maybe feed watchdog
     if (last_watchdog < now.tv_sec - 5)
     {
-      feed_watchdog(NULL);
+      feed_watchdog(0);
     }
   }
 
@@ -654,7 +656,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 
   gzFile of = gzopen(outfile,"w");
 
-  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
+  gzprintf(of,"{\n\t\"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
 
   int nev = 0;
 
@@ -668,8 +670,8 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
   if (nsecs_rf > 0)
   {
     struct timespec rf_start;
-    clock_gettime(CLOCK_MONOTONIC, &rf_start);
-    struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec };
+    clock_gettime(CLOCK_REALTIME, &rf_start);
+    struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec};
 
     while (!flower_take_waveform(of, 0, nev, &deadline)) nev++;
   }
