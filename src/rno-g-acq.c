@@ -625,20 +625,23 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
   flower_read_waveform_metadata(flower,&meta);
 
 
-  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": : %s,\n", iev > 0 ? "," : "", force ? "true" : "false");
+  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": %s,\n", iev > 0 ? "," : "", force ? "true" : "false");
   gzprintf(of,"\t\t\t\"metadata\": { \"event_counter\": %u, \"trigger_counter\": %u, \"trigger_type\": \"%s\", \"pps_flag\": %s, \"timestamp\": %"PRIu64 ", \"recent_pps_timestamp\": %"PRIu64 "},\n",
       meta.event_counter, meta.trigger_counter, flower_trigger_type_as_string(meta.trigger_type), meta.pps_flag ? "true" : "false",  meta.timestamp, meta.recent_pps_timestamp);
 
   for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    gzprintf(of,"\t\t{\n\t\t\t\"ch%d\": [",i);
+    gzprintf(of,"\t\t\n\t\t\t\"ch%d\": [",i);
     for (int j = 0; j < flower_waveforms_len; j++)
     {
       gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
       if (j < flower_waveforms_len-1)
         gzprintf(of,",");
     }
-    gzprintf(of,"];\n");
+    if (i < RNO_G_NUM_LT_CHANNELS - 1)
+      gzprintf(of,"],\n");
+    else
+      gzprintf(of,"]\n");
   }
   gzprintf(of,"\n\t\t}");
 
@@ -651,7 +654,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 
   gzFile of = gzopen(outfile,"w");
 
-  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\"\n;\n\t\"events\" : [", station_number);
+  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\"\n,\n\t\"events\" : [", station_number);
 
   int nev = 0;
 
@@ -671,7 +674,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
     while (!flower_take_waveform(of, 0, nev, &deadline)) nev++;
   }
 
-  gzprintf(of,"\t];\n}");
+  gzprintf(of,"\t]\n}");
 
   gzclose(of);
   return 0;
