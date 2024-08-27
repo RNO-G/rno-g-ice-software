@@ -654,7 +654,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 
   gzFile of = gzopen(outfile,"w");
 
-  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\"\n,\n\t\"events\" : [", station_number);
+  gzprintf(of,"{\n\t \"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
 
   int nev = 0;
 
