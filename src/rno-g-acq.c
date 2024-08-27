@@ -681,7 +681,7 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 static void record_timimg()
 {
   feed_watchdog(0); //don't get killed by watchdog
-  printf("Performing timing measurements. This should just take a few minutes.\n");
+  printf("Performing timing measurements. This should just take ~ a minute.\n");
 
   char command[200];
   snprintf(command, sizeof(command), "%s -n %d --data_dir %s",
