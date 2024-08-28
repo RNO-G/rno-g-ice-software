@@ -258,7 +258,7 @@ static void read_config()
     char * ofname;
     time_t now;
     time(&now);
-    asprintf(&ofname,"%s/cfg/acq.%d.%lu.cfg", output_dir, config_counter,now);
+    asprintf(&ofname,"%s/cfg/acq.%d.%lu.cfg", output_dir, config_counter, now);
     FILE * of = fopen(ofname,"w");
     dump_acq_config(of, &cfg);
     fclose(of);
@@ -574,8 +574,7 @@ int flower_initial_setup()
     flower_equalize(flower, target,flower_codes,FLOWER_EQUALIZE_VERBOSE);
   }
 
-
-  if ( cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
+  if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
   {
     flower_waveforms_len = cfg.lt.waveforms.length;
     flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, flower_waveforms_len);
@@ -585,7 +584,7 @@ int flower_initial_setup()
     }
   }
 
-  flower_set_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
+  flower_set_thresholds(flower, ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
   //then the rest of the configuration;
   flower_configure();
 
@@ -624,8 +623,7 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
 
   flower_waveform_metadata_t meta = {0};
   flower_read_waveforms(flower, flower_waveforms_len, flower_waveforms);
-  flower_read_waveform_metadata(flower,&meta);
-
+  flower_read_waveform_metadata(flower ,&meta);
 
   gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": %s,\n", iev > 0 ? "," : "", force ? "true" : "false");
   gzprintf(of,"\t\t\t\"metadata\": { \"event_counter\": %u, \"trigger_counter\": %u, \"trigger_type\": \"%s\", \"pps_flag\": %s, \"timestamp\": %"PRIu64 ", \"recent_pps_timestamp\": %"PRIu64 "},\n",
@@ -633,7 +631,7 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
 
   for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    gzprintf(of,"\t\t\n\t\t\t\"ch%d\": [",i);
+    gzprintf(of,"\t\t\t\"ch%d\": [",i);
     for (int j = 0; j < flower_waveforms_len; j++)
     {
       gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
@@ -645,7 +643,7 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
     else
       gzprintf(of,"]\n");
   }
-  gzprintf(of,"\n\t\t}");
+  gzprintf(of,"\t\t}");
 
   return 0;
 }
@@ -655,11 +653,9 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 {
 
   gzFile of = gzopen(outfile,"w");
-
   gzprintf(of,"{\n\t\"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
 
   int nev = 0;
-
   //force first
   for (int iev = 0; iev < nforce; iev++)
   {
@@ -677,7 +673,6 @@ int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
   }
 
   gzprintf(of,"\t]\n}");
-
   gzclose(of);
   return 0;
 }
@@ -945,16 +940,13 @@ void * acq_thread(void* v)
   (void) v;
   while(!quit)
   {
-
     //acquire read lock on radiant, flower, and cfg
     pthread_rwlock_rdlock(&radiant_lock);
     pthread_rwlock_rdlock(&flower_lock);
     pthread_rwlock_rdlock(&cfg_lock);
 
-
     // wait for the RADIANT to trigger
     //TODO handle clear flag, though we don't really want one
-
     if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
     {
       // Get a buffer , and fill it
@@ -968,14 +960,11 @@ void * acq_thread(void* v)
       ice_buf_commit(acq_buffer);
     }
 
-
     //release the read locks
     pthread_rwlock_unlock(&cfg_lock);
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
-
   }
-
 
   return 0;
 }
@@ -1016,14 +1005,11 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
 
   for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
   {
-
-
     //calculate adjusted scaler
     float adjusted_scaler = ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1);
 
     //put in rolling window
     st->scaler_v[chan][idx] = adjusted_scaler;
-
 
     st->last_value[chan] = st->value[chan];
     st->value[chan] = 0;
@@ -1768,11 +1754,10 @@ static int initial_setup()
   read_config();
 
   // Check that there is sufficient free space before proceeding any farther;
-
   runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
   output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
 
-  while ( cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition)
+  while (cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition)
   {
     fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition);
 
@@ -1833,7 +1818,6 @@ static int initial_setup()
 
     //our output dir is going to be the base_dir + run%d/
     asprintf(&output_dir, "%s/run%d/", cfg.output.base_dir, run_number);
-
 
     //avoid overwriting rundir (note that run 0 may still be overwritten if there is no run file, but that's ok.)
     if (!cfg.output.allow_rundir_overwrite)
@@ -1906,10 +1890,10 @@ static int initial_setup()
         clamp(cfg.lt.thresholds.initial[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255);
     }
   }
-  pthread_rwlock_init(&ds_lock,NULL);
+  pthread_rwlock_init(&ds_lock, NULL);
 
   //initialize the radiant lock
-  pthread_rwlock_init(&radiant_lock,NULL);
+  pthread_rwlock_init(&radiant_lock, NULL);
 
   // When it is time to do a bias scan record the timing before setting up the radiant
   if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
@@ -1946,14 +1930,13 @@ static int initial_setup()
     }
   } while (!radiant);
 
-
   //open the flower before doing radiant_initial_setup so we fail faster
-  pthread_rwlock_init(&flower_lock,NULL);
+  pthread_rwlock_init(&flower_lock, NULL);
 
   flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio);
   if (!flower && cfg.lt.device.required)
   {
-    fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
+    fprintf(stderr, "COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
     sleep(20);
     return 1;
   }
@@ -1961,19 +1944,19 @@ static int initial_setup()
   feed_watchdog(0);
 
   //intitial configure of the radiant, bail if can't open
-  if (radiant_initial_setup()) return 1;
+  if (radiant_initial_setup())
+    return 1;
   feed_watchdog(0);
 
-
   //and the flower, bail if can't open  and required
-  if (flower_initial_setup() && cfg.lt.device.required) return 1;
+  if (flower_initial_setup() && cfg.lt.device.required)
+    return 1;
   feed_watchdog(0);
 
   //update the run file
   if (frun)
   {
     fclose(frun);
-
 
     char * tmp_run_file = 0;
     asprintf(&tmp_run_file, "%s.tmp", cfg.output.runfile);
@@ -1996,8 +1979,8 @@ static int initial_setup()
     free(tmp_run_file);
   }
 
-  bigbuflen = strlen(output_dir)+512+1;
-  bigbuf = calloc(1,bigbuflen);
+  bigbuflen = strlen(output_dir) + 512 + 1;
+  bigbuf = calloc(1, bigbuflen);
 
   if (!bigbuf)
   {
@@ -2008,14 +1991,12 @@ static int initial_setup()
   //let's make the output directories here now
   make_dirs_for_output(output_dir);
 
-
   //HACK, take initial flower data if we need to
   if (flower && cfg.lt.waveforms.at_start.enable)
   {
     snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
     flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
   }
-
 
   //set up signal handlers
   sigset_t empty;
@@ -2024,24 +2005,23 @@ static int initial_setup()
   sa.sa_mask = empty;
   sa.sa_flags = 0;
   sa.sa_sigaction = signal_handler;
-  sigaction(SIGINT,&sa,0);
-  sigaction(SIGTERM,&sa,0);
-  sigaction(SIGUSR1,&sa,0);
-
+  sigaction(SIGINT, &sa, 0);
+  sigaction(SIGTERM, &sa, 0);
+  sigaction(SIGUSR1, &sa, 0);
 
   //initialize the buffers
   acq_buffer = ice_buf_init(cfg.runtime.acq_buf_size, sizeof(acq_buffer_item_t));
   mon_buffer = ice_buf_init(cfg.runtime.mon_buf_size, sizeof(mon_buffer_item_t));
 
   //now let's make the threads
-  pthread_create(&the_acq_thread,NULL, acq_thread, NULL);
-  pthread_create(&the_mon_thread,NULL, mon_thread, NULL);
+  pthread_create(&the_acq_thread, NULL, acq_thread, NULL);
+  pthread_create(&the_mon_thread, NULL, mon_thread, NULL);
   feed_watchdog(0);
 
   //hold the cfg lock until the write thread is done writing the config
   pthread_rwlock_rdlock(&cfg_lock);
 
-  pthread_create(&the_wri_thread,NULL, wri_thread, NULL);
+  pthread_create(&the_wri_thread, NULL, wri_thread, NULL);
 
   return 0;
 }
@@ -2063,9 +2043,7 @@ int main(int nargs, char ** args)
   if (nargs > 1) cfgpath = args[1];
 
   if (initial_setup())
-  {
     return 1;
-  }
 
   struct timespec start_time;
   clock_gettime(CLOCK_MONOTONIC_COARSE,&start_time);
@@ -2082,7 +2060,7 @@ int main(int nargs, char ** args)
 
     //check disk space
 
-    if (cfg.output.min_free_space_MB_output_partition > 0 )
+    if (cfg.output.min_free_space_MB_output_partition > 0)
     {
       double MBfree = get_free_MB_by_path(cfg.output.base_dir);
       if (MBfree < cfg.output.min_free_space_MB_output_partition)
@@ -2093,7 +2071,7 @@ int main(int nargs, char ** args)
       }
     }
 
-    clock_gettime(CLOCK_MONOTONIC_COARSE,&now);
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
     if (now.tv_sec - start_time.tv_sec > cfg.output.seconds_per_run)
     {
       please_stop();
