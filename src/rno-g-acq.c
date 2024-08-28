@@ -179,6 +179,8 @@ static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ; 
 
 struct timespec precise_start_time; 
+struct timespec precise_acq_time;
+struct timespec precise_stop_time;
 
 static uint32_t delay_clock_estimate = 10000000; 
 
@@ -1416,6 +1418,7 @@ static void * wri_thread(void* v)
     fprintf(runinfo, "STATION = %d\n", station_number);
     fprintf(runinfo, "RUN = %d\n", run_number);
     fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
+    fprintf(runinfo, "ACQ-START-TIME =  %ld.%09ld\n",precise_acq_time.tv_sec, precise_acq_time.tv_nsec); 
     fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
     fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
     fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
@@ -1923,6 +1926,7 @@ static int initial_setup()
   mon_buffer = ice_buf_init(cfg.runtime.mon_buf_size, sizeof(mon_buffer_item_t)); 
 
   //now let's make the threads
+  clock_gettime(CLOCK_REALTIME, &precise_acq_time);
   pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
   pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
   feed_watchdog(0); 
@@ -1942,6 +1946,7 @@ int please_stop()
 {
   printf("Stopping...\n"); 
   quit = 1; 
+  clock_gettime(CLOCK_REALTIME, &precise_stop_time);
   return 0; 
 }
 
@@ -2011,6 +2016,7 @@ int teardown()
   clock_gettime(CLOCK_REALTIME, &end_time); 
   if (runinfo) 
   {
+    fprintf(runinfo,"RUN-STOP-TIME = %ld.%09ld\n", precise_stop_time.tv_sec, precise_stop_time.tv_nsec); 
     fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
     fclose(runinfo); 
   }
