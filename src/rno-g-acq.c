@@ -1477,11 +1477,6 @@ static void * wri_thread(void* v)
 
   int ds_i = 0;
 
-  //open the file list
-  sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir);
-  file_list = fopen(bigbuf, "w");
-  add_to_file_list(bigbuf);
-
   //open the run info and start filling it in
   sprintf(bigbuf,"%s/aux/runinfo.txt", output_dir);
   runinfo = fopen(bigbuf,"w");
@@ -1991,10 +1986,18 @@ static int initial_setup()
   //let's make the output directories here now
   make_dirs_for_output(output_dir);
 
+
+  //open the file list
+  sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir);
+  file_list = fopen(bigbuf, "w");
+  file_list_fd = fileno(file_list);
+  add_to_file_list(bigbuf);
+
   //HACK, take initial flower data if we need to
   if (flower && cfg.lt.waveforms.at_start.enable)
   {
     snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
+    add_to_file_list(bigbuf);
     flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
   }
 
@@ -2089,10 +2092,11 @@ int teardown()
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
 
-  //HACK, take initial flower data if we need to
+  //HACK, take final flower data if we need to
   if (flower && cfg.lt.waveforms.at_finish.enable)
   {
     snprintf(bigbuf,bigbuflen,"%s/aux/flower_end.json.gz", output_dir);
+    add_to_file_list(bigbuf);
     flower_take_waveforms(cfg.lt.waveforms.at_finish.nforce, cfg.lt.waveforms.at_finish.nsecs_rf, bigbuf);
   }
 
