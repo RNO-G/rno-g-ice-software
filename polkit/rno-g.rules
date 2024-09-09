@@ -1,0 +1,24 @@
+// RNO-G specific polkit rules for allowing to start/stop runs without sudo
+
+// rule to allow rno-g group members to manage services starting with "rno-g-"
+polkit.addRule(function(action,subject)
+{
+
+  if ((action.id == "org.freedesktop.systemd1.manage-units") && subject.isInGroup("rno-g"))
+  {
+    var unit = action.lookup("unit");
+    var verb = action.lookup("verb");
+
+    if ( (unit.indexOf("rno-g-" == 0)) &&
+      ["start","stop","restart","reload"].includes(verb)
+    )
+    {
+      polkit.log("Allowing " + subject.user + " to " + verb + " " + unit);
+      return polkit.Result.YES;
+    }
+  }
+
+  return polkit.Result.NOT_HANDLED;
+})
+
+

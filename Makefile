@@ -87,6 +87,9 @@ cfg-install:
 cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
 
-service-install:
+polkit-install:
+	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
+
+service-install: polkit-install
 	install systemd/*.service /etc/systemd/system
 	systemctl daemon-reload
