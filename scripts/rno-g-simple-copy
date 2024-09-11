@@ -1,76 +1,83 @@
-#! /bin/sh 
+#! /bin/sh
 
-STN=`cat /STATION_ID | tr -d '\n'`
+STN=$(cat /STATION_ID | tr -d '\n')
 
 # Defines flag for `find` used to delete files.
 CMP=mtime
 # Threshold of FREESPACE to delete files/folders
 THRESH1=64000000
 # Combined with `mtime` -> Files which are older than 5 days are deleted.
-AGE1=5 
+AGE1=5
 # Same as for 1.
 THRESH2=32000000
-AGE2=3 
+AGE2=3
 THRESH3=16000000
-AGE3=1 
+AGE3=1
 
-if test -f /mnt/sdcard/SDCARD ; then 
-  echo "SD card detected" 
+if test -f /mnt/sdcard/SDCARD ; then
+  echo "SD card detected"
 else
-  echo "SD card not detected" 
+  echo "SD card not detected"
   CMP=mmin
   THRESH1=640000
-  AGE1=360 
+  AGE1=360
   THRESH2=320000
-  AGE2=180 
+  AGE2=180
   THRESH3=160000
-  AGE3=120 
+  AGE3=120
 fi
 
-while true; 
-do 
-  sleep 60; 
-  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+# We jump into the data directory. This seems necessary for the later:
+# `find . ... | rsync  --remove-source-files --files-from=- ./ ...`
+cd /data/daq
 
-  # only delete if rsync succeeds correctly 
-  if [ $? -ne 0 ] ; then 
-    continue ; 
-  fi 
+while true;
+do
+  sleep 60;
+  timeout 2d rsync -avh --exclude '*.tmp' --exclude 'aux/' --exclude 'cfg/' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+
+  # only delete if rsync succeeds correctly
+  if [ $? -ne 0 ] ; then
+    continue ;
+  fi
 
 
-  if test -d /data/windmon ; then 
-    rsync -avh /data/windmon 10.1.0.1:/data/ingress/station$STN/ 
-    # only delete if rsync succeeds correctly 
-    if [ $? -ne 0 ] ; then 
-      continue ; 
-    fi 
-  fi 
+  if test -d /data/windmon ; then
+    rsync -avh /data/windmon 10.1.0.1:/data/ingress/station$STN/
+    # only delete if rsync succeeds correctly
+    if [ $? -ne 0 ] ; then
+      continue ;
+    fi
+  fi
 
   #rsync AGAIN in case we were behind
-  rsync -avh --exclude '*.tmp' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
+  timeout 2d rsync -avh --exclude '*.tmp' --exclude 'aux/' --exclude 'cfg/' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   #in 1K blocks
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-  if [ $FREESPACE -lt $THRESH1 ] ; 
-  then  
-    find /data/daq -${CMP} +${AGE1} -delete 
-
-    # delete wind monitoring 
-    if test -d /data/windmon ; then 
-      find /data/windmon -mtime  +3 -delete 
-    fi 
-  fi 
-
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-  if [ $FREESPACE -lt $THRESH2 ] ; 
-  then 
-    find /data/daq -${CMP} +${AGE2} -delete 
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  if [ $FREESPACE -lt $THRESH1 ] ;
+  then
+    # Try to copy a last time and delete if / after copied
+    find . -${CMP} +${AGE1} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE1} -delete
+    # delete wind monitoring
+    if test -d /data/windmon ; then
+      find /data/windmon -mtime  +3 -delete
+    fi
   fi
 
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`  
-  if [ $FREESPACE -lt $THRESH3 ] ; 
-  then 
-    find /data/daq -${CMP} +${AGE3} -delete 
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  if [ $FREESPACE -lt $THRESH2 ] ;
+  then
+    find . -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE2} -delete
   fi
 
-done 
+  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  if [ $FREESPACE -lt $THRESH3 ] ;
+  then
+    find . -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
+    find . -type d -empty -${CMP} +${AGE3} -delete
+  fi
+
+done
