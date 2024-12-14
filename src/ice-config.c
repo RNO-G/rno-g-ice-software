@@ -73,7 +73,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.coinc.rf_coinc_channel_mask=0xf;
   
   SECT.phased.enable_rf_phased_trigger = 1; 
-  SECT.phased.rf_phased_beam_mask=0x0ff;
+  SECT.phased.rf_phased_beam_mask=0xfff;
   SECT.phased.rf_phased_threshold_offset=0x000; //should be unused
 
   SECT.enable_rf_trigger_sys_out =1;
