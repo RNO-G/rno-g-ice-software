@@ -998,10 +998,10 @@ static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, cons
   if (!fast_factor) 
   {
 
-    uint8_t rev, major, minor; 
-    flower_get_fwversion(flower, &major,&minor,&rev,0,0,0); 
+    uint8_t station, major, minor; 
+    flower_get_fwversion(flower, &station,&major,&minor,0,0,0); 
 
-    if (!major && !minor && rev < 6) fast_factor = 1000; 
+    if (!major && minor < 6) fast_factor = 1000; 
     else fast_factor = 100; 
   }
   
@@ -1034,10 +1034,10 @@ static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, co
   if (!fast_factor) 
   {
 
-    uint8_t rev, major, minor; 
-    flower_get_fwversion(flower, &major,&minor,&rev,0,0,0); 
+    uint8_t station, major, minor; 
+    flower_get_fwversion(flower, &station,&major,&minor,0,0,0); 
 
-    if (!major && !minor && rev < 6) fast_factor = 1000; 
+    if (!major && minor < 6) fast_factor = 1000; 
     else fast_factor = 100; 
   }
   
@@ -1512,7 +1512,7 @@ static void * wri_thread(void* v)
     fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
     
     //write down radiant info to runinfo 
-    uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
+    uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
     radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
     fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
     fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
@@ -1528,9 +1528,9 @@ static void * wri_thread(void* v)
     uint16_t flower_fwyear;
     if (flower) 
     {
-      flower_get_fwversion(flower, &fwmajor, &fwminor, &fwrev, &flower_fwyear, &fwmon, &fwday); 
-      fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-      fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday); 
+      flower_get_fwversion(flower, &fwstation, &fwmajor, &fwmajor, &flower_fwyear, &fwmon, &fwday); 
+      fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwstation, fwmajor, fwminor); 
+      fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday);
     }
     else
     {
@@ -1964,6 +1964,14 @@ static int initial_setup()
     fprintf(stderr,"COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting"); 
     sleep(20);
     return 1; 
+  }
+
+  uint8_t fwstation, fwmajor, fwminor;
+  flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, 0, 0, 0);
+  if ((1000*fwmajor + fwminor) >= 14 && fwstation != station_number)
+  {
+    //complain but don't quit since it's not necessarily fatal (ie lab testing)
+    fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
   }
 
   feed_watchdog(0); 
