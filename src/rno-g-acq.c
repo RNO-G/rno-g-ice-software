@@ -998,10 +998,10 @@ static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, cons
   if (!fast_factor) 
   {
 
-    uint8_t station, major, minor; 
-    flower_get_fwversion(flower, &station,&major,&minor,0,0,0); 
+    int fw_ver; 
+    flower_get_fwversion_int(flower, &fw_ver); 
 
-    if (!major && minor < 6) fast_factor = 1000; 
+    if (fw_ver < 6) fast_factor = 1000; 
     else fast_factor = 100; 
   }
   
