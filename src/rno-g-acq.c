@@ -1528,7 +1528,7 @@ static void * wri_thread(void* v)
     uint16_t flower_fwyear;
     if (flower) 
     {
-      flower_get_fwversion(flower, &fwstation, &fwmajor, &fwmajor, &flower_fwyear, &fwmon, &fwday); 
+      flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, &flower_fwyear, &fwmon, &fwday); 
       fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwstation, fwmajor, fwminor); 
       fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday);
     }
