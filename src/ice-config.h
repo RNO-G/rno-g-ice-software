@@ -238,6 +238,26 @@ typedef struct acq_config
       uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
     } gain;
 
+    struct
+    {
+      struct
+      {
+        int enable;
+        int nsecs_rf;
+        int nforce;
+      } at_finish;
+
+      struct
+      {
+        int enable;
+        int nsecs_rf;
+        int nforce;
+      } at_start;
+
+      int length;
+      int preclear_force_trigger;
+    } waveforms;
+
 
   } lt;
 
