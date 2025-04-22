@@ -107,7 +107,7 @@ int init_acq_config(acq_config_t * cfg)
     SECT.phased_scaler_goals[i] = 500; 
   }
   SECT.servo_thresh_frac = 0.95; 
-  SECT.phased_servo_thresh_frac = 0.7; 
+  SECT.phased_servo_thresh_frac = 0.6; 
 
   SECT.servo_thresh_offset = 0; 
   SECT.fast_scaler_weight = 0.3; 
@@ -115,7 +115,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.scaler_update_interval = 0.5; 
   SECT.servo_interval = 1; 
   SECT.subtract_gated = 0; 
-  SECT.P = 0.002;
+  SECT.P = 0.0002;
   SECT.phased_P = 0.002; 
   SECT.I = 0; 
   SECT.D = 0; 
