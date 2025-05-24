@@ -589,7 +589,7 @@ int flower_initial_setup()
     //disable the coincident trigger momentarily 
     flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0, .enable_phased=0};
     flower_set_trigger_enables(flower,trig_enables);
-    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, cfg.lt.gain.fine_gain, flower_fine_values);
+    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, cfg.lt.gain.fine_gain, flower_fine_gain_values);
   }
 
   if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
