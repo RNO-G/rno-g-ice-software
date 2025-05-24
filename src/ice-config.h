@@ -234,8 +234,11 @@ typedef struct acq_config
     struct
     {
       int auto_gain;
+      int fine_gain;
       float target_rms;
       uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
+      uint8_t fixed_fine_gain_values[RNO_G_NUM_LT_CHANNELS];
+
     } gain;
 
     struct
