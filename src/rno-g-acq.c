@@ -512,7 +512,7 @@ int flower_configure()
 
   pthread_rwlock_wrlock(&flower_lock); 
   pthread_rwlock_rdlock(&cfg_lock); 
-  rno_g_lt_simple_trigger_config_t ltcfg; 
+  rno_g_lt_trigger_config_t ltcfg; 
   rno_g_lt_phased_trigger_config_t ltcfg_phased; 
 
   ltcfg.window = cfg.lt.trigger.coinc.window; 
