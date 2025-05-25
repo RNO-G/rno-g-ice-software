@@ -99,7 +99,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
   {
-    SECT.initial_phased_thresholds[i] = 600; 
+    SECT.initial_phased_thresholds[i] = 1000; 
   }
 #undef SECT
 #define SECT cfg->lt.servo
