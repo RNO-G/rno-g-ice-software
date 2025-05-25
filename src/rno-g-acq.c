@@ -602,7 +602,7 @@ int flower_initial_setup()
     }
   }
 
-  flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
+  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
   flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0xfff);
   
   //then the rest of the configuration; 
@@ -1256,7 +1256,7 @@ static void * mon_thread(void* v)
   flower_phased_servo_state_t flwr_phased_servo_state = {0}; 
 
   float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS]; 
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_coinc_servo_thresholds[i];
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
 
   float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS]; 
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
@@ -1290,7 +1290,7 @@ static void * mon_thread(void* v)
       min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5; 
       max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5; 
       max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5; 
-      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_coinc_servo_thresholds[i];
+      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
       for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
     }
@@ -1404,10 +1404,10 @@ static void * mon_thread(void* v)
 
          
            flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120); 
-           ds->lt_coinc_servo_thresholds[ch] = flower_coinc_float_thresh[ch]; 
-           ds->lt_coinc_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
+           ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch]; 
+           ds->lt_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
         }
-        flower_set_coinc_thresholds(flower,ds->lt_coinc_trigger_thresholds,ds->lt_coinc_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
+        flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
       }
       if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
       {
@@ -1979,8 +1979,8 @@ static int initial_setup()
   {
     for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
     {
-      ds->lt_coinc_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i]; 
-      ds->lt_coinc_servo_thresholds[i] = 
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i]; 
+      ds->lt_servo_thresholds[i] = 
         clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
     }
 
