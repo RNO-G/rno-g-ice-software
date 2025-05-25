@@ -603,7 +603,7 @@ int flower_initial_setup()
   }
 
   flower_set_coinc_thresholds(flower,  ds->lt_coinc_trigger_thresholds, ds->lt_coinc_servo_thresholds, 0xf); 
-  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff); 
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0xfff);
   
   //then the rest of the configuration; 
   flower_configure(); 
@@ -927,9 +927,6 @@ int radiant_initial_setup()
       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, clamp(cfg.radiant.analog.trig_attenuation[ichan],0,31.75)*4);
     }
   }
-
-
-
 
   //set thresholds
   radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
@@ -1431,8 +1428,6 @@ static void * mon_thread(void* v)
 
       last_servo_lt = nowf; 
     }
-    
-    //do we need to write out the DAQ status? 
 
     //do we need to write out the DAQ status?
 
@@ -1941,7 +1936,7 @@ static int initial_setup()
   //need to do this before opening the radiant/flower since we need to laod thresholds, potentially
   if (cfg.runtime.status_shmem_file && *cfg.runtime.status_shmem_file)
   {
-    shared_ds_fd = open(cfg.runtime.status_shmem_file, O_CREAT | O_RDWR,0755);
+    shared_ds_fd = open(cfg.runtime.status_shmem_file, O_CREAT | O_RDWR, 0755);
 
     if (shared_ds_fd <= 0)
     {
