@@ -138,6 +138,7 @@ static flower_dev_t * flower = 0;
 
 uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
 uint8_t flower_fine_gain_values[RNO_G_NUM_LT_CHANNELS];
+float flower_rms[RNO_G_NUM_LT_CHANNELS];
 uint8_t *flower_waveforms_data;
 uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
 int flower_waveforms_len;
@@ -499,6 +500,10 @@ int write_gain_codes(char * buf)
   {
     fprintf(of, "%u%s", flower_fine_gain_values[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
   }
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+  {
+    fprintf(of, "%f%s", flower_rms[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
+  }
   fclose(of);
   add_to_file_list(buf);
   return 0;
@@ -589,7 +594,7 @@ int flower_initial_setup()
     //disable the coincident trigger momentarily 
     flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0, .enable_phased=0};
     flower_set_trigger_enables(flower,trig_enables);
-    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, cfg.lt.gain.fine_gain, flower_fine_gain_values);
+    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, cfg.lt.gain.fine_gain, flower_fine_gain_values, flower_rms);
   }
 
   if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
