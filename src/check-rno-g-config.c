@@ -11,6 +11,12 @@ int main(int nargs, char ** args)
     return 1; 
   }
 
+  if (nargs < 3)
+  {
+    fprintf(stderr,"What file to check?\n");
+    return 1;
+  }
+
   if (!strcmp(args[1],"acq"))
   {
     char * ifname = args[2]; 
