@@ -137,7 +137,7 @@ static uint32_t radiant_trig_chan = 0;
 static flower_dev_t * flower = 0;
 
 uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
-float flower_codes[RNO_G_NUM_LT_CHANNELS];
+float flower_rms[RNO_G_NUM_LT_CHANNELS];
 
 uint8_t *flower_waveforms_data;
 uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
