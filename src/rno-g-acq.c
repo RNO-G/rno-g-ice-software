@@ -498,7 +498,7 @@ int write_gain_codes(char * buf)
   }
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    fprintf(of, "%.2f%s", flower_rms[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
+    fprintf(of, "%.3f%s", flower_rms[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
   }
   fclose(of);
   add_to_file_list(buf);
