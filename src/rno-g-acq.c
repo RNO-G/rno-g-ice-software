@@ -187,7 +187,7 @@ static int please_stop();
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
 
-struct timespec precise_start_time; 
+struct timespec precise_start_time;
 struct timespec precise_acq_time;
 struct timespec precise_stop_time;
 
@@ -481,7 +481,7 @@ int calpulser_configure()
 }
 
 
-int write_gain_codes(char * buf) 
+int write_gain_codes(char * buf)
 {
   if (!flower) return -1;
   static int gain_codes_counter = 0;
@@ -511,25 +511,25 @@ int flower_configure()
 {
   if (!flower) return -1;
 
-  pthread_rwlock_wrlock(&flower_lock); 
-  pthread_rwlock_rdlock(&cfg_lock); 
-  rno_g_lt_trigger_config_t ltcfg; 
-  rno_g_lt_phased_trigger_config_t ltcfg_phased; 
+  pthread_rwlock_wrlock(&flower_lock);
+  pthread_rwlock_rdlock(&cfg_lock);
+  rno_g_lt_trigger_config_t ltcfg;
+  rno_g_lt_phased_trigger_config_t ltcfg_phased;
 
-  ltcfg.window = cfg.lt.trigger.coinc.window; 
-  ltcfg.vpp_mode = cfg.lt.trigger.coinc.vpp; 
-  ltcfg.num_coinc =cfg.lt.trigger.coinc.enable_rf_coinc_trigger ?  cfg.lt.trigger.coinc.min_coincidence-1 : 4; 
+  ltcfg.window = cfg.lt.trigger.coinc.window;
+  ltcfg.vpp_mode = cfg.lt.trigger.coinc.vpp;
+  ltcfg.num_coinc =cfg.lt.trigger.coinc.enable_rf_coinc_trigger ?  cfg.lt.trigger.coinc.min_coincidence-1 : 4;
   ltcfg.channel_mask=0xf; //cfg.lt.trigger.coinc.rf_coinc_channel_mask; not implemented. forced to 0xf
   ltcfg_phased.beam_mask=cfg.lt.trigger.phased.rf_phased_beam_mask;
   ltcfg_phased.phased_threshold_offset=cfg.lt.trigger.phased.rf_phased_threshold_offset;
   //might want to add an xorr between enables unless someone really wanted to use both
 
-  int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased); 
+  int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased);
 
   flower_trigger_enables_t trig_enables = {
-    .enable_coinc=cfg.lt.trigger.coinc.enable_rf_coinc_trigger, 
+    .enable_coinc=cfg.lt.trigger.coinc.enable_rf_coinc_trigger,
     .enable_phased=cfg.lt.trigger.phased.enable_rf_phased_trigger,
-    .enable_pps = 0, 
+    .enable_pps = 0,
     .enable_ext = 0
   };
 
@@ -580,8 +580,8 @@ int flower_initial_setup()
   //do the auto gain if asked to
   if (cfg.lt.gain.auto_gain)
   {
-    float target = cfg.lt.gain.target_rms; 
-    //disable the coincident trigger momentarily 
+    float target = cfg.lt.gain.target_rms;
+    //disable the coincident trigger momentarily
     flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0, .enable_phased=0};
     flower_set_trigger_enables(flower,trig_enables);
     flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, flower_rms);
@@ -597,11 +597,11 @@ int flower_initial_setup()
     }
   }
 
-  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf); 
-  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff); 
-  
-  //then the rest of the configuration; 
-  flower_configure(); 
+  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff);
+
+  //then the rest of the configuration;
+  flower_configure();
 
   return 0;
 }
@@ -738,6 +738,7 @@ static int do_bias_scan()
 
   rno_g_pedestal_t ped;
   ped.station = station_number;
+  ped.run = run_number;
 
   for (int val = cfg.radiant.bias_scan.min_val;
       val <= cfg.radiant.bias_scan.max_val;
@@ -986,21 +987,21 @@ void * acq_thread(void* v)
 
 typedef struct flower_coinc_servo_state
 {
-  float value[RNO_G_NUM_LT_CHANNELS]; 
-  float last_value[RNO_G_NUM_LT_CHANNELS]; 
-  float error[RNO_G_NUM_LT_CHANNELS]; 
-  float last_error[RNO_G_NUM_LT_CHANNELS]; 
-  float sum_error[RNO_G_NUM_LT_CHANNELS]; 
-} flower_coinc_servo_state_t; 
+  float value[RNO_G_NUM_LT_CHANNELS];
+  float last_value[RNO_G_NUM_LT_CHANNELS];
+  float error[RNO_G_NUM_LT_CHANNELS];
+  float last_error[RNO_G_NUM_LT_CHANNELS];
+  float sum_error[RNO_G_NUM_LT_CHANNELS];
+} flower_coinc_servo_state_t;
 
 typedef struct flower_phased_servo_state
 {
-  float value[RNO_G_NUM_LT_BEAMS]; 
-  float last_value[RNO_G_NUM_LT_BEAMS]; 
-  float error[RNO_G_NUM_LT_BEAMS]; 
-  float last_error[RNO_G_NUM_LT_BEAMS]; 
-  float sum_error[RNO_G_NUM_LT_BEAMS]; 
-} flower_phased_servo_state_t; 
+  float value[RNO_G_NUM_LT_BEAMS];
+  float last_value[RNO_G_NUM_LT_BEAMS];
+  float error[RNO_G_NUM_LT_BEAMS];
+  float last_error[RNO_G_NUM_LT_BEAMS];
+  float sum_error[RNO_G_NUM_LT_BEAMS];
+} flower_phased_servo_state_t;
 
 typedef struct radiant_servo_state
 {
@@ -1072,16 +1073,16 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
 
 static void setup_flower_coinc_servo_state(flower_coinc_servo_state_t * st)
 {
-  memset(st, 0, sizeof(flower_coinc_servo_state_t)); 
+  memset(st, 0, sizeof(flower_coinc_servo_state_t));
 }
 
 static void setup_flower_phased_servo_state(flower_phased_servo_state_t * st)
 {
-  memset(st, 0, sizeof(flower_phased_servo_state_t)); 
+  memset(st, 0, sizeof(flower_phased_servo_state_t));
 }
 
 
-static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds) 
+static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds)
 {
 
   float sw = cfg.lt.servo.slow_scaler_weight;
@@ -1097,64 +1098,64 @@ static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, cons
   if (!fast_factor)
   {
 
-    int fw_ver; 
-    flower_get_fwversion_int(flower, &fw_ver); 
+    int fw_ver;
+    flower_get_fwversion_int(flower, &fw_ver);
 
-    if (fw_ver < 6) fast_factor = 1000; 
-    else fast_factor = 100; 
+    if (fw_ver < 6) fast_factor = 1000;
+    else fast_factor = 100;
   }
 
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
 
     float val =  fw * fast_factor*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
-    st->last_value[i] = st->value[i]; 
-    st->value[i] = val; 
-    st->last_error[i] = st->error[i]; 
-    st->error[i] = (val-cfg.lt.servo.coinc_scaler_goals[i]); 
-    st->sum_error[i] += st->error[i]; 
-  } 
+    st->last_value[i] = st->value[i];
+    st->value[i] = val;
+    st->last_error[i] = st->error[i];
+    st->error[i] = (val-cfg.lt.servo.coinc_scaler_goals[i]);
+    st->sum_error[i] += st->error[i];
+  }
 }
 
 
-static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, const rno_g_daqstatus_t * ds) 
+static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, const rno_g_daqstatus_t * ds)
 {
 
-  float sw = cfg.lt.servo.slow_scaler_weight; 
-  float fw = cfg.lt.servo.fast_scaler_weight; 
+  float sw = cfg.lt.servo.slow_scaler_weight;
+  float fw = cfg.lt.servo.fast_scaler_weight;
 
 
   const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
   const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
   const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
 
-  int sub = cfg.lt.servo.subtract_gated; 
-  static float fast_factor = 0; 
-  if (!fast_factor) 
+  int sub = cfg.lt.servo.subtract_gated;
+  static float fast_factor = 0;
+  if (!fast_factor)
   {
 
-    uint8_t station, major, minor; 
-    flower_get_fwversion(flower, &station,&major,&minor,0,0,0); 
+    uint8_t station, major, minor;
+    flower_get_fwversion(flower, &station,&major,&minor,0,0,0);
 
-    if (!major && minor < 6) fast_factor = 1000; 
-    else fast_factor = 100; 
+    if (!major && minor < 6) fast_factor = 1000;
+    else fast_factor = 100;
   }
-  
+
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
 
-    float val =  fw * fast_factor*fast->servo_per_beam[i]+ sw *(slow->servo_per_beam[i]-sub*slow_gated->servo_per_beam[i]);
-    st->last_value[i] = st->value[i]; 
-    st->value[i] = val; 
-    st->last_error[i] = st->error[i]; 
-    st->error[i] = (val-cfg.lt.servo.phased_scaler_goals[i]); 
-    st->sum_error[i] += st->error[i]; 
-  } 
+    float val =  fw * fast_factor*fast->servo_per_beam[i] + sw *(slow->servo_per_beam[i]-sub*slow_gated->servo_per_beam[i]);
+    st->last_value[i] = st->value[i];
+    st->value[i] = val;
+    st->last_error[i] = st->error[i];
+    st->error[i] = (val-cfg.lt.servo.phased_scaler_goals[i]);
+    st->sum_error[i] += st->error[i];
+  }
 }
 
 
 
-static void setup_radiant_servo_state(radiant_servo_state_t * state) 
+static void setup_radiant_servo_state(radiant_servo_state_t * state)
 {
   int max_periods = 0;
   for (int i = 0; i < NUM_SERVO_PERIODS; i++)
@@ -1248,19 +1249,19 @@ static void * mon_thread(void* v)
   double last_daqstatus_out = 0;
   static int last_cfg_counter = -1;
 
-  double next_sw_trig = -1; 
-  radiant_servo_state_t rad_servo_state = {0}; 
-  flower_coinc_servo_state_t flwr_coinc_servo_state = {0}; 
-  flower_phased_servo_state_t flwr_phased_servo_state = {0}; 
+  double next_sw_trig = -1;
+  radiant_servo_state_t rad_servo_state = {0};
+  flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
+  flower_phased_servo_state_t flwr_phased_servo_state = {0};
 
-  float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS]; 
+  float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS];
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
 
-  float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS]; 
+  float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS];
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
-  uint32_t min_rad_thresh = 0; 
-  uint32_t max_rad_thresh = 0; 
+  uint32_t min_rad_thresh = 0;
+  uint32_t max_rad_thresh = 0;
   uint32_t max_rad_change = 0;
   while(!quit)
   {
@@ -1280,14 +1281,14 @@ static void * mon_thread(void* v)
     //re set up the RADIANT
     if (config_counter > last_cfg_counter)
     {
-      last_cfg_counter = config_counter; 
-      setup_radiant_servo_state(&rad_servo_state); 
-      setup_flower_coinc_servo_state(&flwr_coinc_servo_state); 
-      setup_flower_phased_servo_state(&flwr_phased_servo_state); 
+      last_cfg_counter = config_counter;
+      setup_radiant_servo_state(&rad_servo_state);
+      setup_flower_coinc_servo_state(&flwr_coinc_servo_state);
+      setup_flower_phased_servo_state(&flwr_phased_servo_state);
 
-      min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5; 
-      max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5; 
-      max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5; 
+      min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5;
+      max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5;
+      max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5;
       for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
       for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
@@ -1308,8 +1309,8 @@ static void * mon_thread(void* v)
     }
 
 
-    //do we need radiant scalers? 
-    if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)  
+    //do we need radiant scalers?
+    if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
     {
       while (1)
       {
@@ -1335,9 +1336,9 @@ static void * mon_thread(void* v)
       last_scalers_radiant = nowf;
     }
 
-    // do we need to servo radiant? 
+    // do we need to servo radiant?
     if ((cfg.radiant.trigger.RF[0].enabled||cfg.radiant.trigger.RF[1].enabled) && cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
-        && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)  
+        && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)
     {
       for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
       {
@@ -1364,16 +1365,16 @@ static void * mon_thread(void* v)
     }
 
 
-    // do we need LT scalers? 
-    if ((cfg.lt.trigger.coinc.enable_rf_coinc_trigger||cfg.lt.trigger.phased.enable_rf_phased_trigger)&&cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)   
+    // do we need LT scalers?
+    if ((cfg.lt.trigger.coinc.enable_rf_coinc_trigger||cfg.lt.trigger.phased.enable_rf_phased_trigger)&&cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)
     {
       flower_fill_daqstatus(flower, ds);
 
-      update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds); 
-      update_flower_phased_servo_state(&flwr_phased_servo_state, ds); 
+      update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds);
+      update_flower_phased_servo_state(&flwr_phased_servo_state, ds);
 
-      //if cycle counter is in the right realm, use it... 
-      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6) 
+      //if cycle counter is in the right realm, use it...
+      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6)
       {
         delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
         //if we have the pps trigger out and it's not 0, let's update our estimate
@@ -1393,41 +1394,41 @@ static void * mon_thread(void* v)
     {
       if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
       {
-        for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++) 
+        for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++)
         {
            if(!(cfg.lt.trigger.coinc.rf_coinc_channel_mask&(1<<ch))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.P * flwr_coinc_servo_state.error[ch] + 
-                                    cfg.lt.servo.I * flwr_coinc_servo_state.sum_error[ch] + 
-                                    cfg.lt.servo.D * (flwr_coinc_servo_state.error[ch] - flwr_coinc_servo_state.last_error[ch]); 
+           double d_servo_threshold = cfg.lt.servo.P * flwr_coinc_servo_state.error[ch] +
+                                    cfg.lt.servo.I * flwr_coinc_servo_state.sum_error[ch] +
+                                    cfg.lt.servo.D * (flwr_coinc_servo_state.error[ch] - flwr_coinc_servo_state.last_error[ch]);
 
-         
-           flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120); 
-           ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch]; 
+
+           flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120);
+           ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch];
            ds->lt_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
         }
         flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
       }
       if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
       {
-        for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++) 
+        for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
         {
            if(!(cfg.lt.trigger.phased.rf_phased_beam_mask&(1<<beam))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] + 
-                                    cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] + 
-                                    cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]); 
+           double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] +
+                                    cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] +
+                                    cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]);
 
-         
-         flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold,4,4095); 
-         ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam]; 
-         ds->lt_phased_trigger_thresholds[beam] = clamp( (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
+
+         flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold, 4, 4095);
+         ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam];
+         ds->lt_phased_trigger_thresholds[beam] = clamp((flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
         }
         flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased.rf_phased_beam_mask);
       }
 
-      last_servo_lt = nowf; 
+      last_servo_lt = nowf;
     }
-    
-    //do we need to write out the DAQ status? 
+
+    //do we need to write out the DAQ status?
 
     //do we need to write out the DAQ status?
 
@@ -1583,32 +1584,32 @@ static void * wri_thread(void* v)
     add_to_file_list(bigbuf);
     fprintf(runinfo, "STATION = %d\n", station_number);
     fprintf(runinfo, "RUN = %d\n", run_number);
-    fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec); 
-    fprintf(runinfo, "ACQ-START-TIME =  %ld.%09ld\n",precise_acq_time.tv_sec, precise_acq_time.tv_nsec); 
-    fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash()); 
-    fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash()); 
-    fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free); 
-    fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free); 
-    
-    //write down radiant info to runinfo 
-    uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday; 
-    radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-    fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-    fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+    fprintf(runinfo, "RUN-START-TIME =  %ld.%09ld\n",precise_start_time.tv_sec, precise_start_time.tv_nsec);
+    fprintf(runinfo, "ACQ-START-TIME =  %ld.%09ld\n",precise_acq_time.tv_sec, precise_acq_time.tv_nsec);
+    fprintf(runinfo, "LIBRNO-G-GIT-HASH = %s\n", rno_g_get_git_hash());
+    fprintf(runinfo, "RNO-G-ICE-SOFTWARE-GIT-HASH = %s\n", get_ice_software_git_hash());
+    fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free);
+    fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free);
 
-    radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday); 
-    fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev); 
-    fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday); 
+    //write down radiant info to runinfo
+    uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
+    radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
+    fprintf(runinfo, "RADIANT-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
+    fprintf(runinfo, "RADIANT-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
 
-    uint16_t sample_rate= radiant_get_sample_rate(radiant); 
-    fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate); 
-   
+    radiant_get_fw_version(radiant, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
+    fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
+    fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
+
+    uint16_t sample_rate= radiant_get_sample_rate(radiant);
+    fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate);
+
 
     uint16_t flower_fwyear;
     if (flower)
     {
-      flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, &flower_fwyear, &fwmon, &fwday); 
-      fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwstation, fwmajor, fwminor); 
+      flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, &flower_fwyear, &fwmon, &fwday);
+      fprintf(runinfo, "FLOWER-FWVER = %02u.%02u.%02u\n", fwstation, fwmajor, fwminor);
       fprintf(runinfo, "FLOWER-FWDATE = %02u-%02u.%02u\n", flower_fwyear, fwmon, fwday);
     }
     else
@@ -1979,16 +1980,16 @@ static int initial_setup()
   {
     for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
     {
-      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i]; 
-      ds->lt_servo_thresholds[i] = 
-        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255); 
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
+      ds->lt_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255);
     }
 
-    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++) 
+    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
     {
-      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i]; 
-      ds->lt_phased_servo_thresholds[i] = 
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095); 
+      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
+      ds->lt_phased_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095);
     }
 
   }
@@ -2051,7 +2052,7 @@ static int initial_setup()
     fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
   }
 
-  feed_watchdog(0); 
+  feed_watchdog(0);
 
   //intitial configure of the radiant, bail if can't open
   if (radiant_initial_setup())
@@ -2133,9 +2134,9 @@ static int initial_setup()
 
   //now let's make the threads
   clock_gettime(CLOCK_REALTIME, &precise_acq_time);
-  pthread_create(&the_acq_thread,NULL, acq_thread, NULL); 
-  pthread_create(&the_mon_thread,NULL, mon_thread, NULL); 
-  feed_watchdog(0); 
+  pthread_create(&the_acq_thread,NULL, acq_thread, NULL);
+  pthread_create(&the_mon_thread,NULL, mon_thread, NULL);
+  feed_watchdog(0);
 
   //hold the cfg lock until the write thread is done writing the config
   pthread_rwlock_rdlock(&cfg_lock);
@@ -2150,10 +2151,10 @@ static int initial_setup()
 
 int please_stop()
 {
-  printf("Stopping...\n"); 
-  quit = 1; 
+  printf("Stopping...\n");
+  quit = 1;
   clock_gettime(CLOCK_REALTIME, &precise_stop_time);
-  return 0; 
+  return 0;
 }
 
 
@@ -2228,9 +2229,9 @@ int teardown()
   clock_gettime(CLOCK_REALTIME, &end_time);
   if (runinfo)
   {
-    fprintf(runinfo,"RUN-STOP-TIME = %ld.%09ld\n", precise_stop_time.tv_sec, precise_stop_time.tv_nsec); 
-    fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec); 
-    fclose(runinfo); 
+    fprintf(runinfo,"RUN-STOP-TIME = %ld.%09ld\n", precise_stop_time.tv_sec, precise_stop_time.tv_nsec);
+    fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec);
+    fclose(runinfo);
   }
 
 
