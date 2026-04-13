@@ -122,6 +122,7 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.waveforms
+  SECT.skip_runs = 11;
   SECT.length = 1024;
   SECT.preclear_force_trigger = 1;
 
@@ -634,6 +635,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.waveforms.at_start.enable);
   LOOKUP_INT(lt.waveforms.at_start.nsecs_rf);
   LOOKUP_INT(lt.waveforms.at_start.nforce);
+  LOOKUP_INT(lt.waveforms.skip_runs);
   LOOKUP_INT(lt.waveforms.length);
   LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
@@ -815,7 +817,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(timing_recording, "Timing recording Settings");
     WRITE_INT(radiant.timing_recording,enable, "Enable");
-    WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
+    WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only record sample timing when run % skip_runs == 0");
     WRITE_INT(radiant.timing_recording,n_recordings, "Take n recordings per channel and sample.");
     WRITE_STR(radiant.timing_recording,directory, "Define directory in which to store timing recordings");
   UNSECT();
@@ -874,7 +876,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
     UNSECT();
     SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
-
+      WRITE_INT(lt.waveforms,skip_runs, "If >1, will only record waveforms when run % skip_runs == 0");
       WRITE_INT(lt.waveforms,length,"Number of samples");
       WRITE_INT(lt.waveforms,preclear_force_trigger,"Clear force trigger before sending in same SPI ioctl tranasaction");
       SECT(at_finish,"Post-run waveform taking");

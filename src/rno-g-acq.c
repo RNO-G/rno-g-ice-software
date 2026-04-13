@@ -587,7 +587,7 @@ int flower_initial_setup()
     flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, flower_rms);
   }
 
-  if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable))
+  if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable) && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
     flower_waveforms_len = cfg.lt.waveforms.length;
     flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, flower_waveforms_len);
@@ -2110,7 +2110,7 @@ static int initial_setup()
   add_to_file_list(bigbuf);
 
   //HACK, take initial flower data if we need to
-  if (flower && cfg.lt.waveforms.at_start.enable)
+  if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
     snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
     add_to_file_list(bigbuf);
@@ -2211,7 +2211,7 @@ int teardown()
   pthread_join(the_wri_thread,0);
 
   //HACK, take final flower data if we need to
-  if (flower && cfg.lt.waveforms.at_finish.enable)
+  if (flower && cfg.lt.waveforms.at_finish.enable  && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
     snprintf(bigbuf,bigbuflen,"%s/aux/flower_end.json.gz", output_dir);
     add_to_file_list(bigbuf);
