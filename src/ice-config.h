@@ -316,6 +316,7 @@ typedef struct acq_config
 /** Fill in some reasonable defaults for the acq_config_t */
 int init_acq_config(acq_config_t * cfg);
 int read_acq_config(FILE *f, acq_config_t * cfg);
+int read_acq_configs(int N, FILE **fs, acq_config_t * cfg);
 int dump_acq_config(FILE *f, const acq_config_t * cfg);
 
 

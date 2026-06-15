@@ -405,16 +405,23 @@ static double dummy_val;
 const char * calpulser_outs[] = RNO_G_CALPULSER_OUT_STRS;
 const char * calpulser_modes[] = RNO_G_CALPULSER_MODE_STRS;
 
-
 int read_acq_config(FILE * f, acq_config_t * cfg)
+{
+  return read_acq_configs(1, &f, cfg);
+}
+
+int read_acq_configs(int N, FILE ** fs, acq_config_t * cfg)
 {
   config_t config;
   config_init(&config);
   config_set_auto_convert(&config, 1);
-  if (!config_read(&config, f))
+  for (int i = 0; i < N; i++)
   {
-    fprintf(stderr,"Trouble reading config: %s, line: %d\n", config_error_text(&config), config_error_line(&config));
-    return -1;
+    if (!config_read(&config, fs[i]))
+    {
+      fprintf(stderr,"Trouble reading config: %s, line: %d\n", config_error_text(&config), config_error_line(&config));
+      return -1;
+    }
   }
 
   //OUTPUT
