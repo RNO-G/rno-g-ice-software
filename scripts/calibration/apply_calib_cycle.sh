@@ -11,6 +11,23 @@ else
     CHANNEL=fiber0
 fi
 
-python3 "$SCRIPT" "$@" --set calib.channel="$CHANNEL"
+# extract the -O output path from the arguments
+OUTPUT=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "-O" ]; then
+        OUTPUT="$arg"
+    fi
+    prev="$arg"
+done
+
+python3 "$SCRIPT" "$@" --set calib.channel="$CHANNEL" || exit 1
+
+# run config checker on calib cfg files
+if [ -n "$OUTPUT" ] && ! /rno-g/bin/check-rno-g-config acq "$OUTPUT" > /dev/null 2>&1; then
+    echo "check-rno-g-config failed, removing $OUTPUT" >&2
+    rm -f "$OUTPUT"
+    exit 1
+fi
 
 echo "$CHANNEL" > "$STATE_FILE"
