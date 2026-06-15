@@ -12,15 +12,16 @@ defaults:
     enable_cal: 1
     channel: fiber0
     type: pulser
+    atten: 5.0  # may be overwritten by station specific values
   output:
     seconds_per_run: 300
 
 # Deep-merged on top of defaults; the station block wins per leaf.
-# Keys are matched as strings; bare integers and "station11"-style also resolve.
+# Keys are matched as strings
 stations:
   11:
     calib:
-      atten: 10.0
+      atten: 5.0
   21:
     calib:
-      atten: 5.0       # type/channel fall through from defaults
+      atten: 5.0

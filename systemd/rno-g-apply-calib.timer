@@ -4,5 +4,5 @@ BindsTo=rno-g-acq.service
 
 [Timer]
 OnActiveSec=0  # run at the beginning once (the first run will be a cal. pulser run)
-OnUnitActiveSec=6h
+OnUnitActiveSec=12h
 Unit=rno-g-apply-calib.service
