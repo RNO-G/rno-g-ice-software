@@ -3,5 +3,5 @@ Description=Apply calibration overrides every 6 hours while DAQ is running
 BindsTo=rno-g-acq.service
 
 [Timer]
-OnUnitActiveSec=12h
+OnActiveSec=12h
 Unit=rno-g-apply-calib.service
