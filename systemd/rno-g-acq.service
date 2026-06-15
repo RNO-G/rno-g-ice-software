@@ -5,7 +5,8 @@ Wants=rno-g-copy.service rno-g-copy-meta.service rno-g-apply-calib.timer
 [Service]
 User=rno-g
 Restart=always
-ExecStartPre=/bin/sleep 2  # this sleep is meant to give calib.timer/service time to execute
+# this sleep is meant to give calib.timer/service time to execute
+ExecStartPre=/bin/sleep 2
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
