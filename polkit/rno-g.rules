@@ -9,7 +9,7 @@ polkit.addRule(function(action,subject)
     var unit = action.lookup("unit");
     var verb = action.lookup("verb");
 
-    if ( (unit.indexOf("rno-g-" == 0)) &&
+    if ( (unit.indexOf("rno-g-") == 0) &&
       ["start","stop","restart","reload"].includes(verb)
     )
     {
