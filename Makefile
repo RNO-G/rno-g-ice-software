@@ -70,7 +70,7 @@ setup:
 
 install: $(BINS) setup
 	install $(BINS) $(PREFIX)/bin
-	install scripts/* $(PREFIX)/bin
+	install scripts/rno-g-* $(PREFIX)/bin
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
