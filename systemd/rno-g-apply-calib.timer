@@ -3,6 +3,7 @@ Description=Apply calibration overrides every 6 hours while DAQ is running
 BindsTo=rno-g-acq.service
 
 [Timer]
-OnActiveSec=0  # run at the beginning once (the first run will be a cal. pulser run)
+# run at the beginning once (the first run will be a cal. pulser run)
+OnActiveSec=0
 OnUnitActiveSec=12h
 Unit=rno-g-apply-calib.service
