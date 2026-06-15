@@ -63,6 +63,8 @@ setup:
 	chown rno-g:rno-g /data/timing
 	mkdir -p /data/power
 	chown rno-g:rno-g /data/power
+	touch $(PREFIX)/var/calib_channel.state
+	chown rno-g:rno-g $(PREFIX)/var/calib_channel.state
 
 
 

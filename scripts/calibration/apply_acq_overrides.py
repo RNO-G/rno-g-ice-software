@@ -178,6 +178,9 @@ def apply_overrides(lines, overrides):
 
 def load_doc(path):
     """Load a YAML/JSON document as a dict (no flattening)."""
+    if path is None:
+        return {}
+
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     if path.endswith(".json"):
@@ -310,7 +313,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-t", "--template", required=True,
                     help="input libconfig file (read-only, never modified)")
-    ap.add_argument("-o", "--overrides", required=True,
+    ap.add_argument("-o", "--overrides", required=False,
                     help="overrides file (.yaml/.yml/.json), dotted or nested")
     ap.add_argument("-O", "--output", required=True,
                     help="output path (defaults to --template, i.e. in place)")
@@ -322,6 +325,8 @@ def main(argv=None):
                     help="warn (don't fail) if an override path is not found")
     ap.add_argument("--dry-run", action="store_true",
                     help="print a unified diff and write nothing")
+    ap.add_argument("--set", metavar="PATH=VALUE", action="append", default=[],
+                    help="override a dotted path, e.g. --set calib.atten=10.0 (repeatable, wins over yaml)")
     args = ap.parse_args(argv)
 
     output = args.output
@@ -331,11 +336,19 @@ def main(argv=None):
 
     doc = load_doc(args.overrides)
     overrides, station_label = build_overrides(doc, args.station)
+
+    for item in args.set:
+        if "=" not in item:
+            sys.exit(f"error: --set {item!r} is not in PATH=VALUE form")
+        path, _, value = item.partition("=")
+        overrides[path.strip()] = value.strip()
+
     if station_label is not None:
         print(f"station: {station_label}", file=sys.stderr)
         if "defaults only" in station_label and args.require_station:
             sys.exit("error: no station-specific override block found "
                      "(--require-station)")
+
     if not overrides:
         print("no overrides resolved; nothing to do", file=sys.stderr)
         return 0
