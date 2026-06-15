@@ -20,7 +20,7 @@ int main(int nargs, char ** args)
     FILE ** configs =  calloc(nconfigs, sizeof(FILE*));
     for (int iconfig = 0; iconfig < nconfigs; iconfig++)
     {
-      configs[iconfig] = fopen(args[2+iconfig],"w");
+      configs[iconfig] = fopen(args[2+iconfig],"r");
     }
 
     acq_config_t cfg;
