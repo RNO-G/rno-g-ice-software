@@ -10,7 +10,7 @@ polkit.addRule(function(action,subject)
     var verb = action.lookup("verb");
 
     if ( (unit.indexOf("rno-g-") == 0) &&
-      ["start","stop","restart","reload"].includes(verb)
+      ["start","stop","restart","reload"].indexOf(verb) !== -1
     )
     {
       polkit.log("Allowing " + subject.user + " to " + verb + " " + unit);
