@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply per-station calibration overrides to acq config
+
+[Service]
+Type=oneshot  # gets called by the timer
+User=rno-g
+ExecStart=python3 /home/rno-g/rno-g-ice-software/scripts/calibration/apply_acq_overrides.py \
+    -t /rno-g/cfg/acq.cfg \
+    -o /home/rno-g/rno-g-ice-software/scripts/calibration/overrides.yaml \
+    -O /rno-g/cfg/acq.cfg.once/acq_reg_calib_run.cfg

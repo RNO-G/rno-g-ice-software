@@ -1,0 +1,26 @@
+# Per-station overrides for rno-g-acq.
+#
+# Station resolution order (first hit wins):
+#   1. --station on the CLI
+#   2. contents of the file below
+station_source:
+  file: /STATION_ID
+
+# Applied to every station first.
+defaults:
+  calib:
+    enable_cal: 1
+    channel: fiber0
+    type: pulser
+  output:
+    seconds_per_run: 300
+
+# Deep-merged on top of defaults; the station block wins per leaf.
+# Keys are matched as strings; bare integers and "station11"-style also resolve.
+stations:
+  11:
+    calib:
+      atten: 10.0
+  21:
+    calib:
+      atten: 5.0       # type/channel fall through from defaults

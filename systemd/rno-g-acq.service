@@ -1,19 +1,12 @@
 [Unit]
 Description=Record RNO-G Data
-Wants=rno-g-copy.service rno-g-copy-meta.service
-# Eventually, for now must be started manually
-#Requires=rno-g-startup.service
+Wants=rno-g-copy.service rno-g-copy-meta.service rno-g-apply-calib.timer
 
 [Service]
-#Just hardcode /rno-g for now
-#EnvironmentFile=/rno-g
 User=rno-g
 Restart=always
+ExecStartPre=/bin/sleep 2  # this sleep is meant to give calib.timer/service time to execute
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
 WatchdogSec=90s
-
-[Install]
-#event
-#WantedBy=rno-g.target
