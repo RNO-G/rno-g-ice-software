@@ -1,6 +1,7 @@
 [Unit]
-Description=Apply calibration overrides every 12 hours while DAQ is running
-BindsTo=rno-g-acq.service
+Description=Apply calibration overrides every 12 hours
+
+# For now this timer is independent of the DAQ service
 
 [Timer]
 # First command fires timer 0s after start,
