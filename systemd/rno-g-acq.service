@@ -1,9 +1,11 @@
 [Unit]
 Description=Record RNO-G Data
-Wants=rno-g-copy.service rno-g-copy-meta.service rno-g-apply-calib.timer rno-g-apply-calib.service
-After=rno-g-apply-calib.service
+Wants=rno-g-copy.service rno-g-copy-meta.service rno-g-apply-calib.timer
 
 [Service]
+# this sleep is meant to give calib.timer/service time to execute
+ExecStartPre=/bin/sleep 2
+
 User=rno-g
 Restart=always
 ExecStart=/rno-g/bin/rno-g-acq

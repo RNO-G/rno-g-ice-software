@@ -1,10 +1,10 @@
 [Unit]
-Description=Apply calibration overrides every 12 hours while DAQ is running
+Description=Apply calibration overrides every 6 hours while DAQ is running
 BindsTo=rno-g-acq.service
-After=rno-g-acq.service
 
 [Timer]
-# First calib.service happens with (before) DAQ start (see rno-g-acq.service),
-# With OnUnitActiveSec, the timer re-fires every 12h
+# First command fires timer 0s after start,
+# second command 12h after last firing(!)
+OnActiveSec=0s
 OnUnitActiveSec=12h
 Unit=rno-g-apply-calib.service
