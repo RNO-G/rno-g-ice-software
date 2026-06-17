@@ -63,12 +63,14 @@ setup:
 	chown rno-g:rno-g /data/timing
 	mkdir -p /data/power
 	chown rno-g:rno-g /data/power
+	touch $(PREFIX)/var/calib_channel.state
+	chown rno-g:rno-g $(PREFIX)/var/calib_channel.state
 
 
 
 install: $(BINS) setup
 	install $(BINS) $(PREFIX)/bin
-	install scripts/* $(PREFIX)/bin
+	install scripts/rno-g-* $(PREFIX)/bin
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
@@ -98,5 +100,5 @@ polkit-install:
 	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
 
 service-install: polkit-install
-	install systemd/*.service /etc/systemd/system
+	install systemd/*.service systemd/*.timer /etc/systemd/system
 	systemctl daemon-reload

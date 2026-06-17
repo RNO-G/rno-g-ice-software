@@ -176,16 +176,16 @@ typedef struct acq_config
     {
       struct
       {
-        int enable_rf_coinc_trigger;       
+        int enable_rf_coinc_trigger;
         int rf_coinc_channel_mask;
         int vpp ;
         int min_coincidence;
         int window;
       }coinc;
-      
+
       struct
       {
-        int enable_rf_phased_trigger; 
+        int enable_rf_phased_trigger;
         int rf_phased_beam_mask;
         int rf_phased_threshold_offset;
       }phased;
@@ -199,30 +199,30 @@ typedef struct acq_config
 
     struct
     {
-      int load_from_threshold_file; 
+      int load_from_threshold_file;
       uint8_t initial_coinc_thresholds[RNO_G_NUM_LT_CHANNELS];
       uint16_t initial_phased_thresholds[RNO_G_NUM_LT_BEAMS];
 
-    } thresholds; 
+    } thresholds;
 
     struct
     {
-      int enable; 
-      int subtract_gated; 
-      uint16_t coinc_scaler_goals[RNO_G_NUM_LT_CHANNELS]; 
-      uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS]; 
-      float servo_thresh_frac; 
-      float phased_servo_thresh_frac; 
-      float servo_thresh_offset; 
+      int enable;
+      int subtract_gated;
+      uint16_t coinc_scaler_goals[RNO_G_NUM_LT_CHANNELS];
+      uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS];
+      float servo_thresh_frac;
+      float phased_servo_thresh_frac;
+      float servo_thresh_offset;
       float fast_scaler_weight;
       float slow_scaler_weight;
-      float scaler_update_interval; 
-      float servo_interval; 
-      float P; 
-      float phased_P; 
-      float I; 
-      float D; 
-    } servo; 
+      float scaler_update_interval;
+      float servo_interval;
+      float P;
+      float phased_P;
+      float I;
+      float D;
+    } servo;
 
     struct
     {

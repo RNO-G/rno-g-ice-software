@@ -66,13 +66,13 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.trigger
-  SECT.coinc.vpp =1; 
-  SECT.coinc.min_coincidence=2; 
-  SECT.coinc.window = 5; 
-  SECT.coinc.enable_rf_coinc_trigger = 0; 
+  SECT.coinc.vpp =1;
+  SECT.coinc.min_coincidence=2;
+  SECT.coinc.window = 5;
+  SECT.coinc.enable_rf_coinc_trigger = 0;
   SECT.coinc.rf_coinc_channel_mask=0xf;
-  
-  SECT.phased.enable_rf_phased_trigger = 1; 
+
+  SECT.phased.enable_rf_phased_trigger = 1;
   SECT.phased.rf_phased_beam_mask=0xfff;
   SECT.phased.rf_phased_threshold_offset=0x000; //should be unused
 
@@ -89,36 +89,36 @@ int init_acq_config(acq_config_t * cfg)
   SECT.load_from_threshold_file = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.initial_coinc_thresholds[i] = 30; 
+    SECT.initial_coinc_thresholds[i] = 30;
   }
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
-    SECT.initial_phased_thresholds[i] = 600; 
+    SECT.initial_phased_thresholds[i] = 600;
   }
 #undef SECT
 #define SECT cfg->lt.servo
   SECT.enable = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.coinc_scaler_goals[i] = 2500; 
+    SECT.coinc_scaler_goals[i] = 2500;
   }
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
-    SECT.phased_scaler_goals[i] = 500; 
+    SECT.phased_scaler_goals[i] = 500;
   }
-  SECT.servo_thresh_frac = 0.95; 
-  SECT.phased_servo_thresh_frac = 0.6; 
+  SECT.servo_thresh_frac = 0.95;
+  SECT.phased_servo_thresh_frac = 0.6;
 
-  SECT.servo_thresh_offset = 0; 
-  SECT.fast_scaler_weight = 0.3; 
-  SECT.slow_scaler_weight = 0.7; 
-  SECT.scaler_update_interval = 0.5; 
-  SECT.servo_interval = 1; 
-  SECT.subtract_gated = 0; 
+  SECT.servo_thresh_offset = 0;
+  SECT.fast_scaler_weight = 0.3;
+  SECT.slow_scaler_weight = 0.7;
+  SECT.scaler_update_interval = 0.5;
+  SECT.servo_interval = 1;
+  SECT.subtract_gated = 0;
   SECT.P = 0.0002;
-  SECT.phased_P = 0.002; 
-  SECT.I = 0; 
-  SECT.D = 0; 
+  SECT.phased_P = 0.002;
+  SECT.I = 0;
+  SECT.D = 0;
 
 #undef SECT
 #define SECT cfg->lt.waveforms
@@ -203,8 +203,8 @@ int init_acq_config(acq_config_t * cfg)
   //Upward Surface
   SECT.RF[0].enabled = 1;
   SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
-  SECT.RF[0].window = 50 ; // ?!?? 
-  SECT.RF[0].num_coincidences = 2; 
+  SECT.RF[0].window = 50 ; // ?!??
+  SECT.RF[0].num_coincidences = 2;
   SECT.RF[0].readout_delay=1014; //delay 19*(53.3ns)=1013.3ns
   SECT.RF[0].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
 
@@ -571,7 +571,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(runtime.mon_buf_size);
 
   //LT
-  //for backwards compatibility 
+  //for backwards compatibility
   LOOKUP_INT_RENAME(lt.trigger.coinc.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
 
   LOOKUP_INT(lt.trigger.coinc.enable_rf_coinc_trigger);
@@ -592,14 +592,14 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   LOOKUP_INT(lt.thresholds.load_from_threshold_file);
 
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) 
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
     LOOKUP_INT_ELEM(lt.thresholds.initial_coinc_thresholds,i);
     LOOKUP_INT_ELEM(lt.servo.coinc_scaler_goals,i);
-    LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i); 
+    LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i);
   }
 
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) 
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
     LOOKUP_INT_ELEM(lt.thresholds.initial_phased_thresholds,i);
     LOOKUP_INT_ELEM(lt.servo.phased_scaler_goals,i);
@@ -726,49 +726,49 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_FLT(radiant.servo,P,"servo PID loop P");
     WRITE_FLT(radiant.servo,I,"servo PID loop I");
     WRITE_FLT(radiant.servo,D,"servo PID loop D");
-    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)"); 
-  UNSECT(); 
+    WRITE_FLT(radiant.servo, max_sum_err, "Maximum allowed error sum (in Hz)");
+  UNSECT();
 
-  SECT(trigger,"Trigger configuration"); 
-    SECT(soft,"Software trigger configuration"); 
-      WRITE_INT(radiant.trigger.soft,enabled,"Enable soft trigger"); 
-      WRITE_INT(radiant.trigger.soft,use_exponential_distribution,"Use exponential distribution of inter-soft trigger timing"); 
-      WRITE_FLT(radiant.trigger.soft,interval,"Soft trigger interval"); 
-      WRITE_FLT(radiant.trigger.soft,interval_jitter,"Jitter (uniform) on soft trigger interval"); 
-      WRITE_INT(radiant.trigger.soft,output_enabled,"Enable output for soft trigger"); 
-    UNSECT(); 
+  SECT(trigger,"Trigger configuration");
+    SECT(soft,"Software trigger configuration");
+      WRITE_INT(radiant.trigger.soft,enabled,"Enable soft trigger");
+      WRITE_INT(radiant.trigger.soft,use_exponential_distribution,"Use exponential distribution of inter-soft trigger timing");
+      WRITE_FLT(radiant.trigger.soft,interval,"Soft trigger interval");
+      WRITE_FLT(radiant.trigger.soft,interval_jitter,"Jitter (uniform) on soft trigger interval");
+      WRITE_INT(radiant.trigger.soft,output_enabled,"Enable output for soft trigger");
+    UNSECT();
     SECT(ext,"External (Low-threshold!) trigger configuration") ;
-      WRITE_INT(radiant.trigger.ext,enabled,"Enable ext trigger (note: this is the low threshold trigger!)"); 
-    UNSECT(); 
-    SECT(pps,"PPS trigger configuration"); 
-      WRITE_INT(radiant.trigger.pps,enabled,"Enable PPS trigger"); 
-      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable PPS trigger output"); 
-    UNSECT(); 
-    SECT(RF0,"First RF trigger configuration"); 
-      WRITE_INT(radiant.trigger.RF[0],enabled,"Enable this RF trigger"); 
-      WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger"); 
-      WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger"); 
-      WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+      WRITE_INT(radiant.trigger.ext,enabled,"Enable ext trigger (note: this is the low threshold trigger!)");
+    UNSECT();
+    SECT(pps,"PPS trigger configuration");
+      WRITE_INT(radiant.trigger.pps,enabled,"Enable PPS trigger");
+      WRITE_INT(radiant.trigger.pps,output_enabled,"Enable PPS trigger output");
+    UNSECT();
+    SECT(RF0,"First RF trigger configuration");
+      WRITE_INT(radiant.trigger.RF[0],enabled,"Enable this RF trigger");
+      WRITE_HEX(radiant.trigger.RF[0],mask,"Mask of channels that go into this trigger");
+      WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger");
+      WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
       WRITE_INT(radiant.trigger.RF[0],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
       WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
 
     UNSECT()
-    SECT(RF1,"Second RF trigger configuration"); 
-      WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger"); 
-      WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger"); 
-      WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger"); 
-      WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger"); 
+    SECT(RF1,"Second RF trigger configuration");
+      WRITE_INT(radiant.trigger.RF[1],enabled,"Enable this RF trigger");
+      WRITE_HEX(radiant.trigger.RF[1],mask,"Mask of channels that go into this trigger");
+      WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger");
+      WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
       WRITE_INT(radiant.trigger.RF[1],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
       WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
     UNSECT()
 
-    WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)"); 
-    WRITE_INT(radiant.trigger,output_enabled,"Enable trigger output"); 
-  UNSECT(); 
-  SECT(readout,"Readout settings for the RADIANT"); 
-    WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)"); 
-    WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2..."); 
-    WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity"); 
+    WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)");
+    WRITE_INT(radiant.trigger,output_enabled,"Enable trigger output");
+  UNSECT();
+  SECT(readout,"Readout settings for the RADIANT");
+    WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)");
+    WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2...");
+    WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
   UNSECT();
   SECT(pedestals,"Pedestal settings for RADIANT");
     WRITE_INT(radiant.pedestals,compute_at_start,"Compute pedestals at start of run");
@@ -827,42 +827,42 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   SECT(lt,"Settings for the low-threshold (FLOWER) board");
     SECT(trigger,"Trigger settings for the low-threshold-board");
       SECT(coinc,"Trigger settings specific to the coincidence threshold trigger")
-       WRITE_INT(lt.trigger.coinc,enable_rf_coinc_trigger, "Enable the LT RF coincidence trigger"); 
-       WRITE_INT(lt.trigger.coinc,vpp, " Vpp threshold  (max 255) for RF Trigger"); 
-       WRITE_INT(lt.trigger.coinc,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger"); 
-       WRITE_INT(lt.trigger.coinc,window,"Coincidence window for RF trigger"); 
-       WRITE_INT(lt.trigger.coinc,rf_coinc_channel_mask, "Coincidence trigger channel mask !Not implemented = forced to 0xf!"); 
+       WRITE_INT(lt.trigger.coinc,enable_rf_coinc_trigger, "Enable the LT RF coincidence trigger");
+       WRITE_INT(lt.trigger.coinc,vpp, " Vpp threshold  (max 255) for RF Trigger");
+       WRITE_INT(lt.trigger.coinc,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
+       WRITE_INT(lt.trigger.coinc,window,"Coincidence window for RF trigger");
+       WRITE_INT(lt.trigger.coinc,rf_coinc_channel_mask, "Coincidence trigger channel mask !Not implemented = forced to 0xf!");
 
       UNSECT();
-      SECT(phased,"Trigger settings specific to the phased power trigger"); 
-       WRITE_INT(lt.trigger.phased,enable_rf_phased_trigger, "Enable the LT RF phased array trigger"); 
+      SECT(phased,"Trigger settings specific to the phased power trigger");
+       WRITE_INT(lt.trigger.phased,enable_rf_phased_trigger, "Enable the LT RF phased array trigger");
        WRITE_INT(lt.trigger.phased,rf_phased_beam_mask, "Phased trigger beam mask");
        WRITE_INT(lt.trigger.phased,rf_phased_threshold_offset, "Phased trigger threshold base offset - affects scalers too");
       UNSECT();
-       WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out"); 
-       WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)"); 
+       WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out");
+       WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)");
 
        WRITE_INT(lt.trigger,enable_pps_trigger_sma_out,"Send PPS trigger to SMA out");
        WRITE_INT(lt.trigger,enable_pps_trigger_sys_out,"Send PPS trigger to system out (i.e. to RADIANT)");
        WRITE_FLT(lt.trigger,pps_trigger_delay,"The delay, in microseconds,of the PPS trigger relative to the GPS second. Will reounded to nearest 0.1 us. Can be negative to subtrract off from best estimate of current clock rate.");
     UNSECT();
 
-    SECT(thresholds,"Threshold settings for the low-threshold board"); 
-       WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)"); 
-       WRITE_ARR(lt.thresholds,initial_coinc_thresholds,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u"); 
-       WRITE_ARR(lt.thresholds,initial_phased_thresholds,"Initial thresholds if not loaded from file (in ADC^2)",RNO_G_NUM_LT_BEAMS,"%u"); 
+    SECT(thresholds,"Threshold settings for the low-threshold board");
+       WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)");
+       WRITE_ARR(lt.thresholds,initial_coinc_thresholds,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.thresholds,initial_phased_thresholds,"Initial thresholds if not loaded from file (in ADC^2)",RNO_G_NUM_LT_BEAMS,"%u");
 
-    UNSECT(); 
-    SECT(servo, "Servo settings for the low-threshold board"); 
-       WRITE_INT(lt.servo,enable,"Enable servoing"); 
-       WRITE_INT(lt.servo,subtract_gated,"Subtract gated scalers"); 
-       WRITE_ARR(lt.servo,coinc_scaler_goals,"1Hz Servo Scaler Goals For Coincidence Trigger (trigs/s/chan)",RNO_G_NUM_LT_CHANNELS,"%u"); 
-       WRITE_ARR(lt.servo,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_LT_BEAMS,"%u"); 
+    UNSECT();
+    SECT(servo, "Servo settings for the low-threshold board");
+       WRITE_INT(lt.servo,enable,"Enable servoing");
+       WRITE_INT(lt.servo,subtract_gated,"Subtract gated scalers");
+       WRITE_ARR(lt.servo,coinc_scaler_goals,"1Hz Servo Scaler Goals For Coincidence Trigger (trigs/s/chan)",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.servo,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_LT_BEAMS,"%u");
        WRITE_FLT(lt.servo,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,phased_servo_thresh_frac,"The phased servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
-       WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (1Hz?) scalers in calculating PID goal");
-       WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (10Hz?) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (100Hz) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (1Hz) scalers in calculating PID goal");
        WRITE_FLT(lt.servo,scaler_update_interval,"How often we update the scalers");
        WRITE_FLT(lt.servo,servo_interval,"How often we run the scaler");
        WRITE_FLT(lt.servo,P,"PID loop P term");

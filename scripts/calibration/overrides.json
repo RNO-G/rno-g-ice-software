@@ -1,0 +1,28 @@
+{
+  "station_source": {
+    "file": "/STATION_ID"
+  },
+  "defaults": {
+    "calib": {
+      "enable_cal": 1,
+      "channel": "fiber0",
+      "type": "pulser",
+      "atten": 5.0
+    },
+    "output": {
+      "seconds_per_run": 300
+    }
+  },
+  "stations": {
+    "11": {
+      "calib": {
+        "atten": 5.0
+      }
+    },
+    "21": {
+      "calib": {
+        "atten": 5.0
+      }
+    }
+  }
+}

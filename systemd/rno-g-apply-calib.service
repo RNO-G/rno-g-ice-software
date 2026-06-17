@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply per-station calibration overrides to acq config
+
+[Service]
+# gets called by the timer
+Type=oneshot
+User=rno-g
+ExecStart=/bin/sh /home/rno-g/rno-g-ice-software/scripts/calibration/apply_calib_cycle.sh \
+    -t /rno-g/cfg/acq.cfg \
+    -o /home/rno-g/rno-g-ice-software/scripts/calibration/overrides.json \
+    -O /rno-g/cfg/acq.cfg.once/acq_reg_calib_run.cfg
