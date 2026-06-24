@@ -16,12 +16,22 @@
   "stations": {
     "11": {
       "calib": {
-        "atten": 5.0
+        "atten": 0
       }
     },
     "21": {
       "calib": {
-        "atten": 5.0
+        "atten": 0
+      }
+    },
+    "22": {
+      "calib": {
+        "atten": 0
+      }
+    },
+    "24": {
+      "calib": {
+        "atten": 0
       }
     }
   }
