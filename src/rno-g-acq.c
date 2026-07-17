@@ -80,6 +80,32 @@ typedef struct mon_buffer_item
   rno_g_daqstatus_t ds;
 } mon_buffer_item_t;
 
+// Identifiers for the sources whose RF trigger rate we track separately for the readout rate cap
+// (see check_write_event). NOTE: the RADIANT can currently only tell us that a trigger came from
+// the LT board at all (it always shows up as RNO_G_TRIGGER_RF_LT_SIMPLE); it can't distinguish the
+// LT's simple coincidence trigger from its phased trigger, nor tell us which phased beam fired, so
+// those can't yet be tracked as separate identifiers.
+typedef enum
+{
+  RATE_ID_RADIANT0 = 0,
+  RATE_ID_RADIANT1,
+  // RATE_ID_RADIANTX, // dropped: triggers ambiguously attributed to RADIANT0/1 are not independently rate-capped
+  RATE_ID_LT,
+  // Trick - last enum encodes the size of all previous enums. Do not add anything after this!
+  NUM_RATE_IDS
+} rate_id_t;
+
+// Max timestamps kept per identifier. Bounds memory use; if max_trigger_rate * trigger_rate_window
+// would exceed this, it's clamped, i.e. the cap becomes stricter than configured rather than overflowing.
+#define RATE_WINDOW_MAX_ENTRIES 4096
+
+typedef struct trigger_rate_tracker
+{
+  double times[RATE_WINDOW_MAX_ENTRIES]; //ring buffer of trigger times (CLOCK_MONOTONIC seconds)
+  int head; //index of the oldest entry
+  int count; //current number of valid entries -> used to calculate current trigger rate
+} trigger_rate_tracker_t;
+
 
 ///// GLOBALS ////// /
 
@@ -175,6 +201,12 @@ static time_t last_watchdog;
 static double runfile_partition_free = 0;
 static double output_partition_free = 0;
 
+/** Per-RF-trigger-source trailing window of recent trigger times, used by check_write_event to cap the readout rate */
+static trigger_rate_tracker_t trackers[NUM_RATE_IDS];
+
+/** Human-readable names for rate_id_t, in the same order, for diagnostics */
+static const char * const rate_id_names[NUM_RATE_IDS] = {"RADIANT0", "RADIANT1", /* "RADIANTX", */ "LT"};
+
 ///// PROTOTYPES  /////
 
 static int radiant_configure();
@@ -186,6 +218,8 @@ static int please_stop();
 //static void fail(const char *);
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
+static int check_write_event(acq_buffer_item_t * mem);
+static void check_trigger_rate_cap_config();
 
 struct timespec precise_start_time;
 struct timespec precise_acq_time;
@@ -254,6 +288,8 @@ static void read_config()
 
     fclose(fptr);
   }
+
+  check_trigger_rate_cap_config();
 
   //write the updated config (can't do this first time since output_dir hasn't been made
   //by initial_setup yet)
@@ -971,8 +1007,9 @@ void * acq_thread(void* v)
       mem->hd.run_number = run_number;
       mem->wf.run_number = run_number;
       mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
-      ice_buf_commit(acq_buffer);
+      mem->wf.station = station_number;
+      if (check_write_event(mem))
+        ice_buf_commit(acq_buffer);
     }
 
     //release the read locks
@@ -2266,4 +2303,107 @@ int flower_update_pps_offset()
   int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
   if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
   return flower_set_delayed_pps_delay(flower,delay_cycles);
+}
+
+static int rate_id_for_trigger_type(uint8_t type)
+{
+  if (type & RNO_G_TRIGGER_RF_RADIANT0) return RATE_ID_RADIANT0;
+  if (type & RNO_G_TRIGGER_RF_RADIANT1) return RATE_ID_RADIANT1;
+  // RFX dropped: triggers ambiguously attributed to RADIANT0/1 are not independently rate-capped
+  if (type & (RNO_G_TRIGGER_RF_LT_SIMPLE | RNO_G_TRIGGER_RF_LT_PHASED)) return RATE_ID_LT;
+  return -1; // not an RF trigger (or RFX); never rate-capped
+}
+
+// cfg.radiant.readout.cap_trigger_rate holds RF0/RF1 in an array plus a separate lt field
+// (see ice-config.h), so this maps a rate_id_t to the matching per-source config.
+static const rate_cap_config_t * cap_cfg_for_id(int id)
+{
+  if (id == RATE_ID_RADIANT0) return &cfg.radiant.readout.cap_trigger_rate.RF[0];
+  if (id == RATE_ID_RADIANT1) return &cfg.radiant.readout.cap_trigger_rate.RF[1];
+  return &cfg.radiant.readout.cap_trigger_rate.lt; // RATE_ID_LT, the only remaining case
+}
+
+/** Warn if an enabled trigger rate cap is configured such that max_trigger_rate * trigger_rate_window
+ *  exceeds RATE_WINDOW_MAX_ENTRIES: check_write_event clamps its internal count in that case, so the
+ *  cap ends up stricter than what was configured. Called once whenever the config is (re-)read.
+ *
+ *  You should be holding at least a read lock on cfg_lock while calling this.
+ **/
+static void check_trigger_rate_cap_config()
+{
+  for (int id = 0; id < NUM_RATE_IDS; id++)
+  {
+    const rate_cap_config_t * rcfg = cap_cfg_for_id(id);
+    if (!rcfg->enable) continue;
+
+    double entries_needed = rcfg->max_trigger_rate * rcfg->trigger_rate_window;
+    if (entries_needed > RATE_WINDOW_MAX_ENTRIES)
+    {
+      fprintf(stderr, "!!! WARNING: radiant.readout.cap_trigger_rate.%s: max_trigger_rate (%g Hz) * "
+                       "trigger_rate_window (%g s) = %g exceeds RATE_WINDOW_MAX_ENTRIES (%d); "
+                       "the rate cap for this source will be stricter than configured!\n",
+                       rate_id_names[id], rcfg->max_trigger_rate, rcfg->trigger_rate_window,
+                       entries_needed, RATE_WINDOW_MAX_ENTRIES);
+    }
+  }
+}
+
+/** Decide whether an event should be written out, or dropped because its RF trigger source is
+ *  firing too fast for the threshold servo to keep up with (for understood physical reasons,
+ *  e.g. noise storms). Soft/ext/pps triggers are always written out.
+ *
+ *  Each RF trigger source (see rate_id_for_trigger_type) has its own enable/max_trigger_rate/
+ *  trigger_rate_window config and its own trailing window of recent trigger times; once more than
+ *  max_trigger_rate * trigger_rate_window of them fall within the trailing trigger_rate_window
+ *  seconds, further events from that source are skipped until the rate drops again.
+ *
+ *  You should be holding at least a read lock on cfg_lock while calling this.
+ **/
+static int check_write_event(acq_buffer_item_t * mem)
+{
+  uint8_t type = mem->hd.trigger_type;
+
+  int id = rate_id_for_trigger_type(type);
+  if (id < 0) return 1;  // Always write events not covered by rate_id_t
+
+  const rate_cap_config_t * rcfg = cap_cfg_for_id(id);
+  if (!rcfg->enable) return 1;
+
+  trigger_rate_tracker_t * tr = &trackers[id];
+
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  double nowf = now.tv_sec + 1e-9 * now.tv_nsec;
+
+  //append current time (dropped silently if the tracker is somehow already at its hard cap)
+  if (tr->count < RATE_WINDOW_MAX_ENTRIES)
+  {
+    int tail = (tr->head + tr->count) % RATE_WINDOW_MAX_ENTRIES;
+    tr->times[tail] = nowf;
+    tr->count++;
+  }
+
+  double window = rcfg->trigger_rate_window > 0 ? rcfg->trigger_rate_window : 1;
+
+  //prune entries older than the configured window
+  while (tr->count > 0 && nowf - tr->times[tr->head] > window)
+  {
+    tr->head = (tr->head + 1) % RATE_WINDOW_MAX_ENTRIES;
+    tr->count--;
+  }
+
+  int max_count = (int) (rcfg->max_trigger_rate * window);
+  if (max_count < 1) max_count = 1;
+  if (max_count >= RATE_WINDOW_MAX_ENTRIES) max_count = RATE_WINDOW_MAX_ENTRIES - 1;
+
+  if (tr->count > max_count)
+  {
+    fprintf(stderr, "Not writing out event, trigger rate is too high! "
+                     "(trigger_type=0x%02x, source=%s, rate=%.2f Hz [%d in %.3gs] > max=%.2f Hz)\n",
+                     type, rate_id_names[id], tr->count / window, tr->count, window,
+                     rcfg->max_trigger_rate);
+    return 0;
+  }
+
+  return 1;
 }

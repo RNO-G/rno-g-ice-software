@@ -8,6 +8,14 @@
 #define NUM_SERVO_PERIODS 3
 #define NUM_SERVO_PERIODS_STR "3"
 
+/** Config for the readout trigger rate cap of a single trigger source (see acq_config.radiant.readout.cap_trigger_rate) */
+typedef struct rate_cap_config
+{
+  int enable;
+  float max_trigger_rate;
+  float trigger_rate_window;
+} rate_cap_config_t;
+
 
 /** The acquisition config
  *
@@ -97,6 +105,17 @@ typedef struct acq_config
       uint32_t readout_mask;
       int nbuffers_per_readout;
       int poll_ms;
+
+      //Trigger rate cap: per RF trigger source, skip readout once more than
+      //max_trigger_rate * trigger_rate_window RF triggers occurred in
+      //the trailing trigger_rate_window seconds.
+      //NOTE: triggers ambiguously attributed to RADIANT0 or RADIANT1 (RFX) are not independently rate-capped.
+      struct
+      {
+        rate_cap_config_t RF[2]; //RF0 / RF1 (RADIANT's own internal RF triggers)
+        rate_cap_config_t lt; //LT board (coincidence or phased) trigger
+        // rate_cap_config_t rfx; //dropped: RFX is not independently rate-capped
+      } cap_trigger_rate;
     } readout;
 
     struct
