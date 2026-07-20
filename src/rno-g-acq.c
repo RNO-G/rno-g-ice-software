@@ -2361,6 +2361,11 @@ static void check_trigger_rate_cap_config()
  **/
 static int check_write_event(acq_buffer_item_t * mem)
 {
+
+  // Never cap triggers during a calibration run.
+  if (cfg.calib.enable_cal && calpulser)
+    return 1;
+
   uint8_t type = mem->hd.trigger_type;
 
   int id = rate_id_for_trigger_type(type);
