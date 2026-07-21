@@ -119,7 +119,6 @@ static int station_number = -1;
 /** The output directories */
 static char * output_dir = NULL;
 
-
 //temporary buffer (TODO: replace all asprintf with this...)
 static int bigbuflen = 0;
 static char * bigbuf = 0;
@@ -128,31 +127,14 @@ static char * bigbuf = 0;
 static volatile int quit = 0;
 static volatile int cfg_reread = 0;
 
-
-/** radiant handle*/
-static radiant_dev_t * radiant = 0;
-static uint32_t radiant_trig_chan = 0;
-
-/** flower handle */
-static flower_dev_t * flower = 0;
-
-uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
-float flower_rms[RNO_G_NUM_LT_CHANNELS];
-
-uint8_t *flower_waveforms_data;
-uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
-int flower_waveforms_len;
-
 /** radiant pedestals*/
 static rno_g_pedestal_t * pedestals = 0;
 
 //File descriptor for pedestal shared mem file
 static int pedestal_fd;
 
-
 /** Shared daq status */
 static rno_g_daqstatus_t * ds = 0;
-
 
 //File descriptor for daqstatus shared mem file
 static int shared_ds_fd;
@@ -177,9 +159,6 @@ static double output_partition_free = 0;
 
 ///// PROTOTYPES  /////
 
-static int radiant_configure();
-static int flower_configure();
-static int flower_update_pps_offset();
 static int calpulser_configure();
 static int teardown();
 static int please_stop();
@@ -193,6 +172,27 @@ struct timespec precise_acq_time;
 struct timespec precise_stop_time;
 
 static uint32_t delay_clock_estimate = 10000000;
+
+
+///// Radiant & Flower specific definitions /////
+/** radiant handle*/
+static radiant_dev_t * radiant = 0;
+static uint32_t radiant_trig_chan = 0;
+
+/** flower handle */
+static flower_dev_t * flower = 0;
+
+uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
+float flower_rms[RNO_G_NUM_LT_CHANNELS];
+
+uint8_t *flower_waveforms_data;
+uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
+int flower_waveforms_len;
+
+static int radiant_configure();
+static int flower_configure();
+static int flower_update_pps_offset();
+
 
 ///// Implementations /////
 
@@ -412,75 +412,6 @@ int radiant_configure()
   return 0;
 }
 
-static void set_calpulser_atten(float atten)
-{
-    if (atten < 0) atten = 0;
-    if (atten > 31.5) atten = 31.5;
-    atten = round(atten*2);
-    rno_g_cal_set_atten(calpulser,(uint8_t) atten);
-}
-
-int calpulser_configure()
-{
-  pthread_rwlock_rdlock(&cfg_lock);
-  if (cfg.calib.enable_cal && !calpulser)
-  {
-    // figure out the rev
-    char rev ='E';
-
-    //check if calib.rev is a file
-    if (cfg.calib.rev[0]=='/')
-    {
-      FILE * frev = fopen(cfg.calib.rev,"r");
-      if (!frev)
-      {
-        fprintf(stderr,"WARNING: calib.rev looks like a file but we can't open it!\n");
-      }
-      else
-      {
-        int nread = fread(&rev, 1,1,frev);
-        if (!nread || rev == '\n')
-        {
-          fprintf(stderr,"WARNING: calib.rev is a file but it seems to be empty! Assuming REVE\n");
-          rev = 'E';
-        }
-        fclose(frev);
-      }
-    }
-    else
-    {
-      rev = cfg.calib.rev[0];
-    }
-    calpulser = rno_g_cal_open(cfg.calib.i2c_bus, cfg.calib.gpio, rev) ;
-    if (!calpulser)
-    {
-      fprintf(stderr,"Could not open calpulser\n");
-      return 1;
-    }
-    //enable the calpulser and initialize it
-    rno_g_cal_enable(calpulser);
-    rno_g_cal_wait_ready(calpulser);
-    rno_g_cal_setup(calpulser);
-  }
-  else if (calpulser && !cfg.calib.enable_cal)
-  {
-    //forget everything if the calpulser is not enabled
-    rno_g_cal_disable(calpulser);
-    rno_g_cal_close(calpulser);
-    calpulser = NULL;
-  }
-
-  //now set the rest of the stuff
-  if (calpulser)
-  {
-    rno_g_cal_select(calpulser, cfg.calib.channel);
-    rno_g_cal_set_pulse_mode(calpulser,cfg.calib.type);
-    set_calpulser_atten(cfg.calib.atten);
-  }
-  pthread_rwlock_unlock(&cfg_lock);
-  return 0;
-}
-
 
 int write_gain_codes(char * buf)
 {
@@ -563,15 +494,6 @@ int flower_configure()
 
   return ret;
 }
-
-
-static float clamp(float val, float min, float max)
-{
-  if (val > max) return max;
-  if (val < min) return min;
-  return val;
-}
-
 
 
 int flower_initial_setup()
@@ -932,49 +854,6 @@ int radiant_initial_setup()
 }
 
 
-
-/** The acquisition thread
- *
- * This has sole control over the SPI interface for the RADIANT.
- * Since configuration is always done over UART, this does not need to react to config changes,
- * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock.
- *
- **/
-void * acq_thread(void* v)
-{
-  (void) v;
-  while(!quit)
-  {
-    //acquire read lock on radiant, flower, and cfg
-    pthread_rwlock_rdlock(&radiant_lock);
-    pthread_rwlock_rdlock(&flower_lock);
-    pthread_rwlock_rdlock(&cfg_lock);
-
-    // wait for the RADIANT to trigger
-    //TODO handle clear flag, though we don't really want one
-    if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
-    {
-      // Get a buffer , and fill it
-      acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
-      radiant_read_event(radiant, &mem->hd, &mem->wf);
-      if (flower) flower_fill_header(flower, &mem->hd);
-      mem->hd.run_number = run_number;
-      mem->wf.run_number = run_number;
-      mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
-      ice_buf_commit(acq_buffer);
-    }
-
-    //release the read locks
-    pthread_rwlock_unlock(&cfg_lock);
-    pthread_rwlock_unlock(&flower_lock);
-    pthread_rwlock_unlock(&radiant_lock);
-  }
-
-  return 0;
-}
-
-
 typedef struct flower_coinc_servo_state
 {
   float value[RNO_G_NUM_LT_CHANNELS];
@@ -1173,11 +1052,8 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
     }
   }
 
-
   memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
   memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
-
-
 }
 
 static struct drand48_data sw_rand;
@@ -1200,6 +1076,128 @@ double calc_next_sw_trig(float now)
   }
   else return now+interval;
 }
+
+
+
+static void set_calpulser_atten(float atten)
+{
+    if (atten < 0) atten = 0;
+    if (atten > 31.5) atten = 31.5;
+    atten = round(atten*2);
+    rno_g_cal_set_atten(calpulser,(uint8_t) atten);
+}
+
+int calpulser_configure()
+{
+  pthread_rwlock_rdlock(&cfg_lock);
+  if (cfg.calib.enable_cal && !calpulser)
+  {
+    // figure out the rev
+    char rev ='E';
+
+    //check if calib.rev is a file
+    if (cfg.calib.rev[0]=='/')
+    {
+      FILE * frev = fopen(cfg.calib.rev,"r");
+      if (!frev)
+      {
+        fprintf(stderr,"WARNING: calib.rev looks like a file but we can't open it!\n");
+      }
+      else
+      {
+        int nread = fread(&rev, 1,1,frev);
+        if (!nread || rev == '\n')
+        {
+          fprintf(stderr,"WARNING: calib.rev is a file but it seems to be empty! Assuming REVE\n");
+          rev = 'E';
+        }
+        fclose(frev);
+      }
+    }
+    else
+    {
+      rev = cfg.calib.rev[0];
+    }
+    calpulser = rno_g_cal_open(cfg.calib.i2c_bus, cfg.calib.gpio, rev) ;
+    if (!calpulser)
+    {
+      fprintf(stderr,"Could not open calpulser\n");
+      return 1;
+    }
+    //enable the calpulser and initialize it
+    rno_g_cal_enable(calpulser);
+    rno_g_cal_wait_ready(calpulser);
+    rno_g_cal_setup(calpulser);
+  }
+  else if (calpulser && !cfg.calib.enable_cal)
+  {
+    //forget everything if the calpulser is not enabled
+    rno_g_cal_disable(calpulser);
+    rno_g_cal_close(calpulser);
+    calpulser = NULL;
+  }
+
+  //now set the rest of the stuff
+  if (calpulser)
+  {
+    rno_g_cal_select(calpulser, cfg.calib.channel);
+    rno_g_cal_set_pulse_mode(calpulser,cfg.calib.type);
+    set_calpulser_atten(cfg.calib.atten);
+  }
+  pthread_rwlock_unlock(&cfg_lock);
+  return 0;
+}
+
+
+static float clamp(float val, float min, float max)
+{
+  if (val > max) return max;
+  if (val < min) return min;
+  return val;
+}
+
+
+/** The acquisition thread
+ *
+ * This has sole control over the SPI interface for the RADIANT.
+ * Since configuration is always done over UART, this does not need to react to config changes,
+ * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock.
+ *
+ **/
+void * acq_thread(void* v)
+{
+  (void) v;
+  while(!quit)
+  {
+    //acquire read lock on radiant, flower, and cfg
+    pthread_rwlock_rdlock(&radiant_lock);
+    pthread_rwlock_rdlock(&flower_lock);
+    pthread_rwlock_rdlock(&cfg_lock);
+
+    // wait for the RADIANT to trigger
+    //TODO handle clear flag, though we don't really want one
+    if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
+    {
+      // Get a buffer , and fill it
+      acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
+      radiant_read_event(radiant, &mem->hd, &mem->wf);
+      if (flower) flower_fill_header(flower, &mem->hd);
+      mem->hd.run_number = run_number;
+      mem->wf.run_number = run_number;
+      mem->hd.station_number = station_number;
+      mem->wf.station= station_number;
+      ice_buf_commit(acq_buffer);
+    }
+
+    //release the read locks
+    pthread_rwlock_unlock(&cfg_lock);
+    pthread_rwlock_unlock(&flower_lock);
+    pthread_rwlock_unlock(&radiant_lock);
+  }
+
+  return 0;
+}
+
 
 
 /** This is the monitor thread
@@ -1632,7 +1630,6 @@ static void * wri_thread(void* v)
   //write gain codes
   write_gain_codes(bigbuf);
 
-
   //now let's dump the configuration file to the cfg dir
   sprintf(bigbuf,"%s/cfg/acq.cfg", output_dir);
   FILE * of = fopen(bigbuf,"w");
@@ -1669,8 +1666,6 @@ static void * wri_thread(void* v)
       add_to_file_list(bigbuf);
     }
   }
-
-
 
   while (1)
   {
