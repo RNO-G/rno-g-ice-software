@@ -176,9 +176,13 @@ struct timespec precise_stop_time;
 
 static uint32_t delay_clock_estimate = 10000000;
 
+#ifdef ON_DIDAQ
+static didaq_dev_t didaq = 0;
 
+static int didaq_configure();
+
+#else
 ///// Radiant & Flower specific definitions /////
-#ifndef ON_DIDAQ
 
 /** radiant handle*/
 static radiant_dev_t * radiant = 0;
@@ -325,7 +329,14 @@ void feed_watchdog(time_t * now)
 }
 
 
-#ifndef ON_DIDAQ
+#ifdef ON_DIDAQ
+int didaq_configure()
+{
+  // TODO
+  return 1; // For now return 1 -> error
+}
+
+#else
 /** This configures the radiant. It holds the radiant write lock (and acquires the config read lock)*/
 int radiant_configure()
 {
@@ -1199,7 +1210,17 @@ void * acq_thread(void* v)
       ice_buf_commit(acq_buffer);
     }
 #else
-    //TODO(didaq): poll the didaq hardware for a triggered event and fill an acq_buffer_item_t via ice_buf_getmem()/ice_buf_commit()
+    if (didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
+    {
+      // Get a buffer , and fill it
+      acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
+      didaq_read_event(didaq, &mem->hd, &mem->wf);
+
+      mem->hd.run_number = run_number;
+      mem->wf.run_number = run_number;
+      mem->hd.station_number = station_number;
+      mem->wf.station= station_number;
+      ice_buf_commit(acq_buffer);
 #endif
 
     //release the read locks
