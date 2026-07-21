@@ -4,11 +4,16 @@ PREFIX?=$(RNO_G_INSTALL_DIR)
 CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
 BINDIR=bin
 
+ON_DIDAQ?=0
 
 LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
 LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
+
+ifeq ($(ON_DIDAQ),1)
+    CPPFLAGS += -DON_DIDAQ
+endif
 
 .PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
 

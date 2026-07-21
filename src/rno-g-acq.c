@@ -56,8 +56,11 @@
 
 #include <systemd/sd-daemon.h>
 
+#ifndef ON_DIDAQ
 #include "radiant.h"
 #include "flower.h"
+#endif
+
 #include "rno-g.h"
 #include "rno-g-cal.h"
 #include "ice-config.h"
@@ -175,6 +178,8 @@ static uint32_t delay_clock_estimate = 10000000;
 
 
 ///// Radiant & Flower specific definitions /////
+#ifndef ON_DIDAQ
+
 /** radiant handle*/
 static radiant_dev_t * radiant = 0;
 static uint32_t radiant_trig_chan = 0;
@@ -192,7 +197,7 @@ int flower_waveforms_len;
 static int radiant_configure();
 static int flower_configure();
 static int flower_update_pps_offset();
-
+#endif
 
 ///// Implementations /////
 
@@ -280,6 +285,7 @@ static void read_config()
   //apply new configuration to radiant/flower if they have changed
   if (!first_time)
   {
+#ifndef ON_DIDAQ
     if (memcmp(&old_cfg.radiant, &cfg.radiant, sizeof(cfg.radiant)))
     {
       radiant_configure();
@@ -289,6 +295,7 @@ static void read_config()
     {
       flower_configure();
     }
+#endif
 
     if (memcpy(&old_cfg.calib, &cfg.calib, sizeof(cfg.calib)))
     {
@@ -318,6 +325,7 @@ void feed_watchdog(time_t * now)
 }
 
 
+#ifndef ON_DIDAQ
 /** This configures the radiant. It holds the radiant write lock (and acquires the config read lock)*/
 int radiant_configure()
 {
@@ -1055,6 +1063,7 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
   memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
   memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
 }
+#endif
 
 static struct drand48_data sw_rand;
 double calc_next_sw_trig(float now)
@@ -1174,6 +1183,7 @@ void * acq_thread(void* v)
     pthread_rwlock_rdlock(&flower_lock);
     pthread_rwlock_rdlock(&cfg_lock);
 
+#ifndef ON_DIDAQ
     // wait for the RADIANT to trigger
     //TODO handle clear flag, though we don't really want one
     if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
@@ -1188,6 +1198,9 @@ void * acq_thread(void* v)
       mem->wf.station= station_number;
       ice_buf_commit(acq_buffer);
     }
+#else
+    //TODO(didaq): poll the didaq hardware for a triggered event and fill an acq_buffer_item_t via ice_buf_getmem()/ice_buf_commit()
+#endif
 
     //release the read locks
     pthread_rwlock_unlock(&cfg_lock);
@@ -1238,6 +1251,7 @@ static void * mon_thread(void* v)
   static int last_cfg_counter = -1;
 
   double next_sw_trig = -1;
+#ifndef ON_DIDAQ
   radiant_servo_state_t rad_servo_state = {0};
   flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
   flower_phased_servo_state_t flwr_phased_servo_state = {0};
@@ -1251,6 +1265,7 @@ static void * mon_thread(void* v)
   uint32_t min_rad_thresh = 0;
   uint32_t max_rad_thresh = 0;
   uint32_t max_rad_change = 0;
+#endif
   while(!quit)
   {
     struct timespec now;
@@ -1266,6 +1281,7 @@ static void * mon_thread(void* v)
     float diff_sweep = nowf - sweep_time;
 
 
+#ifndef ON_DIDAQ
     //re set up the RADIANT
     if (config_counter > last_cfg_counter)
     {
@@ -1281,6 +1297,7 @@ static void * mon_thread(void* v)
       for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
     }
+#endif
 
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
@@ -1292,11 +1309,14 @@ static void * mon_thread(void* v)
     //do we need to send a soft trigger?
     if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
     {
+#ifndef ON_DIDAQ
       radiant_soft_trigger(radiant);
+#endif
       next_sw_trig = calc_next_sw_trig(nowf);
     }
 
 
+#ifndef ON_DIDAQ
     //do we need radiant scalers?
     if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
     {
@@ -1415,11 +1435,9 @@ static void * mon_thread(void* v)
 
       last_servo_lt = nowf;
     }
+#endif
 
     //do we need to write out the DAQ status?
-
-    //do we need to write out the DAQ status?
-
     if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval < diff_last_daqstatus_out)
     {
       //make sure the station is set correctly
@@ -1470,8 +1488,10 @@ static void * mon_thread(void* v)
     usleep(sleep_amt *1e6);
   }
 
+#ifndef ON_DIDAQ
   //mostly to suppress warnings
   if (rad_servo_state.scaler_v_mem) free(rad_servo_state.scaler_v_mem);
+#endif
 
   return 0;
 }
@@ -1579,6 +1599,7 @@ static void * wri_thread(void* v)
     fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free);
     fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free);
 
+#ifndef ON_DIDAQ
     //write down radiant info to runinfo
     uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
     radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
@@ -1605,6 +1626,7 @@ static void * wri_thread(void* v)
       fprintf(runinfo, "FLOWER-FWVER = 0.0.0\n");
       fprintf(runinfo, "FLOWER-FWDATE = 0000-00.00\n");
     }
+#endif
     fflush(runinfo);
   }
   else
@@ -1618,7 +1640,9 @@ static void * wri_thread(void* v)
   if (fcomment)
   {
     fprintf(fcomment, cfg.output.comment);
+#ifndef ON_DIDAQ
     if (!flower) fprintf(fcomment, " !!FLOWER NOT DETECTED!!");
+#endif
     fclose(fcomment);
     add_to_file_list(bigbuf);
   }
@@ -1628,7 +1652,9 @@ static void * wri_thread(void* v)
   }
 
   //write gain codes
+#ifndef ON_DIDAQ
   write_gain_codes(bigbuf);
+#endif
 
   //now let's dump the configuration file to the cfg dir
   sprintf(bigbuf,"%s/cfg/acq.cfg", output_dir);
@@ -1658,6 +1684,7 @@ static void * wri_thread(void* v)
     add_to_file_list(bigbuf);
   }
 
+#ifndef ON_DIDAQ
   if (did_bias_scan)
   {
     snprintf(bigbuf,bigbuflen,"%s/bias_scan.dat.gz", output_dir);
@@ -1666,6 +1693,7 @@ static void * wri_thread(void* v)
       add_to_file_list(bigbuf);
     }
   }
+#endif
 
   while (1)
   {
@@ -2017,6 +2045,7 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
  * repeated attempts, the flower could not be opened but is required, or
  * either board's initial setup failed).
  */
+#ifndef ON_DIDAQ
 static int setup_radiant_and_flower()
 {
   //initialize the radiant lock
@@ -2090,6 +2119,7 @@ static int setup_radiant_and_flower()
 
   return 0;
 }
+#endif
 
 /**
  * Advance the runfile to the next run number and set up the output
@@ -2223,16 +2253,19 @@ int main(int nargs, char ** args)
     return 1;
   }
 
+#ifndef ON_DIDAQ
   if (setup_radiant_and_flower())
   {
     return 1;
   }
+#endif
 
   if (setup_output_dir_and_runfile(frun))
   {
     return 1;
   }
 
+#ifndef ON_DIDAQ
   //HACK, take initial flower data if we need to
   if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
@@ -2240,6 +2273,7 @@ int main(int nargs, char ** args)
     add_to_file_list(bigbuf);
     flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
   }
+#endif
 
   start_threads();
 
@@ -2287,6 +2321,7 @@ int teardown()
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
 
+#ifndef ON_DIDAQ
   //HACK, take final flower data if we need to
   if (flower && cfg.lt.waveforms.at_finish.enable  && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
@@ -2301,6 +2336,7 @@ int teardown()
   radiant_labs_stop(radiant);
   radiant_close(radiant);
   if (flower) flower_close(flower);
+#endif
   fclose(file_list);
   struct timespec end_time;
   clock_gettime(CLOCK_REALTIME, &end_time);
@@ -2331,6 +2367,7 @@ int teardown()
   return 0;
 }
 
+#ifndef ON_DIDAQ
 // you should be holding a flower lock while calling this
 int flower_update_pps_offset()
 {
@@ -2344,3 +2381,4 @@ int flower_update_pps_offset()
   if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
   return flower_set_delayed_pps_delay(flower,delay_cycles);
 }
+#endif
