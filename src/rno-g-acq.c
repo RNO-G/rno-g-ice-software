@@ -1177,6 +1177,21 @@ static float clamp(float val, float min, float max)
 }
 
 
+/** Issue a software trigger on whichever digitizer we're running on. */
+#ifdef ON_DIDAQ
+static int soft_trigger()
+{
+  //TODO: no didaq soft trigger implementation yet
+  return 1;
+}
+#else
+static int soft_trigger()
+{
+  return radiant_soft_trigger(radiant);
+}
+#endif
+
+
 /** The acquisition thread
  *
  * This has sole control over the SPI interface for the RADIANT.
@@ -1246,7 +1261,6 @@ static void * mon_thread(void* v)
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-
   //initial configuration of the calpulser
   calpulser_configure();
 
@@ -1272,6 +1286,7 @@ static void * mon_thread(void* v)
   static int last_cfg_counter = -1;
 
   double next_sw_trig = -1;
+
 #ifndef ON_DIDAQ
   radiant_servo_state_t rad_servo_state = {0};
   flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
@@ -1287,6 +1302,7 @@ static void * mon_thread(void* v)
   uint32_t max_rad_thresh = 0;
   uint32_t max_rad_change = 0;
 #endif
+
   while(!quit)
   {
     struct timespec now;
@@ -1301,6 +1317,19 @@ static void * mon_thread(void* v)
     float diff_last_daqstatus_out = nowf - last_daqstatus_out;
     float diff_sweep = nowf - sweep_time;
 
+    //Hold the config read lock to avoid values getting take from underneath us
+    pthread_rwlock_rdlock(&cfg_lock);
+
+    if (next_sw_trig < 0)
+    {
+      next_sw_trig = calc_next_sw_trig(nowf);
+    }
+    //do we need to send a soft trigger?
+    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
+    {
+      soft_trigger();
+      next_sw_trig = calc_next_sw_trig(nowf);
+    }
 
 #ifndef ON_DIDAQ
     //re set up the RADIANT
@@ -1318,26 +1347,7 @@ static void * mon_thread(void* v)
       for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
     }
-#endif
 
-    //Hold the config read lock to avoid values getting take from underneath us
-    pthread_rwlock_rdlock(&cfg_lock);
-
-    if (next_sw_trig < 0)
-    {
-      next_sw_trig = calc_next_sw_trig(nowf);
-    }
-    //do we need to send a soft trigger?
-    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
-    {
-#ifndef ON_DIDAQ
-      radiant_soft_trigger(radiant);
-#endif
-      next_sw_trig = calc_next_sw_trig(nowf);
-    }
-
-
-#ifndef ON_DIDAQ
     //do we need radiant scalers?
     if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
     {
@@ -1480,7 +1490,6 @@ static void * mon_thread(void* v)
       last_daqstatus_out = nowf;
     }
 
-
     //do we need to change the calpulser attenuation?
     if (cfg.calib.sweep.enable && diff_sweep  > cfg.calib.sweep.step_time)
     {
@@ -1504,7 +1513,7 @@ static void * mon_thread(void* v)
     float sleep_amt = 0.1; //maximum sleep amount
 
     //sleep less if we need to send a soft trigger sooner
-    if ( cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4;
+    if (cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4;
 
     usleep(sleep_amt *1e6);
   }
