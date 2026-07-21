@@ -186,6 +186,7 @@ static int please_stop();
 //static void fail(const char *);
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
+static void start_threads();
 
 struct timespec precise_start_time;
 struct timespec precise_acq_time;
@@ -256,7 +257,7 @@ static void read_config()
   }
 
   //write the updated config (can't do this first time since output_dir hasn't been made
-  //by initial_setup yet)
+  //yet at startup)
   if (!first_time)
   {
     char * ofname;
@@ -722,7 +723,6 @@ static int do_bias_scan()
     return 1;
   }
 
-
   //apply attenuation
   if (cfg.radiant.bias_scan.apply_attenuation)
   {
@@ -731,7 +731,6 @@ static int do_bias_scan()
        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4);
      }
   }
-
 
  //make sure we apply the lab4 vbias in this case, otherwise it will be lost!
   cfg.radiant.analog.apply_lab4_vbias = 1;
@@ -816,7 +815,6 @@ int radiant_initial_setup()
   int have_peds = 0;
   if (cfg.radiant.pedestals.pedestal_file)
   {
-
     pedestal_fd = open(cfg.radiant.pedestals.pedestal_file, O_CREAT | O_RDWR, 0755);
 
     if (pedestal_fd == -1)
@@ -828,14 +826,13 @@ int radiant_initial_setup()
       //measure size
       size_t fsize = lseek(pedestal_fd, 0 , SEEK_END);
       //rewind
-      lseek(pedestal_fd,0,SEEK_SET);
+      lseek(pedestal_fd, 0, SEEK_SET);
 
       //truncate to right size if not already right
       if (fsize!= sizeof(rno_g_pedestal_t))
       {
         ftruncate(pedestal_fd, sizeof(rno_g_pedestal_t));
       }
-
 
       pedestals = mmap(0, sizeof(rno_g_pedestal_t), PROT_READ | PROT_WRITE, MAP_SHARED, pedestal_fd, 0);
 
@@ -859,9 +856,6 @@ int radiant_initial_setup()
       }
     }
   }
-
-
-
 
   if (cfg.radiant.pedestals.compute_at_start)
   {
@@ -903,7 +897,6 @@ int radiant_initial_setup()
 
   }
 
-
   if (cfg.radiant.pedestals.pedestal_subtract && !have_peds)
   {
 
@@ -923,9 +916,6 @@ int radiant_initial_setup()
       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, clamp(cfg.radiant.analog.trig_attenuation[ichan],0,31.75)*4);
     }
   }
-
-
-
 
   //set thresholds
   radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
@@ -1842,7 +1832,32 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 //  please_stop();
 //}
 
-static int initial_setup()
+/**
+ * Perform the earliest DAQ startup steps, before any hardware is touched:
+ *
+ *  - initialize the config lock and load the config
+ *  - block (while periodically feeding the watchdog) until both the
+ *    runfile partition and the output partition have at least the
+ *    configured minimum amount of free space
+ *  - record the precise start time
+ *  - determine the station number from /STATION_ID (defaulting to 0 if
+ *    it can't be read)
+ *  - determine the run number and output directory from the runfile,
+ *    incrementing the run number as needed to avoid clobbering an
+ *    existing run directory (unless overwriting is explicitly allowed)
+ *  - make sure the calibration pulser is off, in case of an unclean exit
+ *  - open (or, if unavailable, allocate) the shared daqstatus struct and
+ *    initialize the radiant/flower trigger thresholds, unless they were
+ *    already loaded from a pre-existing shared status file
+ *
+ * On return, *frun_out holds the open runfile handle (or NULL if no
+ * runfile existed yet) so the caller can later rewrite it with the next
+ * run number.
+ *
+ * Returns 0 on success, 1 on failure (a negative run number was found in
+ * the runfile).
+ */
+static int setup_run_and_daqstatus(FILE ** frun_out)
 {
   /** Initialize config lock and try to read the config */
   pthread_rwlock_init(&cfg_lock,NULL);
@@ -1852,9 +1867,11 @@ static int initial_setup()
   runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
   output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
 
-  while (cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition)
+  while ( (cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free < cfg.output.min_free_space_MB_runfile_partition)
+       || (cfg.output.min_free_space_MB_output_partition && output_partition_free < cfg.output.min_free_space_MB_output_partition) )
   {
-    fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition);
+    fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d) and/or output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n",
+            runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition, output_partition_free, cfg.output.min_free_space_MB_output_partition);
 
     //avoid getting killed by watchdog
     for (int i = 0; i < 15; i++)
@@ -1863,18 +1880,6 @@ static int initial_setup()
       feed_watchdog(0);
     }
     runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
-  }
-
-  while ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition)
-  {
-    fprintf(stderr,"Insufficient free space on output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", output_partition_free, cfg.output.min_free_space_MB_output_partition);
-
-    //avoid getting killed by watchdog
-    for (int i = 0; i < 15; i++)
-    {
-      sleep(20);
-      feed_watchdog(0);
-    }
     output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
   }
 
@@ -1995,6 +2000,30 @@ static int initial_setup()
   }
   pthread_rwlock_init(&ds_lock, NULL);
 
+  *frun_out = frun;
+  return 0;
+}
+
+/**
+ * Open and configure the radiant and flower boards.
+ *
+ *  - initialize the radiant lock and, record the timing before the radiant
+ *    (with a python script which initalizes the radiant by itself)
+ *  - open the radiant, retrying (and dropping kernel caches) a few times
+ *    in case kernel fragmentation is preventing the open, and giving up
+ *    after too many failed attempts
+ *  - initialize the flower lock and open the flower (fatal only if the
+ *    flower is marked as required in the config), and warn if its
+ *    firmware reports a station number that doesn't match ours
+ *  - run each board's initial setup routine, feeding the watchdog between
+ *    steps since this can take a while (take bias scan if condition is met)
+ *
+ * Returns 0 on success, 1 on failure (radiant could not be opened after
+ * repeated attempts, the flower could not be opened but is required, or
+ * either board's initial setup failed).
+ */
+static int setup_radiant_and_flower()
+{
   //initialize the radiant lock
   pthread_rwlock_init(&radiant_lock, NULL);
 
@@ -2064,6 +2093,31 @@ static int initial_setup()
     return 1;
   feed_watchdog(0);
 
+  return 0;
+}
+
+/**
+ * Advance the runfile to the next run number and set up the output
+ * directory for the current run.
+ *
+ *  - if a runfile was open (frun non-NULL), atomically overwrite it with
+ *    run_number+1: write to a temporary file, then rename it over the
+ *    real runfile, so a future invocation picks up where this run left
+ *    off even if we crash partway through
+ *  - allocate the scratch buffer (bigbuf) used throughout the program for
+ *    building output file paths
+ *  - create the output directory tree for this run
+ *  - open the per-run file list, used to track every output file written
+ *    during this run, and record the file list itself in it
+ *
+ * frun is closed (or, on the error path, left for the caller to ignore)
+ * by this function; it must not be used by the caller afterward.
+ *
+ * Returns 0 on success, 1 on failure (temporary run file couldn't be
+ * opened/written/renamed, or the scratch buffer couldn't be allocated).
+ */
+static int setup_output_dir_and_runfile(FILE * frun)
+{
   //update the run file
   if (frun)
   {
@@ -2071,15 +2125,15 @@ static int initial_setup()
 
     char * tmp_run_file = 0;
     asprintf(&tmp_run_file, "%s.tmp", cfg.output.runfile);
-    frun = fopen(tmp_run_file,"w");
+    frun = fopen(tmp_run_file, "w");
     if (!frun)
     {
-      fprintf(stderr,"Could not open temporary run file: %s\n", tmp_run_file);
+      fprintf(stderr, "Could not open temporary run file: %s\n", tmp_run_file);
       return 1;
     }
-    if ( 0 > fprintf(frun,"%d\n", run_number+1) || 0 != fclose(frun))
+    if (0 > fprintf(frun, "%d\n", run_number + 1) || 0 != fclose(frun))
     {
-      fprintf(stderr,"Problem writing temporary run file %s\n", tmp_run_file);
+      fprintf(stderr, "Problem writing temporary run file %s\n", tmp_run_file);
       return 1;
     }
     if (rename(tmp_run_file, cfg.output.runfile))
@@ -2102,21 +2156,31 @@ static int initial_setup()
   //let's make the output directories here now
   make_dirs_for_output(output_dir);
 
-
   //open the file list
-  sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir);
+  sprintf(bigbuf, "%s/aux/acq-file-list.txt", output_dir);
   file_list = fopen(bigbuf, "w");
   file_list_fd = fileno(file_list);
   add_to_file_list(bigbuf);
 
-  //HACK, take initial flower data if we need to
-  if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
-  {
-    snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
-    add_to_file_list(bigbuf);
-    flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
-  }
+  return 0;
+}
 
+/**
+ * Install signal handlers, initialize the acq/mon ring buffers, and
+ * start the acq, mon, and wri (write) threads.
+ *
+ *  - install a shared sigaction (signal_handler) for SIGINT, SIGTERM, and
+ *    SIGUSR1
+ *  - initialize the acq and mon ring buffers from the configured sizes
+ *  - record the precise acq start time, then start the acq and mon
+ *    threads
+ *  - take a read lock on the config lock and hold it (it is released once
+ *    the write thread has finished writing out the config) before
+ *    starting the write thread, so the write thread is guaranteed to see
+ *    a consistent config while the acq/mon threads are already running
+ */
+static void start_threads()
+{
   //set up signal handlers
   sigset_t empty;
   sigemptyset(&empty);
@@ -2142,11 +2206,7 @@ static int initial_setup()
   pthread_rwlock_rdlock(&cfg_lock);
 
   pthread_create(&the_wri_thread, NULL, wri_thread, NULL);
-
-  return 0;
 }
-
-
 
 
 int please_stop()
@@ -2158,13 +2218,35 @@ int please_stop()
 }
 
 
-
 int main(int nargs, char ** args)
 {
   if (nargs > 1) cfgpath = args[1];
 
-  if (initial_setup())
+  FILE * frun = NULL;
+  if (setup_run_and_daqstatus(&frun))
+  {
     return 1;
+  }
+
+  if (setup_radiant_and_flower())
+  {
+    return 1;
+  }
+
+  if (setup_output_dir_and_runfile(frun))
+  {
+    return 1;
+  }
+
+  //HACK, take initial flower data if we need to
+  if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
+  {
+    snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
+    add_to_file_list(bigbuf);
+    flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
+  }
+
+  start_threads();
 
   struct timespec start_time;
   clock_gettime(CLOCK_MONOTONIC_COARSE,&start_time);
