@@ -14,6 +14,7 @@ typedef struct rate_cap_config
   int enable;
   float max_trigger_rate;
   float trigger_rate_window;
+  float min_trigger_rate; //force readout at this rate even while the cap is otherwise skipping events; 0 disables
 } rate_cap_config_t;
 
 

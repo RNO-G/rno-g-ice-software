@@ -23,7 +23,7 @@
  *    There are a few rwlocks:
  *
  *      cfg_lock: Locks the global acq configuration
-   *       * readers hold this when using the config for something, but should release sometimes
+ *         * readers hold this when using the config for something, but should release sometimes
  *         * will be held as a write lock when th econfig is being updated (from a signal telling us to reread)
  *
  *      radiant_lock:
@@ -203,6 +203,8 @@ static double output_partition_free = 0;
 
 /** Per-RF-trigger-source trailing window of recent trigger times, used by check_write_event to cap the readout rate */
 static trigger_rate_tracker_t trackers[NUM_RATE_IDS];
+/** Per-RF-trigger-source time (CLOCK_MONOTONIC seconds) of the last event actually written out, used to enforce min_trigger_rate */
+static double last_readout_time[NUM_RATE_IDS] = {0};
 
 /** Human-readable names for rate_id_t, in the same order, for diagnostics */
 static const char * const rate_id_names[NUM_RATE_IDS] = {"RADIANT0", "RADIANT1", /* "RADIANTX", */ "LT"};
@@ -1474,6 +1476,9 @@ static void * mon_thread(void* v)
       //make sure the station is set correctly
       ds->station = station_number;
 
+      // pick up which RF trigger sources the acq thread currently has rate-capped
+      ds->trigger_rate_cap_active = rate_cap_active_bits;
+
       // fill in calpulser info
       if (!calpulser)  // just zero
       {
@@ -2323,6 +2328,26 @@ static const rate_cap_config_t * cap_cfg_for_id(int id)
   return &cfg.radiant.readout.cap_trigger_rate.lt; // RATE_ID_LT, the only remaining case
 }
 
+static uint8_t rate_cap_bit_for_id(int id)
+{
+  if (id == RATE_ID_RADIANT0) return RNO_G_RATE_CAP_RADIANT0;
+  if (id == RATE_ID_RADIANT1) return RNO_G_RATE_CAP_RADIANT1;
+  return RNO_G_RATE_CAP_LT; // RATE_ID_LT, the only remaining case
+}
+
+/** Bitmask (rno_g_rate_cap_source_t) of which RF trigger sources currently have their rate cap
+ *  actively skipping events. Written only by the acq thread (see set_rate_cap_active, called from
+ *  check_write_event); read by the mon thread, which copies it into the shared daqstatus (ds) that
+ *  mon_thread itself owns. A plain byte so the cross-thread read/write can't tear. */
+static uint8_t rate_cap_active_bits = 0;
+
+static void set_rate_cap_active(int id, int active)
+{
+  uint8_t bit = rate_cap_bit_for_id(id);
+  if (active) rate_cap_active_bits |= bit;
+  else        rate_cap_active_bits &= ~bit;
+}
+
 /** Warn if an enabled trigger rate cap is configured such that max_trigger_rate * trigger_rate_window
  *  exceeds RATE_WINDOW_MAX_ENTRIES: check_write_event clamps its internal count in that case, so the
  *  cap ends up stricter than what was configured. Called once whenever the config is (re-)read.
@@ -2345,6 +2370,14 @@ static void check_trigger_rate_cap_config()
                        rate_id_names[id], rcfg->max_trigger_rate, rcfg->trigger_rate_window,
                        entries_needed, RATE_WINDOW_MAX_ENTRIES);
     }
+
+    if (rcfg->min_trigger_rate > rcfg->max_trigger_rate)
+    {
+      fprintf(stderr, "!!! WARNING: radiant.readout.cap_trigger_rate.%s: min_trigger_rate (%g Hz) "
+                       "exceeds max_trigger_rate (%g Hz); the forced minimum readout rate will "
+                       "override the cap and push the sustained rate above the configured maximum!\n",
+                       rate_id_names[id], rcfg->min_trigger_rate, rcfg->max_trigger_rate);
+    }
   }
 }
 
@@ -2355,24 +2388,34 @@ static void check_trigger_rate_cap_config()
  *  Each RF trigger source (see rate_id_for_trigger_type) has its own enable/max_trigger_rate/
  *  trigger_rate_window config and its own trailing window of recent trigger times; once more than
  *  max_trigger_rate * trigger_rate_window of them fall within the trailing trigger_rate_window
- *  seconds, further events from that source are skipped until the rate drops again.
+ *  seconds, further events from that source are skipped until the rate drops again. However, if
+ *  min_trigger_rate > 0, an event is still forced through whenever more than 1/min_trigger_rate
+ *  seconds have passed since the last one we wrote out for that source, so downstream consumers
+ *  (e.g. the threshold servo) keep seeing a trickle of events even during a sustained noise storm.
  *
  *  You should be holding at least a read lock on cfg_lock while calling this.
  **/
 static int check_write_event(acq_buffer_item_t * mem)
 {
 
+  uint8_t type = mem->hd.trigger_type;
+  int id = rate_id_for_trigger_type(type);
+
   // Never cap triggers during a calibration run.
   if (cfg.calib.enable_cal && calpulser)
+  {
+    if (id >= 0) set_rate_cap_active(id, 0);
     return 1;
+  }
 
-  uint8_t type = mem->hd.trigger_type;
-
-  int id = rate_id_for_trigger_type(type);
   if (id < 0) return 1;  // Always write events not covered by rate_id_t
 
   const rate_cap_config_t * rcfg = cap_cfg_for_id(id);
-  if (!rcfg->enable) return 1;
+  if (!rcfg->enable)
+  {
+    set_rate_cap_active(id, 0);
+    return 1;
+  }
 
   trigger_rate_tracker_t * tr = &trackers[id];
 
@@ -2401,14 +2444,26 @@ static int check_write_event(acq_buffer_item_t * mem)
   if (max_count < 1) max_count = 1;
   if (max_count >= RATE_WINDOW_MAX_ENTRIES) max_count = RATE_WINDOW_MAX_ENTRIES - 1;
 
+  // Force readout if it's been longer than min_trigger_rate since the last one we wrote out,
+  // even if the cap below would otherwise skip it. min_trigger_rate <= 0 disables this.
+  if (rcfg->min_trigger_rate > 0 && nowf - last_readout_time[id] > 1.0 / rcfg->min_trigger_rate)
+  {
+    last_readout_time[id] = nowf;
+    return 1;
+  }
+
+  // if count is to high, skip readout...
   if (tr->count > max_count)
   {
     fprintf(stderr, "Not writing out event, trigger rate is too high! "
                      "(trigger_type=0x%02x, source=%s, rate=%.2f Hz [%d in %.3gs] > max=%.2f Hz)\n",
                      type, rate_id_names[id], tr->count / window, tr->count, window,
                      rcfg->max_trigger_rate);
+    set_rate_cap_active(id, 1);
     return 0;
   }
 
+  last_readout_time[id] = nowf;
+  set_rate_cap_active(id, 0);
   return 1;
 }
