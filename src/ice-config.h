@@ -16,6 +16,20 @@
 typedef struct acq_config
 {
 
+  //didaq-specific things
+  struct
+  {
+
+    struct {
+      int gpio;
+    } device;
+
+    struct {
+      int poll_ms;
+    } readout;
+
+  } didaq;
+
   //radiant-specific things
   struct
   {
@@ -178,17 +192,17 @@ typedef struct acq_config
       {
         int enable_rf_coinc_trigger;
         int rf_coinc_channel_mask;
-        int vpp ;
+        int vpp;
         int min_coincidence;
         int window;
-      }coinc;
+      } coinc;
 
       struct
       {
         int enable_rf_phased_trigger;
         int rf_phased_beam_mask;
         int rf_phased_threshold_offset;
-      }phased;
+      } phased;
 
       int enable_rf_trigger_sma_out;
       int enable_rf_trigger_sys_out;

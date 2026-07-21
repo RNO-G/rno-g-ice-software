@@ -20,10 +20,10 @@
 int init_acq_config(acq_config_t * cfg)
 {
 
-  //output
   // Yes, I really am this lazy
   // to avoid lots of typing we'll keep #defining and #undefing the section
-#define SECT cfg->output
+
+  #define SECT cfg->output
 
   SECT.base_dir = "/data/daq/";
   SECT.runfile = "/rno-g/var/runfile";
@@ -46,9 +46,45 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256;
   SECT.mon_buf_size = 128;
 
-//lt  (low-threshold)
-//
 #undef SECT
+#define SECT cfg->calib
+
+  SECT.enable_cal = 0;
+  SECT.turn_off_at_exit = 1;
+  SECT.i2c_bus = 2;
+  SECT.gpio = 49;
+  SECT.rev = "/REV";
+  SECT.channel= RNO_G_CAL_NO_OUTPUT;
+  SECT.type = RNO_G_CAL_NO_SIGNAL;
+  SECT.atten = 31.5;
+
+  SECT.sweep.enable = 0;
+  SECT.sweep.start_atten = 31.5;
+  SECT.sweep.stop_atten = 0;
+  SECT.sweep.atten_step = 0.5;
+  SECT.sweep.step_time = 100;
+
+#undef SECT
+
+  // After we set the defaults for all general stuff (runtime, output, calib)
+  // We start with digitizer specific stuff. First the new didaq ...
+
+#ifdef ON_DIDAQ
+
+#define SECT cfg->didaq.device
+
+  SEC.gpio = 1;
+
+#undef SECT
+#define SECT cfg->didaq.readout
+
+  SECT.poll_ms = 10;
+
+#undef SECT
+
+#else
+  // ... and now comes all radiant/flower specific
+
 #define SECT cfg->lt.gain
   SECT.auto_gain=1;
   SECT.target_rms=5;
@@ -59,13 +95,14 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.device
+
   SECT.spi_enable_gpio = 0;
   SECT.spi_device = "/dev/spidev1.0" ;
   SECT.required = 1;
 
-
 #undef SECT
 #define SECT cfg->lt.trigger
+
   SECT.coinc.vpp =1;
   SECT.coinc.min_coincidence=2;
   SECT.coinc.window = 5;
@@ -95,8 +132,10 @@ int init_acq_config(acq_config_t * cfg)
   {
     SECT.initial_phased_thresholds[i] = 600;
   }
+
 #undef SECT
 #define SECT cfg->lt.servo
+
   SECT.enable = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
@@ -122,30 +161,32 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.waveforms
+
   SECT.skip_runs = 11;
   SECT.length = 1024;
   SECT.preclear_force_trigger = 1;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_finish
+
   SECT.enable=0;
   SECT.nsecs_rf=100;
   SECT.nforce=100;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_start
+
   SECT.enable=0;
   SECT.nsecs_rf=100;
   SECT.nforce=100;
 
-
 ////RADIANT
 #undef SECT
 #define SECT cfg->radiant.pps
+
   SECT.use_internal = 0;
   SECT.sync_out = 0;
   SECT.pps_holdoff =10;
-
 
 #undef SECT
 #define SECT cfg->radiant.device
@@ -157,9 +198,9 @@ int init_acq_config(acq_config_t * cfg)
   SECT.poll_gpio = 46 ;
   SECT.spi_enable_gpio = -61 ;
 
-  //radiant analog
 #undef SECT
 #define SECT cfg->radiant.analog
+
   SECT.apply_lab4_vbias = 1;
   SECT.lab4_vbias[0] = 1.5;
   SECT.lab4_vbias[1] = 1.5;
@@ -174,7 +215,6 @@ int init_acq_config(acq_config_t * cfg)
     SECT.trig_attenuation[i] = 0;
   }
 
-  //radiant pedestals
 #undef SECT
 #define SECT cfg->radiant.pedestals
 
@@ -187,16 +227,16 @@ int init_acq_config(acq_config_t * cfg)
   SECT.ntriggers_per_cycle = 1;
   SECT.sleep_per_cycle = 1e-3;
 
-  //radiant readout
 #undef SECT
 #define SECT cfg->radiant.readout
+
   SECT.readout_mask = 0xffffff;
   SECT.nbuffers_per_readout = 2;
   SECT.poll_ms = 10;
 
-  //radiant trigger
 #undef SECT
 #define SECT cfg->radiant.trigger
+
   SECT.clear_mode = 0;
   SECT.output_enabled =1;
 
@@ -216,7 +256,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[1].readout_delay=587; //delay 11*(53.333ns)=586.666ns
   SECT.RF[1].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
 
-
   //LT
   SECT.ext.enabled = 1;
 
@@ -230,8 +269,6 @@ int init_acq_config(acq_config_t * cfg)
   //PPS trigger
   SECT.pps.enabled = 0;
   SECT.pps.output_enabled = 0;
-
-  //SERVO
 
 #undef SECT
 #define SECT cfg->radiant.servo
@@ -256,7 +293,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.max_thresh_change = 0.01;
   SECT.max_sum_err = 10000;
 
-
 #undef SECT
 #define SECT cfg->radiant.thresholds
 
@@ -270,15 +306,17 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->radiant.scalers
+
   SECT.use_pps = 1;
   SECT.period = 1;
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     SECT.prescal_m1[i]=  0;
   }
-#undef SECT
 
+#undef SECT
 #define SECT cfg->radiant.bias_scan
+
   SECT.enable_bias_scan = 1;
   SECT.skip_runs = 13;
   SECT.min_val = 0;
@@ -291,28 +329,14 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->radiant.timing_recording
+
   SECT.enable= 1;
   SECT.skip_runs = 4;
   SECT.n_recordings = 5;
   SECT.directory = "/data/timing/";
 
 #undef SECT
-#define SECT cfg->calib
-  SECT.enable_cal = 0;
-  SECT.turn_off_at_exit = 1;
-  SECT.i2c_bus = 2;
-  SECT.gpio = 49;
-  SECT.rev = "/REV";
-  SECT.channel= RNO_G_CAL_NO_OUTPUT;
-  SECT.type = RNO_G_CAL_NO_SIGNAL;
-  SECT.atten = 31.5;
-
-  SECT.sweep.enable = 0;
-  SECT.sweep.start_atten = 31.5;
-  SECT.sweep.stop_atten = 0;
-  SECT.sweep.atten_step = 0.5;
-  SECT.sweep.step_time = 100;
-#undef SECT
+#endif
 
   return 0;
 }
@@ -417,13 +441,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
     return -1;
   }
 
-  //OUTPUT
-
-
+  //output
   LOOKUP_STRING(output,base_dir);
   LOOKUP_STRING(output,runfile);
   LOOKUP_STRING(output,comment);
-
   LOOKUP_INT(output.seconds_per_run);
   LOOKUP_INT(output.max_events_per_file);
   LOOKUP_INT(output.max_daqstatuses_per_file);
@@ -435,7 +456,33 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(output.min_free_space_MB_runfile_partition);
   LOOKUP_INT(output.allow_rundir_overwrite);
 
+  //runtime
+  LOOKUP_STRING(runtime,status_shmem_file);
+  LOOKUP_INT(runtime.acq_buf_size);
+  LOOKUP_INT(runtime.mon_buf_size);
 
+  //calib
+  LOOKUP_INT(calib.enable_cal);
+  LOOKUP_INT(calib.turn_off_at_exit);
+  LOOKUP_INT(calib.i2c_bus);
+  LOOKUP_INT(calib.gpio);
+  LOOKUP_STRING(calib,rev);
+  LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs);
+  LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes);
+  LOOKUP_FLOAT(calib.atten);
+
+  LOOKUP_INT(calib.sweep.enable);
+  LOOKUP_FLOAT(calib.sweep.start_atten);
+  LOOKUP_FLOAT(calib.sweep.stop_atten);
+  LOOKUP_FLOAT(calib.sweep.atten_step);
+  LOOKUP_INT(calib.sweep.step_time);
+
+#ifdef ON_DIDAQ
+
+  LOOKUP_INT(didaq.device.gpio);
+  LOOKUP_INT(didaq.readout.poll_ms);
+
+#else
   //RADIANT
 
   //pps
@@ -565,11 +612,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_STRING(radiant.timing_recording, directory);
 
 
-  //runtime
-  LOOKUP_STRING(runtime,status_shmem_file);
-  LOOKUP_INT(runtime.acq_buf_size);
-  LOOKUP_INT(runtime.mon_buf_size);
-
   //LT
   //for backwards compatibility
   LOOKUP_INT_RENAME(lt.trigger.coinc.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
@@ -639,21 +681,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.waveforms.length);
   LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
-  LOOKUP_INT(calib.enable_cal);
-  LOOKUP_INT(calib.turn_off_at_exit);
-  LOOKUP_INT(calib.i2c_bus);
-  LOOKUP_INT(calib.gpio);
-  LOOKUP_STRING(calib,rev);
-  LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs);
-  LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes);
-  LOOKUP_FLOAT(calib.atten);
-
-  LOOKUP_INT(calib.sweep.enable);
-  LOOKUP_FLOAT(calib.sweep.start_atten);
-  LOOKUP_FLOAT(calib.sweep.stop_atten);
-  LOOKUP_FLOAT(calib.sweep.atten_step);
-  LOOKUP_INT(calib.sweep.step_time);
-
   config_destroy(&config);
   return 0;
 }
@@ -695,6 +722,22 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor.\n");
   fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n\n");
 
+
+#ifdef ON_DIDAQ
+
+  SECT(radiant,"DiDAQ configuration");
+
+    SECT(readout,"Readout settings for the DiDAQ");
+      WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
+    UNSECT();
+
+    SECT(device,"DiDAQ device settings");
+      WRITE_INT(didaq.device, gpio,"");
+    UNSECT();
+
+  UNSECT();
+
+#else
 
 
  SECT(radiant,"RADIANT configuration");
@@ -903,6 +946,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(runtime,mon_buf_size,"monitoring circular buffer size (temporarily stores daqstatus between recording and writing to disk)");
   UNSECT();
 
+#endif
 
   SECT(output,"Output settings");
     WRITE_STR(output,base_dir,"Base directory for writing out data");
