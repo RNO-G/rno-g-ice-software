@@ -58,6 +58,7 @@
 
 #ifdef ON_DIDAQ
 
+#include "didaq.h"
 #include "rno-g-didaq.h"
 
 #else
@@ -178,7 +179,6 @@ static double output_partition_free = 0;
 static int calpulser_configure();
 static int teardown();
 static int please_stop();
-//static void fail(const char *);
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
 static void start_threads();
@@ -190,12 +190,21 @@ struct timespec precise_stop_time;
 static uint32_t delay_clock_estimate = 10000000;
 
 #ifdef ON_DIDAQ
-static didaq_dev_t didaq = 0;
+static didaq_dev_t * didaq = 0;
 
 static int didaq_configure();
 
+/*read-write lock for cofiguring the didaq */
+static pthread_rwlock_t didaq_lock;
+
 #else
 ///// Radiant & Flower specific definitions /////
+
+/*read-write lock for cofiguring the radiant */
+static pthread_rwlock_t radiant_lock;
+
+/*read-write lock for cofiguring the flower */
+static pthread_rwlock_t flower_lock;
 
 /** radiant pedestals*/
 static rno_g_pedestal_t * pedestals = 0;
@@ -358,6 +367,43 @@ void feed_watchdog(time_t * now)
 
 
 #ifdef ON_DIDAQ
+
+int open_and_setup_didaq()
+{
+
+  didaq_setup_t setup = {
+    .spi_device = cfg.didaq.device.spi_name,
+    .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
+    .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label
+  };
+
+  didaq = didaq_open(&setup);
+
+  if (!didaq)
+  {
+    fprintf(stderr, "COULD NOT OPEN DIDAQ. Giving up.");
+    return 1;
+  }
+
+  pthread_rwlock_init(&didaq_lock, NULL);
+
+  feed_watchdog(0);
+  if (didaq_initial_setup())
+    return 1;
+  feed_watchdog(0);
+
+}
+
+int didaq_initial_setup() {
+  // Runs once at startup (single thread, no need for a lock?)
+  if (!didaq) return -1;
+
+  didaq_coin_thresholds_t th;
+  didaq_set_thresholds(didaq, 0, &th);
+
+  return didaq_configure();
+}
+
 int didaq_configure()
 {
   // TODO
@@ -832,7 +878,7 @@ int radiant_initial_setup()
       pedestals = mmap(0, sizeof(rno_g_pedestal_t), PROT_READ | PROT_WRITE, MAP_SHARED, pedestal_fd, 0);
 
       //valid to read, maybe!
-      if (pedestals ==MAP_FAILED)
+      if (pedestals == MAP_FAILED)
       {
         //ruhroh.
         fprintf(stderr, "Could not mmap pedestals. Will not be cached\n");
@@ -1285,7 +1331,115 @@ static void radiant_flower_servo(double nowf)
     last_servo_lt = nowf;
   }
 }
+
+
+/**
+ * Open and configure the radiant and flower boards.
+ *
+ *  - initialize the radiant lock and, record the timing before the radiant
+ *    (with a python script which initalizes the radiant by itself)
+ *  - open the radiant, retrying (and dropping kernel caches) a few times
+ *    in case kernel fragmentation is preventing the open, and giving up
+ *    after too many failed attempts
+ *  - initialize the flower lock and open the flower (fatal only if the
+ *    flower is marked as required in the config), and warn if its
+ *    firmware reports a station number that doesn't match ours
+ *  - run each board's initial setup routine, feeding the watchdog between
+ *    steps since this can take a while (take bias scan if condition is met)
+ *
+ * Returns 0 on success, 1 on failure (radiant could not be opened after
+ * repeated attempts, the flower could not be opened but is required, or
+ * either board's initial setup failed).
+ */
+static int open_and_setup_radiant_and_flower()
+{
+  //initialize the radiant lock
+  pthread_rwlock_init(&radiant_lock, NULL);
+
+  // When it is time to do a bias scan record the timing before setting up the radiant
+  if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
+      ((run_number % cfg.radiant.timing_recording.skip_runs) == 0)))
+  {
+    record_timimg();
+  }
+
+  int nattempts = 0;
+  //open the radiant
+  do
+  {
+    radiant  = radiant_open(
+      cfg.radiant.device.spi_device,
+      cfg.radiant.device.uart_device,
+      cfg.radiant.device.poll_gpio,
+      cfg.radiant.device.spi_enable_gpio);
+
+    if (!radiant)
+    {
+      fprintf(stderr, "COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
+      if (nattempts++ > 3)
+      {
+        fprintf(stderr, "Giving up...\n");
+        return 1;
+      }
+      sleep(1);
+      system("/rno-g/bin/bbb-drop-caches");
+    }
+
+    if (radiant && nattempts > 0)
+    {
+      fprintf(stderr,"Ok, we could open it! Yay!\n");
+    }
+  } while (!radiant);
+
+  //open the flower before doing radiant_initial_setup so we fail faster
+  pthread_rwlock_init(&flower_lock, NULL);
+
+  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio);
+  if (!flower && cfg.lt.device.required)
+  {
+    fprintf(stderr, "COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
+    sleep(20);
+    return 1;
+  }
+
+  uint8_t fwstation, fwmajor, fwminor;
+  flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, 0, 0, 0);
+  if ((1000*fwmajor + fwminor) >= 14 && fwstation != station_number)
+  {
+    //complain but don't quit since it's not necessarily fatal (ie lab testing)
+    fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
+  }
+
+  feed_watchdog(0);
+
+  //intitial configure of the radiant, bail if can't open
+  if (radiant_initial_setup())
+    return 1;
+  feed_watchdog(0);
+
+  //and the flower, bail if can't open  and required
+  if (flower_initial_setup() && cfg.lt.device.required)
+    return 1;
+  feed_watchdog(0);
+
+  return 0;
+}
+
+// you should be holding a flower lock while calling this
+int flower_update_pps_offset()
+{
+  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
+
+  // clamp to a second
+  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
+
+  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
+  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
+  return flower_set_delayed_pps_delay(flower,delay_cycles);
+}
+
 #endif
+
 
 static struct drand48_data sw_rand;
 double calc_next_sw_trig(float now)
@@ -1456,25 +1610,23 @@ void * acq_thread(void* v)
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
       radiant_read_event(radiant, &mem->hd, &mem->wf);
       if (flower) flower_fill_header(flower, &mem->hd);
-      mem->hd.run_number = run_number;
-      mem->wf.run_number = run_number;
-      mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
-      ice_buf_commit(acq_buffer);
-    }
+
 #else
+    // wait for the DIDAQ to trigger
     if (didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
     {
       // Get a buffer , and fill it
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
       didaq_read_event(didaq, &mem->hd, &mem->wf);
 
+#endif
+
       mem->hd.run_number = run_number;
       mem->wf.run_number = run_number;
       mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
+      mem->wf.station = station_number;
       ice_buf_commit(acq_buffer);
-#endif
+    }
 
     //release the read locks
     pthread_rwlock_unlock(&cfg_lock);
@@ -2106,113 +2258,6 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
   return 0;
 }
 
-/**
- * Open and configure the radiant and flower boards.
- *
- *  - initialize the radiant lock and, record the timing before the radiant
- *    (with a python script which initalizes the radiant by itself)
- *  - open the radiant, retrying (and dropping kernel caches) a few times
- *    in case kernel fragmentation is preventing the open, and giving up
- *    after too many failed attempts
- *  - initialize the flower lock and open the flower (fatal only if the
- *    flower is marked as required in the config), and warn if its
- *    firmware reports a station number that doesn't match ours
- *  - run each board's initial setup routine, feeding the watchdog between
- *    steps since this can take a while (take bias scan if condition is met)
- *
- * Returns 0 on success, 1 on failure (radiant could not be opened after
- * repeated attempts, the flower could not be opened but is required, or
- * either board's initial setup failed).
- */
-#ifndef ON_DIDAQ
-static int setup_radiant_and_flower()
-{
-  //initialize the radiant lock
-  pthread_rwlock_init(&radiant_lock, NULL);
-
-  // When it is time to do a bias scan record the timing before setting up the radiant
-  if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
-      ((run_number % cfg.radiant.timing_recording.skip_runs) == 0)))
-  {
-    record_timimg();
-  }
-
-  int nattempts = 0;
-  //open the radiant
-  do
-  {
-    radiant  = radiant_open(
-      cfg.radiant.device.spi_device,
-      cfg.radiant.device.uart_device,
-      cfg.radiant.device.poll_gpio,
-      cfg.radiant.device.spi_enable_gpio);
-
-    if (!radiant)
-    {
-      fprintf(stderr, "COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
-      if (nattempts++ > 3)
-      {
-        fprintf(stderr, "Giving up...\n");
-        return 1;
-      }
-      sleep(1);
-      system("/rno-g/bin/bbb-drop-caches");
-    }
-
-    if (radiant && nattempts > 0)
-    {
-      fprintf(stderr,"Ok, we could open it! Yay!\n");
-    }
-  } while (!radiant);
-
-  //open the flower before doing radiant_initial_setup so we fail faster
-  pthread_rwlock_init(&flower_lock, NULL);
-
-  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio);
-  if (!flower && cfg.lt.device.required)
-  {
-    fprintf(stderr, "COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
-    sleep(20);
-    return 1;
-  }
-
-  uint8_t fwstation, fwmajor, fwminor;
-  flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, 0, 0, 0);
-  if ((1000*fwmajor + fwminor) >= 14 && fwstation != station_number)
-  {
-    //complain but don't quit since it's not necessarily fatal (ie lab testing)
-    fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
-  }
-
-  feed_watchdog(0);
-
-  //intitial configure of the radiant, bail if can't open
-  if (radiant_initial_setup())
-    return 1;
-  feed_watchdog(0);
-
-  //and the flower, bail if can't open  and required
-  if (flower_initial_setup() && cfg.lt.device.required)
-    return 1;
-  feed_watchdog(0);
-
-  return 0;
-}
-
-// you should be holding a flower lock while calling this
-int flower_update_pps_offset()
-{
-  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
-
-  // clamp to a second
-  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
-
-  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
-  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
-  return flower_set_delayed_pps_delay(flower,delay_cycles);
-}
-
-#endif
 
 /**
  * Advance the runfile to the next run number and set up the output
@@ -2342,21 +2387,24 @@ int main(int nargs, char ** args)
 
   FILE * frun = NULL;
   if (setup_run_and_daqstatus(&frun))
-  {
     return 1;
-  }
 
-#ifndef ON_DIDAQ
-  if (setup_radiant_and_flower())
-  {
+#ifdef ON_DIDAQ
+
+  if (open_and_setup_didaq())
     return 1;
-  }
-#endif
 
+#else
+
+  if (open_and_setup_radiant_and_flower())
+    return 1;
+
+  #endif
+
+  // I think the reason we are only doing this now is to not create empty run directories
+  // while we have problems with the hardware and the run would restart...
   if (setup_output_dir_and_runfile(frun))
-  {
     return 1;
-  }
 
 #ifndef ON_DIDAQ
   //HACK, take initial flower data if we need to
@@ -2387,15 +2435,20 @@ int main(int nargs, char ** args)
 
     if (cfg.output.min_free_space_MB_output_partition > 0)
     {
+      // Stop while available memory drops while running. Already performing test in
+      // setup_run_and_daqstatus to stop run from actually starting (and run folder being created ...)
       double MBfree = get_free_MB_by_path(cfg.output.base_dir);
       if (MBfree < cfg.output.min_free_space_MB_output_partition)
       {
-        fprintf(stderr,"Output partition free space is just %f MB, smaller than minimum %d MB\n", MBfree, cfg.output.min_free_space_MB_output_partition);
+        fprintf(stderr,
+          "Output partition free space is just %f MB, smaller than minimum %d MB\n",
+          MBfree, cfg.output.min_free_space_MB_output_partition);
         please_stop();
         continue;
       }
     }
 
+    // Stop at the end of the run
     clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
     if (now.tv_sec - start_time.tv_sec > cfg.output.seconds_per_run)
     {
@@ -2454,7 +2507,7 @@ int teardown()
 
   if (shared_ds_fd)
   {
-    munmap(ds,sizeof(rno_g_daqstatus_t));
+    munmap(ds, sizeof(rno_g_daqstatus_t));
     close(shared_ds_fd);
   }
 
