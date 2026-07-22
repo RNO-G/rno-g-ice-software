@@ -1694,7 +1694,7 @@ static void * mon_thread(void* v)
 
 #ifdef ON_DIDAQ
     didaq_servo(nowf);
-else
+#else
     radiant_flower_servo(nowf);
 #endif
 

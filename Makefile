@@ -7,12 +7,15 @@ BINDIR=bin
 ON_DIDAQ?=0
 
 LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
-LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
+LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 ifeq ($(ON_DIDAQ),1)
     CFLAGS += -DON_DIDAQ
+	LIBS += -ldidaq -lrno-g-didaq
+else
+	LIBS += -lradiant -lflower
 endif
 
 .PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
