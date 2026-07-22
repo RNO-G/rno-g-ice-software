@@ -1863,13 +1863,13 @@ static void * wri_thread(void* v)
     //write down didaq info to runinfo
     //TODO: assumes didaq exposes fw version / sample rate calls analogous to the RADIANT's; no FLOWER equivalent to report.
     uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
-    didaq_get_fw_version(didaq, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
+    didaq_get_fw_version(didaq, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
     fprintf(runinfo, "DIDAQ-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
     fprintf(runinfo, "DIDAQ-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
 
-    didaq_get_fw_version(didaq, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
-    fprintf(runinfo, "DIDAQ-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
-    fprintf(runinfo, "DIDAQ-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
+    // didaq_get_fw_version(didaq, DEST_MANAGER,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
+    // fprintf(runinfo, "DIDAQ-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
+    // fprintf(runinfo, "DIDAQ-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
 
     uint16_t sample_rate = didaq_get_sample_rate(didaq);
     fprintf(runinfo, "DIDAQ-SAMPLERATE = %u\n", sample_rate);
