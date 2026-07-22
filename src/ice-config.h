@@ -21,12 +21,125 @@ typedef struct acq_config
   {
 
     struct {
-      int gpio;
+      const char * spi_name;
+      const char * trig_ready_gpio_label;
+      const char * spi_en_label;;
     } device;
 
     struct {
+      uint32_t num_samples;
+      uint32_t sample_offset;
+      uint32_t reaodut_mask;
       int poll_ms;
     } readout;
+
+    // will hopefully eventually be implemented in didaq
+    struct
+    {
+      int auto_gain;
+      float target_rms;
+      uint8_t fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+    } gain;
+
+
+    struct
+    {
+      int load_from_threshold_file;
+      struct
+      {
+        float initial[RNO_G_NUM_RADIANT_CHANNELS];  // if not loaded form file
+        float max;
+        float min;
+      } coinc;
+      struct
+      {
+        float initial[RNO_G_NUM_LT_BEAMS];  // if not loaded form file. TODO maybe we need separate DIDAQ beams depending where we end up.
+        float max;
+        float min;
+      } phased;
+    } thresholds;
+
+
+    struct
+    {
+      struct
+      {
+        int enable;
+        int subtract_gated;
+        uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS];
+        float servo_thresh_frac;
+        float servo_thresh_offset;
+        float fast_scaler_weight;
+        float slow_scaler_weight;
+        float scaler_update_interval;
+        float servo_interval;
+        float P;
+        float I;
+        float D;
+      } phased;
+
+      struct
+      {
+        int enable;
+        int use_log;
+        float log_offset;
+        float scaler_update_interval;
+        float servo_interval;
+        int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+        float period_weights [NUM_SERVO_PERIODS];
+        float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel
+        float max_thresh_change;
+        float max_sum_err;
+        float P;
+        float I;
+        float D;
+      } coinc;
+
+
+
+    } servo;
+
+
+    struct
+    {
+      struct
+      {
+        int enabled;
+        int use_exponential_distribution;
+        float interval;
+        float interval_jitter;
+      } soft;
+
+      struct {
+        int enabled;
+      } pps;
+
+      struct {
+        int enabled;
+      } ext;
+
+      struct
+      {
+        int enable;
+        int enable_readout;
+        int quad_mode;
+        int num_required;
+        int window;
+        int exclude_mask;
+      } coinc[2];
+
+      struct
+      {
+        int enable;
+        int enable_readout;
+        int require_consecutive;
+        int divide_by_2;
+        int channel_exclude_mask;
+        int beam_exclude_mask;
+      } phased;
+
+
+    } trigger;
 
   } didaq;
 
