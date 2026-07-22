@@ -152,6 +152,9 @@ static rno_g_daqstatus_t * ds = 0;
 //File descriptor for daqstatus shared mem file
 static int shared_ds_fd;
 
+//Size the daqstatus shared mem file had when we opened it (cached from setup_run_and_daqstatus)
+static size_t shared_ds_file_size;
+
 /** calib handle */
 static rno_g_cal_dev_t * calpulser = 0;
 
@@ -375,8 +378,6 @@ int radiant_configure()
   pthread_rwlock_wrlock(&radiant_lock);
   pthread_rwlock_rdlock(&cfg_lock);
 
-
-
   radiant_pps_config_t pps_cfg = {.pps_holdoff = cfg.radiant.pps.pps_holdoff,
                                   .enable_sync_out= cfg.radiant.pps.sync_out,
                                   .use_internal_pps = cfg.radiant.pps.use_internal};
@@ -567,6 +568,28 @@ int flower_initial_setup()
     for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
     {
       flower_waveforms[i] = flower_waveforms_data + i * flower_waveforms_len;
+    }
+  }
+
+  //if we don't already have valid thresholds loaded from the shmem file, seed them from the config
+  int need_to_copy_lt_thresholds_from_cfg = !(
+    cfg.lt.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_lt_thresholds_from_cfg)
+  {
+    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
+    {
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
+      ds->lt_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 255);
+    }
+
+    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
+    {
+      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
+      ds->lt_phased_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 4095);
     }
   }
 
@@ -889,7 +912,16 @@ int radiant_initial_setup()
     }
   }
 
-  //set thresholds
+  //set thresholds, seeding them from the config if we don't already have valid ones from the shmem file
+  int need_to_copy_radiant_thresholds_from_cfg = !(
+    cfg.radiant.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_radiant_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    }
+  }
   radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
 
   //set up DMA correctly
@@ -1968,8 +2000,10 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
   runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
   output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
 
-  while ( (cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free < cfg.output.min_free_space_MB_runfile_partition)
-       || (cfg.output.min_free_space_MB_output_partition && output_partition_free < cfg.output.min_free_space_MB_output_partition) )
+  while ( (cfg.output.min_free_space_MB_runfile_partition &&
+           runfile_partition_free < cfg.output.min_free_space_MB_runfile_partition) ||
+          (cfg.output.min_free_space_MB_output_partition &&
+           output_partition_free < cfg.output.min_free_space_MB_output_partition) )
   {
     fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d) and/or output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n",
             runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition, output_partition_free, cfg.output.min_free_space_MB_output_partition);
@@ -2037,9 +2071,7 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
   //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such
   rno_g_cal_disable_no_handle(cfg.calib.gpio);
 
-  int need_to_copy_radiant_thresholds = 1;
-  int need_to_copy_lt_thresholds = 1;
-  //open the shared status file, if it's there.
+  //open the shared status file, if it's there. (always, even if we are not loading the thresholds)
   //need to do this before opening the radiant/flower since we need to laod thresholds, potentially
   if (cfg.runtime.status_shmem_file && *cfg.runtime.status_shmem_file)
   {
@@ -2052,20 +2084,15 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
     }
     else
     {
-      size_t file_size = lseek(shared_ds_fd,0,SEEK_END);
-      lseek(shared_ds_fd,0,SEEK_SET);
-      if (file_size != sizeof(rno_g_daqstatus_t))
+      shared_ds_file_size = lseek(shared_ds_fd, 0, SEEK_END);
+      lseek(shared_ds_fd, 0, SEEK_SET);
+
+      if (shared_ds_file_size != sizeof(rno_g_daqstatus_t))
       {
         ftruncate(shared_ds_fd, sizeof(rno_g_daqstatus_t));
       }
 
       ds = mmap(0, sizeof(rno_g_daqstatus_t), PROT_READ | PROT_WRITE, MAP_SHARED, shared_ds_fd,0);
-
-      if (cfg.radiant.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t))
-        need_to_copy_radiant_thresholds = 0;
-
-      if (cfg.lt.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t))
-        need_to_copy_lt_thresholds = 0;
     }
   }
 
@@ -2074,33 +2101,6 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
     ds = calloc(sizeof(rno_g_daqstatus_t),1);
   }
 
-#ifndef ON_DIDAQ
-  if (need_to_copy_radiant_thresholds)
-  {
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
-    }
-  }
-#endif
-
-  if (need_to_copy_lt_thresholds)
-  {
-    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
-    {
-      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
-      ds->lt_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255);
-    }
-
-    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
-    {
-      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
-      ds->lt_phased_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095);
-    }
-
-  }
 
   *frun_out = frun;
   return 0;
