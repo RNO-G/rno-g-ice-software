@@ -56,9 +56,17 @@
 
 #include <systemd/sd-daemon.h>
 
-#ifndef ON_DIDAQ
+#ifdef ON_DIDAQ
+
+#include "rno-g-didaq.h"
+
+#else
+
 #include "radiant.h"
 #include "flower.h"
+
+/* RADIANT threshold DAC: 24-bit code (2^24-1) over a 2.5V full-scale range */
+#define RADIANT_THRESHOLD_COUNTS_PER_VOLT (16777215/2.5)
 #endif
 
 #include "rno-g.h"
@@ -976,16 +984,6 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
   return;
 }
 
-static void setup_flower_coinc_servo_state(flower_coinc_servo_state_t * st)
-{
-  memset(st, 0, sizeof(flower_coinc_servo_state_t));
-}
-
-static void setup_flower_phased_servo_state(flower_phased_servo_state_t * st)
-{
-  memset(st, 0, sizeof(flower_phased_servo_state_t));
-}
-
 
 static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds)
 {
@@ -1095,12 +1093,8 @@ static void radiant_flower_servo(double nowf)
 {
   // The `static` locals below have static storage duration: each is allocated once,
   // for the lifetime of the program (not per-call like a normal local), and keeps
-  // its value between calls. Their `= ...` initializer only takes effect once, the
-  // first time this function runs; on every later call that line is a no-op and the
-  // variable still holds whatever was left in it at the end of the previous call.
-  // This is only safe because radiant_flower_servo() is only ever called from
-  // mon_thread (a single thread) -- if multiple threads called it concurrently,
-  // these statics would be unguarded shared state (a race condition).
+  // its value between calls. This is only safe because radiant_flower_servo()
+  // is only ever called from mon_thread (a single thread).
   static int last_cfg_counter = -1;
   static radiant_servo_state_t rad_servo_state = {0};
   static flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
@@ -1128,27 +1122,31 @@ static void radiant_flower_servo(double nowf)
   {
     last_cfg_counter = config_counter;
     setup_radiant_servo_state(&rad_servo_state);
-    setup_flower_coinc_servo_state(&flwr_coinc_servo_state);
-    setup_flower_phased_servo_state(&flwr_phased_servo_state);
+    memset(&flwr_coinc_servo_state, 0, sizeof(flower_coinc_servo_state_t));
+    memset(&flwr_phased_servo_state, 0, sizeof(flower_phased_servo_state_t));
 
-    min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5;
-    max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5;
-    max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5;
+    // We allow re-reading the cfg, so those are not const.
+    min_rad_thresh = cfg.radiant.thresholds.min * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    max_rad_thresh = cfg.radiant.thresholds.max * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    max_rad_change = cfg.radiant.servo.max_thresh_change * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+
     for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
     for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
 
   }
 
   //do we need radiant scalers?
-  if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
+  if ( (cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled) &&
+        cfg.radiant.servo.scaler_update_interval &&
+        cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant )
   {
     while (1)
     {
       //read twice and make sure equal
       static rno_g_daqstatus_t ds0 = {0};
       memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
-      static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0};
-      int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
+      static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS] = {0};
+      int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
 
       if (ok) fprintf(stderr,"Problem reading daqstatus\n");
 
@@ -2076,13 +2074,15 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
     ds = calloc(sizeof(rno_g_daqstatus_t),1);
   }
 
+#ifndef ON_DIDAQ
   if (need_to_copy_radiant_thresholds)
   {
     for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
     {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 16777215/2.5;
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
     }
   }
+#endif
 
   if (need_to_copy_lt_thresholds)
   {
