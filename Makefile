@@ -4,16 +4,22 @@ PREFIX?=$(RNO_G_INSTALL_DIR)
 CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
 BINDIR=bin
 
-ON_DIDAQ?=0
+ON_DIDAQ?=no
+
+#check if on revn board
+ifneq (,$(shell grep RevN /proc/device-tree/model 2> /dev/null))
+$(info We are on the DiDAQ)
+ON_DIDAQ=yes
+endif
 
 LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
 LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-ifeq ($(ON_DIDAQ),1)
+ifeq ($(ON_DIDAQ),yes)
     CFLAGS += -DON_DIDAQ
-	LIBS += -ldidaq -lrno-g-didaq
+	LIBS += -ldidaq -lrno-g-didaq -lgpios
 else
 	LIBS += -lradiant -lflower
 endif
