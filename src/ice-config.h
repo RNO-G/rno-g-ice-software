@@ -59,7 +59,7 @@ typedef struct acq_config
     {
       const char * spi_name;
       const char * trig_ready_gpio_label;
-      const char * spi_en_label;;
+      const char * spi_en_label;
     } device;
 
     struct

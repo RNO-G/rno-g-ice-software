@@ -681,6 +681,8 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.waveforms.length);
   LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
+#endif
+
   config_destroy(&config);
   return 0;
 }
