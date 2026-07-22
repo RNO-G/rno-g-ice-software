@@ -1651,11 +1651,12 @@ void * acq_thread(void* v)
   while(!quit)
   {
     //acquire read lock on radiant, flower, and cfg
-    pthread_rwlock_rdlock(&radiant_lock);
-    pthread_rwlock_rdlock(&flower_lock);
+
     pthread_rwlock_rdlock(&cfg_lock);
 
 #ifndef ON_DIDAQ
+    pthread_rwlock_rdlock(&radiant_lock);
+    pthread_rwlock_rdlock(&flower_lock);
     // wait for the RADIANT to trigger
     //TODO handle clear flag, though we don't really want one
     if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
@@ -1666,6 +1667,7 @@ void * acq_thread(void* v)
       if (flower) flower_fill_header(flower, &mem->hd);
 
 #else
+    pthread_rwlock_rdlock(&didaq_lock);
     // wait for the DIDAQ to trigger
     if (didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
     {
@@ -1684,8 +1686,12 @@ void * acq_thread(void* v)
 
     //release the read locks
     pthread_rwlock_unlock(&cfg_lock);
+#ifndef ON_DIDAQ
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
+#else
+    pthread_rwlock_unlock(&didaq_lock);
+#endif
   }
 
   return 0;
