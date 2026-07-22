@@ -8,6 +8,41 @@
 #define NUM_SERVO_PERIODS 3
 #define NUM_SERVO_PERIODS_STR "3"
 
+#define RNO_G_THRESHOLD_RANGE_FIELDS(n) \
+  int load_from_threshold_file;         \
+  float initial[n];                     \
+  float max;                            \
+  float min;
+
+#define RNO_G_GAIN_RANGE_FIELDS(n) \
+  int auto_gain;                   \
+  float target_rms;                \
+  float fixed_gain_codes[n];
+
+typedef struct rno_g_servo_config_coinc
+{
+  int enable;
+  int use_log;
+  float log_offset;
+  float scaler_update_interval;
+  float servo_interval;
+  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+  float period_weights[NUM_SERVO_PERIODS];
+  float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
+  float max_thresh_change;
+  float max_sum_err;
+  float P;
+  float I;
+  float D;
+} rno_g_servo_config_coinc_t;
+
+typedef struct rno_g_take_waveforms
+{
+  int enable;
+  int nsecs_rf;
+  int nforce;
+} rno_g_take_waveforms_t;
+
 
 /** The acquisition config
  *
@@ -20,13 +55,15 @@ typedef struct acq_config
   struct
   {
 
-    struct {
+    struct
+    {
       const char * spi_name;
       const char * trig_ready_gpio_label;
       const char * spi_en_label;;
     } device;
 
-    struct {
+    struct
+    {
       uint32_t num_samples;
       uint32_t sample_offset;
       uint32_t reaodut_mask;
@@ -34,31 +71,13 @@ typedef struct acq_config
     } readout;
 
     // will hopefully eventually be implemented in didaq
-    struct
-    {
-      int auto_gain;
-      float target_rms;
-      uint8_t fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
-    } gain;
-
+    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } gain;
 
     struct
     {
-      int load_from_threshold_file;
-      struct
-      {
-        float initial[RNO_G_NUM_RADIANT_CHANNELS];  // if not loaded form file
-        float max;
-        float min;
-      } coinc;
-      struct
-      {
-        float initial[RNO_G_NUM_LT_BEAMS];  // if not loaded form file. TODO maybe we need separate DIDAQ beams depending where we end up.
-        float max;
-        float min;
-      } phased;
+      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } coinc;
+      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_LT_BEAMS) } phased;
     } thresholds;
-
 
     struct
     {
@@ -78,25 +97,7 @@ typedef struct acq_config
         float D;
       } phased;
 
-      struct
-      {
-        int enable;
-        int use_log;
-        float log_offset;
-        float scaler_update_interval;
-        float servo_interval;
-        int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-        float period_weights [NUM_SERVO_PERIODS];
-        float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel
-        float max_thresh_change;
-        float max_sum_err;
-        float P;
-        float I;
-        float D;
-      } coinc;
-
-
-
+      rno_g_servo_config_coinc_t coinc;
     } servo;
 
 
@@ -110,11 +111,13 @@ typedef struct acq_config
         float interval_jitter;
       } soft;
 
-      struct {
+      struct
+      {
         int enabled;
       } pps;
 
-      struct {
+      struct
+      {
         int enabled;
       } ext;
 
@@ -138,7 +141,6 @@ typedef struct acq_config
         int beam_exclude_mask;
       } phased;
 
-
     } trigger;
 
   } didaq;
@@ -151,34 +153,13 @@ typedef struct acq_config
     struct
     {
       int use_pps;  //use pps, otherwise period is used
-      float period ; //period in seconds if not using pps
+      float period; //period in seconds if not using pps
       uint8_t prescal_m1[RNO_G_NUM_RADIANT_CHANNELS];  //the prescaler minus 1 for this channe
     } scalers;
 
-    struct
-    {
-      int load_from_threshold_file;
-      float initial[RNO_G_NUM_RADIANT_CHANNELS];
-      float max;
-      float min;
-    } thresholds;
+    struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } thresholds;
 
-    struct
-    {
-      int enable;
-      int use_log;
-      float log_offset;
-      float scaler_update_interval;
-      float servo_interval;
-      int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-      float period_weights [NUM_SERVO_PERIODS];
-      float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel
-      float max_thresh_change;
-      float max_sum_err;
-      float P;
-      float I;
-      float D;
-    } servo;
+    rno_g_servo_config_coinc_t servo;
 
     struct
     {
@@ -190,7 +171,6 @@ typedef struct acq_config
         float interval_jitter;
         int output_enabled;
       } soft;
-
 
       struct
       {
@@ -358,28 +338,12 @@ typedef struct acq_config
       int required;
     } device;
 
-    struct
-    {
-      int auto_gain;
-      float target_rms;
-      uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
-    } gain;
+    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_LT_CHANNELS) } gain;
 
     struct
     {
-      struct
-      {
-        int enable;
-        int nsecs_rf;
-        int nforce;
-      } at_finish;
-
-      struct
-      {
-        int enable;
-        int nsecs_rf;
-        int nforce;
-      } at_start;
+      rno_g_take_waveforms_t at_finish;
+      rno_g_take_waveforms_t at_start;
 
       int skip_runs;
       int length;
