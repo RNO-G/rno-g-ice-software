@@ -12,7 +12,7 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 ifeq ($(ON_DIDAQ),1)
-    CPPFLAGS += -DON_DIDAQ
+    CFLAGS += -DON_DIDAQ
 endif
 
 .PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
