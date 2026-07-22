@@ -23,7 +23,7 @@
  *    There are a few rwlocks:
  *
  *      cfg_lock: Locks the global acq configuration
-   *       * readers hold this when using the config for something, but should release sometimes
+ *         * readers hold this when using the config for something, but should release sometimes
  *         * will be held as a write lock when th econfig is being updated (from a signal telling us to reread)
  *
  *      radiant_lock:
@@ -103,9 +103,6 @@ static pthread_rwlock_t radiant_lock;
 /*read-write lock for cofiguring the flower */
 static pthread_rwlock_t flower_lock;
 
-/**read-write lock for the daq status */
-static pthread_rwlock_t ds_lock;
-
 static pthread_t the_acq_thread;
 static pthread_t the_mon_thread;
 static pthread_t the_wri_thread;
@@ -130,7 +127,18 @@ static char * bigbuf = 0;
 static volatile int quit = 0;
 static volatile int cfg_reread = 0;
 
-/** Shared daq status */
+/** Shared DAQ status struct.
+ *
+ *  main() mmaps it onto cfg.runtime.status_shmem_file (if configured, else
+ *  a private calloc'd buffer) and seeds it with the initial radiant/flower
+ *  thresholds. From then on mon_thread owns it exclusively: its servo
+ *  helpers (radiant_flower_servo/didaq_servo) update the thresholds from
+ *  live scalers, it's snapshotted into mon_buffer for periodic daqstatus
+ *  readout, and msync()'d so external readers (e.g. another process mmap'ing
+ *  or rsync'ing status_shmem_file) see current values promptly. wri_thread
+ *  only reads the mon_buffer snapshot (to write it to disk); it does not
+ *  touch ds.
+ */
 static rno_g_daqstatus_t * ds = 0;
 
 //File descriptor for daqstatus shared mem file
@@ -285,11 +293,19 @@ static void read_config()
   //release the write lock
   pthread_rwlock_unlock(&cfg_lock);
 
-
   //apply new configuration to radiant/flower if they have changed
   if (!first_time)
   {
-#ifndef ON_DIDAQ
+
+#ifdef ON_DIDAQ
+
+    if (memcmp(&old_cfg.didaq, &cfg.didaq, sizeof(cfg.didaq)))
+    {
+      didaq_configure();
+    }
+
+#else
+
     if (memcmp(&old_cfg.radiant, &cfg.radiant, sizeof(cfg.radiant)))
     {
       radiant_configure();
@@ -299,6 +315,7 @@ static void read_config()
     {
       flower_configure();
     }
+
 #endif
 
     if (memcpy(&old_cfg.calib, &cfg.calib, sizeof(cfg.calib)))
@@ -1516,8 +1533,9 @@ else
       }
 
       mon_buffer_item_t * mem = ice_buf_getmem(mon_buffer);
-      memcpy(&mem->ds,ds, sizeof(rno_g_daqstatus_t));
+      memcpy(&mem->ds, ds, sizeof(rno_g_daqstatus_t));
       ice_buf_commit(mon_buffer);
+      if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC);
       last_daqstatus_out = nowf;
     }
 
@@ -1867,11 +1885,10 @@ static void * wri_thread(void* v)
           (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
           (cfg.output.max_daqstatuses_per_file > 0 && ds_file_N >= cfg.output.max_daqstatuses_per_file) ||
           (cfg.output.max_seconds_per_file > 0 && now - ds_file_time >= cfg.output.max_seconds_per_file ) )
-
         {
 
-
           if (ds_file_name) do_close(ds_handle, ds_file_name);
+
           snprintf(bigbuf,bigbuflen,"%s/daqstatus/%05d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix );
           ds_handle.type = RNO_G_GZIP;
           ds_handle.handle.gz = gzopen(bigbuf,"w");
@@ -1881,11 +1898,7 @@ static void * wri_thread(void* v)
           ds_file_time = now;
         }
 
-        memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t));
-
-        if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC);
-
-        ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds);
+        ds_file_size += rno_g_daqstatus_write(ds_handle, &mon_item.ds);
         ds_file_N++;
         ds_i++;
       }
@@ -2088,7 +2101,6 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
     }
 
   }
-  pthread_rwlock_init(&ds_lock, NULL);
 
   *frun_out = frun;
   return 0;
