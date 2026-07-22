@@ -106,12 +106,6 @@ char * cfgpath = NULL;
 /*read-write lock for the config */
 static pthread_rwlock_t cfg_lock;
 
-/*read-write lock for cofiguring the radiant */
-static pthread_rwlock_t radiant_lock;
-
-/*read-write lock for cofiguring the flower */
-static pthread_rwlock_t flower_lock;
-
 static pthread_t the_acq_thread;
 static pthread_t the_mon_thread;
 static pthread_t the_wri_thread;
@@ -392,22 +386,83 @@ int open_and_setup_didaq()
     return 1;
   feed_watchdog(0);
 
+  return 0;
 }
 
 int didaq_initial_setup() {
   // Runs once at startup (single thread, no need for a lock?)
   if (!didaq) return -1;
 
-  didaq_coin_thresholds_t th;
-  didaq_set_thresholds(didaq, 0, &th);
+  //seed thresholds from config, unless we already have valid ones from the shmem file
+  int need_to_copy_didaq_coin_thresholds_from_cfg = !(
+    cfg.didaq.thresholds.coinc.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_didaq_coin_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      ds->didaq_coin_thresholds[i] = cfg.didaq.thresholds.coinc.initial[i];
+    }
+  }
+
+  int need_to_copy_didaq_phased_thresholds_from_cfg = !(
+    cfg.didaq.thresholds.phased.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_didaq_phased_thresholds_from_cfg)
+  {
+    // cfg.didaq.thresholds.phased.initial[] has RNO_G_NUM_LT_BEAMS slots (for symmetry with
+    // FLOWER's config), but DIDAQ hardware only has RNO_G_NUM_DIDAQ_BEAMS beams; the rest are unused.
+    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+    {
+      ds->didaq_phased_trigger_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
+      ds->didaq_phased_servo_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
+    }
+  }
+
+  didaq_coin_thresholds_t coin_th;
+  memcpy(coin_th.coin_thresholds, ds->didaq_coin_thresholds, sizeof(coin_th.coin_thresholds));
+
+  didaq_phased_thresholds_t phased_th;
+  memcpy(phased_th.beam_trig_thresholds, ds->didaq_phased_trigger_thresholds, sizeof(phased_th.beam_trig_thresholds));
+  memcpy(phased_th.beam_servo_thresholds, ds->didaq_phased_servo_thresholds, sizeof(phased_th.beam_servo_thresholds));
+
+  didaq_set_thresholds(didaq, &phased_th, &coin_th);
 
   return didaq_configure();
 }
 
 int didaq_configure()
 {
-  // TODO
-  return 1; // For now return 1 -> error
+
+  pthread_rwlock_wrlock(&didaq_lock);
+  pthread_rwlock_rdlock(&cfg_lock);
+
+  didaq_trigger_setup_t trig = {
+    .enable_ext = cfg.didaq.trigger.ext.enabled,
+    .enable_pps = cfg.didaq.trigger.pps.enabled,
+    .phased = {
+      .enable = cfg.didaq.trigger.phased.enable,
+      .enable_readout = cfg.didaq.trigger.phased.enable_readout,
+      .require_consecutive_windows = cfg.didaq.trigger.phased.require_consecutive,
+      .divide_by_2 = cfg.didaq.trigger.phased.divide_by_2,
+      .chan_exclude_mask = cfg.didaq.trigger.phased.channel_exclude_mask,
+      .beam_exclude_mask = cfg.didaq.trigger.phased.beam_exclude_mask
+    }
+  };
+
+  for (int i = 0; i < DIDAQ_NUM_COINC; i++)
+  {
+    trig.coinc[i].enable = cfg.didaq.trigger.coinc[i].enable;
+    trig.coinc[i].enable_readout = cfg.didaq.trigger.coinc[i].enable_readout;
+    trig.coinc[i].num_required = cfg.didaq.trigger.coinc[i].num_required;
+    trig.coinc[i].coinc_window = cfg.didaq.trigger.coinc[i].window;
+    trig.coinc[i].channel_exclude_mask = cfg.didaq.trigger.coinc[i].exclude_mask;
+  }
+
+  int ret = didaq_configure_trigger(didaq, &trig);
+
+  pthread_rwlock_unlock(&cfg_lock);
+  pthread_rwlock_unlock(&didaq_lock);
+
+  return ret;
 }
 
 static void didaq_servo(double nowf)
@@ -1461,7 +1516,6 @@ double calc_next_sw_trig(float now)
   }
   else return now+interval;
 }
-
 
 
 static void set_calpulser_atten(float atten)
