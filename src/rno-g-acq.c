@@ -438,7 +438,7 @@ int radiant_configure()
 }
 
 
-int write_gain_codes(char * buf)
+int write_gain_codes_flower(char * buf)
 {
   if (!flower) return -1;
   static int gain_codes_counter = 0;
@@ -1725,11 +1725,6 @@ static void * wri_thread(void* v)
     fprintf(stderr,"Yikes, couldn't write to %s\n", bigbuf);
   }
 
-  //write gain codes
-#ifndef ON_DIDAQ
-  write_gain_codes(bigbuf);
-#endif
-
   //now let's dump the configuration file to the cfg dir
   sprintf(bigbuf,"%s/cfg/acq.cfg", output_dir);
   FILE * of = fopen(bigbuf,"w");
@@ -1748,6 +1743,12 @@ static void * wri_thread(void* v)
   pthread_rwlock_unlock(&cfg_lock);
 
 #ifndef ON_DIDAQ
+
+  //write gain codes
+
+
+  write_gain_codes_flower(bigbuf);
+
   //if we have pedestals, write them out
   if (pedestals)
   {
@@ -1920,13 +1921,6 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
   }
 
 }
-
-
-//void fail(const char * why)
-//{
-//  fprintf(stderr,"FAIL!: %s\n", why);
-//  please_stop();
-//}
 
 /**
  * Perform the earliest DAQ startup steps, before any hardware is touched:
@@ -2192,6 +2186,20 @@ static int setup_radiant_and_flower()
 
   return 0;
 }
+
+// you should be holding a flower lock while calling this
+int flower_update_pps_offset()
+{
+  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
+
+  // clamp to a second
+  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
+
+  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
+  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
+  return flower_set_delayed_pps_delay(flower,delay_cycles);
+}
+
 #endif
 
 /**
@@ -2395,6 +2403,7 @@ int teardown()
   pthread_join(the_wri_thread,0);
 
 #ifndef ON_DIDAQ
+
   //HACK, take final flower data if we need to
   if (flower && cfg.lt.waveforms.at_finish.enable  && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
   {
@@ -2403,13 +2412,14 @@ int teardown()
     flower_take_waveforms(cfg.lt.waveforms.at_finish.nforce, cfg.lt.waveforms.at_finish.nsecs_rf, bigbuf);
   }
 
-
   //disable the trigger OVLD
   radiant_trigger_enable(radiant,0,0);
   radiant_labs_stop(radiant);
   radiant_close(radiant);
   if (flower) flower_close(flower);
+
 #endif
+
   fclose(file_list);
   struct timespec end_time;
   clock_gettime(CLOCK_REALTIME, &end_time);
@@ -2419,7 +2429,6 @@ int teardown()
     fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec);
     fclose(runinfo);
   }
-
 
   //turn off the calpulser on teardown, if it's on?
   if (calpulser)
@@ -2439,19 +2448,3 @@ int teardown()
 
   return 0;
 }
-
-#ifndef ON_DIDAQ
-// you should be holding a flower lock while calling this
-int flower_update_pps_offset()
-{
-  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
-
-
-  // clamp to a second
-  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
-
-  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
-  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
-  return flower_set_delayed_pps_delay(flower,delay_cycles);
-}
-#endif
