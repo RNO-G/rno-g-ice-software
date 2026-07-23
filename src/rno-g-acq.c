@@ -242,7 +242,6 @@ static int flower_update_pps_offset();
 */
 static void read_config()
 {
-  static int config_counter;
   int first_time = !config_counter;
 
   //Acquire a
