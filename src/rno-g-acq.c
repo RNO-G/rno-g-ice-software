@@ -188,8 +188,13 @@ static didaq_dev_t * didaq = 0;
 
 static int didaq_configure();
 
-/*read-write lock for cofiguring the didaq */
-static pthread_rwlock_t didaq_lock;
+/* Mutex guarding all access to the didaq SPI bus/handle. A plain mutex (not a
+ * rwlock like radiant_lock/flower_lock) because every operation on didaq --
+ * event readout, scaler reads, threshold writes, trigger reconfiguration --
+ * touches the same physical SPI bus and the same unprotected didaq_dev_t
+ * scheduling state, so there is no "read-only, safe to share" case to give a
+ * rwlock's shared mode any value; every access needs to be exclusive. */
+static pthread_mutex_t didaq_lock;
 
 #else
 ///// Radiant & Flower specific definitions /////
@@ -378,13 +383,13 @@ int open_and_setup_didaq()
     return 1;
   }
 
-  pthread_rwlock_init(&didaq_lock, NULL);
+  pthread_mutex_init(&didaq_lock, NULL);
 
   feed_watchdog(0);
   if (didaq_initial_setup())
     return 1;
-  feed_watchdog(0);
 
+  feed_watchdog(0);
   return 0;
 }
 
@@ -394,7 +399,8 @@ int didaq_initial_setup() {
 
   //seed thresholds from config, unless we already have valid ones from the shmem file
   int need_to_copy_didaq_coin_thresholds_from_cfg = !(
-    cfg.didaq.thresholds.coinc.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+    cfg.didaq.thresholds.coinc.load_from_threshold_file &&
+    shared_ds_file_size == sizeof(rno_g_daqstatus_t));
   if (need_to_copy_didaq_coin_thresholds_from_cfg)
   {
     for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
@@ -404,7 +410,8 @@ int didaq_initial_setup() {
   }
 
   int need_to_copy_didaq_phased_thresholds_from_cfg = !(
-    cfg.didaq.thresholds.phased.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+    cfg.didaq.thresholds.phased.load_from_threshold_file &&
+    shared_ds_file_size == sizeof(rno_g_daqstatus_t));
   if (need_to_copy_didaq_phased_thresholds_from_cfg)
   {
     // cfg.didaq.thresholds.phased.initial[] has RNO_G_NUM_LT_BEAMS slots (for symmetry with
@@ -431,7 +438,7 @@ int didaq_initial_setup() {
 int didaq_configure()
 {
 
-  pthread_rwlock_wrlock(&didaq_lock);
+  pthread_mutex_lock(&didaq_lock);
   pthread_rwlock_rdlock(&cfg_lock);
 
   didaq_trigger_setup_t trig = {
@@ -450,6 +457,7 @@ int didaq_configure()
   for (int i = 0; i < DIDAQ_NUM_COINC; i++)
   {
     trig.coinc[i].enable = cfg.didaq.trigger.coinc[i].enable;
+    trig.coinc[i].quad_mode = cfg.didaq.trigger.coinc[i].quad_mode;
     trig.coinc[i].enable_readout = cfg.didaq.trigger.coinc[i].enable_readout;
     trig.coinc[i].num_required = cfg.didaq.trigger.coinc[i].num_required;
     trig.coinc[i].coinc_window = cfg.didaq.trigger.coinc[i].window;
@@ -459,15 +467,306 @@ int didaq_configure()
   int ret = didaq_configure_trigger(didaq, &trig);
 
   pthread_rwlock_unlock(&cfg_lock);
-  pthread_rwlock_unlock(&didaq_lock);
+  pthread_mutex_unlock(&didaq_lock);
 
   return ret;
 }
 
+/** Per-channel state for the coincidence-trigger threshold servo, mirroring
+ *  radiant_servo_state_t: each of the RNO_G_NUM_RADIANT_CHANNELS channels has
+ *  its own DAC threshold and is serviced off its own 1Hz singles scaler,
+ *  averaged over the same multi-timescale rolling window RADIANT uses.
+ */
+typedef struct didaq_coinc_servo_state
+{
+  int max_periods;
+  int nperiods_populated;
+  float period_weights[NUM_SERVO_PERIODS];
+  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
+  float * scaler_v_mem;
+  float value[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
+  float error[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
+  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
+} didaq_coinc_servo_state_t;
+
+/** Per-beam state for the phased-array threshold servo (RNO_G_NUM_DIDAQ_BEAMS
+ *  beams), mirroring flower_phased_servo_state_t.
+ */
+typedef struct didaq_phased_servo_state
+{
+  float value[RNO_G_NUM_DIDAQ_BEAMS];
+  float last_value[RNO_G_NUM_DIDAQ_BEAMS];
+  float error[RNO_G_NUM_DIDAQ_BEAMS];
+  float last_error[RNO_G_NUM_DIDAQ_BEAMS];
+  float sum_error[RNO_G_NUM_DIDAQ_BEAMS];
+} didaq_phased_servo_state_t;
+
+static void setup_didaq_coinc_servo_state(didaq_coinc_servo_state_t * state)
+{
+  int max_periods = 0;
+  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
+  {
+    if (cfg.didaq.servo.coinc.nscaler_periods_per_servo_period[i] > max_periods)
+    {
+      max_periods = cfg.didaq.servo.coinc.nscaler_periods_per_servo_period[i];
+    }
+  }
+
+  if (state->max_periods < max_periods)
+  {
+    if (state->scaler_v_mem)
+    {
+      free(state->scaler_v_mem);
+      memset(state, 0, sizeof(*state));
+    }
+    state->scaler_v_mem = malloc(sizeof(float) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
+    state->max_periods = max_periods;
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      state->scaler_v[i] = state->scaler_v_mem + max_periods * i;
+    }
+  }
+
+  memcpy(state->nscaler_periods_per_servo_period, cfg.didaq.servo.coinc.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
+  memcpy(state->period_weights, cfg.didaq.servo.coinc.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
+}
+
+/** Roll the latest coincidence singles scalers into the multi-timescale
+ *  average and update each channel's servo error state. Unlike RADIANT's
+ *  scalers, DIDAQ's coinc_singles_1Hz is already a plain per-second rate (no
+ *  prescaler/period bookkeeping needed).
+ */
+static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const rno_g_daqstatus_t * ds)
+{
+  int idx = (st->nperiods_populated++) % st->max_periods;
+  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
+
+  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
+  {
+    st->scaler_v[chan][idx] = ds->didaq_scalers.coinc_singles_1Hz[chan];
+
+    float new_value = 0;
+    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
+    {
+      if (!st->period_weights[j]) continue;
+      int nthis = 0;
+      float sumthis = 0;
+      for (int i = 0; i < max_idxs; i++)
+      {
+        if (i < st->nscaler_periods_per_servo_period[j])
+        {
+          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
+          nthis++;
+        }
+      }
+      new_value += st->period_weights[j]*sumthis/nthis;
+    }
+
+    if (cfg.didaq.servo.coinc.use_log)
+    {
+      new_value = log10(cfg.didaq.servo.coinc.log_offset + new_value);
+    }
+
+    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
+                        &st->sum_error[chan], new_value, cfg.didaq.servo.coinc.scaler_goals[chan], cfg.didaq.servo.coinc.max_sum_err);
+  }
+}
+
+/** Update the phased/beam servo error state from the latest beam scalers.
+ *  beam_servo_1Hz updates every second and has no gated counterpart, so it
+ *  plays the role of FLOWER's "fast" scaler group; beam_trig_100mHz(_gated)
+ *  only updates every 10s (hence the *0.1 to get back to a Hz-comparable
+ *  rate) but does have a gated counterpart, so it plays the role of FLOWER's
+ *  "slow" (optionally gate-subtracted) group.
+ */
+static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, const rno_g_daqstatus_t * ds)
+{
+  float fw = cfg.didaq.servo.phased.fast_scaler_weight;
+  float sw = cfg.didaq.servo.phased.slow_scaler_weight;
+  int sub = cfg.didaq.servo.phased.subtract_gated;
+  const float slow_to_hz = 0.1;
+
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+    float val = fw * ds->didaq_scalers.beam_servo_1Hz[i]
+              + sw * slow_to_hz * (ds->didaq_scalers.beam_trig_100mHz[i] - sub * ds->didaq_scalers.beam_trig_100mHz_gated[i]);
+
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+                        &st->sum_error[i], val, cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
+  }
+}
+
+/** Servo/scaler-monitoring logic for the DIDAQ board, the ON_DIDAQ counterpart
+ *  of radiant_flower_servo(). DIDAQ has two independent servo loops (unlike
+ *  RADIANT+FLOWER's one-per-board split): the per-channel coincidence
+ *  threshold servo (RNO_G_NUM_RADIANT_CHANNELS channels, one DAC threshold
+ *  per channel, no separate trig/servo split; each channel feeds exactly one
+ *  of the RNO_G_NUM_DIDAQ_COINC coincidence triggers -- channels 0-11 feed
+ *  coinc[0], 12-23 feed coinc[1]) and the per-beam phased-array threshold
+ *  servo (RNO_G_NUM_DIDAQ_BEAMS beams, with a separate trig/servo threshold
+ *  pair like FLOWER's phased trigger). Both loops' scalers come off a single
+ *  didaq_read_scalers() SPI transaction, so that's only issued once per call
+ *  when either loop is due for an update.
+ *
+ *  NOTE: unlike RADIANT (UART) vs FLOWER/DIDAQ-readout (SPI), DIDAQ's scalers,
+ *  threshold-set and event-readout registers all live on the *same* SPI bus
+ *  as acq_thread's event readout, and didaq_dev_t has no internal locking of
+ *  its own. didaq_lock is a plain mutex (not a rwlock) for exactly this
+ *  reason: every access here and in acq_thread/didaq_configure() must be
+ *  mutually exclusive, there is no safe-to-share "read-only" case.
+ */
 static void didaq_servo(double nowf)
 {
-  // TODO
-  return 1;
+  static int last_cfg_counter = -1;
+  static didaq_coinc_servo_state_t coinc_state = {0};
+  static didaq_phased_servo_state_t phased_state = {0};
+
+  static float didaq_coinc_float_thresh[RNO_G_NUM_RADIANT_CHANNELS];
+  static float didaq_phased_float_thresh[RNO_G_NUM_DIDAQ_BEAMS];
+
+  static float min_coinc_thresh = 0;
+  static float max_coinc_thresh = 0;
+  static float max_coinc_change = 0;
+  static float min_phased_thresh = 0;
+  static float max_phased_thresh = 0;
+
+  static uint32_t coinc_active_chan = 0;
+  static uint16_t phased_exclude_beam = 0;
+
+  static double last_scalers_coinc = 0;
+  static double last_scalers_phased = 0;
+  static double last_servo_coinc = 0;
+  static double last_servo_phased = 0;
+
+  int coinc_active = cfg.didaq.trigger.coinc[0].enable || cfg.didaq.trigger.coinc[1].enable;
+  int phased_active = cfg.didaq.trigger.phased.enable;
+
+  if (config_counter > last_cfg_counter)
+  {
+    last_cfg_counter = config_counter;
+    setup_didaq_coinc_servo_state(&coinc_state);
+    memset(&phased_state, 0, sizeof(phased_state));
+
+    min_coinc_thresh = cfg.didaq.thresholds.coinc.min;
+    max_coinc_thresh = cfg.didaq.thresholds.coinc.max;
+    max_coinc_change = cfg.didaq.servo.coinc.max_thresh_change;
+
+    min_phased_thresh = cfg.didaq.thresholds.phased.min;
+    max_phased_thresh = cfg.didaq.thresholds.phased.max;
+
+    coinc_active_chan = 0;
+    if (cfg.didaq.trigger.coinc[0].enable) coinc_active_chan |= (~(uint32_t) cfg.didaq.trigger.coinc[0].exclude_mask) & 0xfff;
+    if (cfg.didaq.trigger.coinc[1].enable) coinc_active_chan |= ((~(uint32_t) cfg.didaq.trigger.coinc[1].exclude_mask) & 0xfff) << 12;
+    phased_exclude_beam = cfg.didaq.trigger.phased.beam_exclude_mask;
+
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) didaq_coinc_float_thresh[i] = ds->didaq_coin_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++) didaq_phased_float_thresh[i] = ds->didaq_phased_servo_thresholds[i];
+  }
+
+  float diff_scalers_coinc = nowf - last_scalers_coinc;
+  float diff_scalers_phased = nowf - last_scalers_phased;
+
+  int need_coinc_scalers = coinc_active && cfg.didaq.servo.coinc.scaler_update_interval && cfg.didaq.servo.coinc.scaler_update_interval < diff_scalers_coinc;
+  int need_phased_scalers = phased_active && cfg.didaq.servo.phased.scaler_update_interval && cfg.didaq.servo.phased.scaler_update_interval < diff_scalers_phased;
+
+  if (need_coinc_scalers || need_phased_scalers)
+  {
+    pthread_mutex_lock(&didaq_lock);
+    didaq_scalers_t raw = {0};
+    int ok = didaq_read_scalers(didaq, &raw);
+    pthread_mutex_unlock(&didaq_lock);
+
+    if (ok)
+    {
+      fprintf(stderr, "Problem reading didaq scalers\n");
+    }
+    else
+    {
+      // rno_g_didaq_scalers_t mirrors didaq_scalers_t field-for-field, minus
+      // the trailing readout_time; a straight memcpy of the smaller struct's
+      // size copies exactly the shared fields.
+      memcpy(&ds->didaq_scalers, &raw, sizeof(ds->didaq_scalers));
+
+      if (need_coinc_scalers)
+      {
+        update_didaq_coinc_servo_state(&coinc_state, ds);
+        last_scalers_coinc = nowf;
+      }
+      if (need_phased_scalers)
+      {
+        update_didaq_phased_servo_state(&phased_state, ds);
+        last_scalers_phased = nowf;
+      }
+    }
+  }
+
+  float diff_servo_coinc = nowf - last_servo_coinc;
+  float diff_servo_phased = nowf - last_servo_phased;
+
+  int coinc_changed = 0;
+  int phased_changed = 0;
+
+  if (coinc_active && cfg.didaq.servo.coinc.enable && cfg.didaq.servo.coinc.servo_interval
+      && cfg.didaq.servo.coinc.scaler_update_interval < diff_servo_coinc)
+  {
+    for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
+    {
+      if (0 == (coinc_active_chan & (1u << ch))) continue;
+
+      double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I, cfg.didaq.servo.coinc.D,
+                           coinc_state.error[ch], coinc_state.sum_error[ch], coinc_state.last_error[ch]);
+
+      if (max_coinc_change && fabs(dthreshold) > max_coinc_change)
+      {
+        dthreshold = (dthreshold < 0) ? -max_coinc_change : max_coinc_change;
+      }
+
+      // higher DAC code assumed to mean a higher (harder to cross) threshold,
+      // same sense as FLOWER's coinc servo -- unverified against real DIDAQ
+      // hardware polarity.
+      didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold, min_coinc_thresh, max_coinc_thresh);
+      ds->didaq_coin_thresholds[ch] = didaq_coinc_float_thresh[ch];
+    }
+    coinc_changed = 1;
+    last_servo_coinc = nowf;
+  }
+
+  if (phased_active && cfg.didaq.servo.phased.enable && cfg.didaq.servo.phased.servo_interval
+      && cfg.didaq.servo.phased.scaler_update_interval < diff_servo_phased)
+  {
+    for (int beam = 0; beam < RNO_G_NUM_DIDAQ_BEAMS; beam++)
+    {
+      if (phased_exclude_beam & (1u << beam)) continue;
+
+      double d_servo_threshold = servo_pid_step(cfg.didaq.servo.phased.P, cfg.didaq.servo.phased.I, cfg.didaq.servo.phased.D,
+                           phased_state.error[beam], phased_state.sum_error[beam], phased_state.last_error[beam]);
+
+      didaq_phased_float_thresh[beam] = clamp(didaq_phased_float_thresh[beam] + d_servo_threshold, min_phased_thresh, max_phased_thresh);
+      ds->didaq_phased_servo_thresholds[beam] = didaq_phased_float_thresh[beam];
+      ds->didaq_phased_trigger_thresholds[beam] = clamp(
+          (didaq_phased_float_thresh[beam] - cfg.didaq.servo.phased.servo_thresh_offset) / cfg.didaq.servo.phased.servo_thresh_frac,
+          min_phased_thresh, max_phased_thresh);
+    }
+    phased_changed = 1;
+    last_servo_phased = nowf;
+  }
+
+  if (coinc_changed || phased_changed)
+  {
+    didaq_coin_thresholds_t coin_th;
+    memcpy(coin_th.coin_thresholds, ds->didaq_coin_thresholds, sizeof(coin_th.coin_thresholds));
+
+    didaq_phased_thresholds_t phased_th;
+    memcpy(phased_th.beam_trig_thresholds, ds->didaq_phased_trigger_thresholds, sizeof(phased_th.beam_trig_thresholds));
+    memcpy(phased_th.beam_servo_thresholds, ds->didaq_phased_servo_thresholds, sizeof(phased_th.beam_servo_thresholds));
+
+    pthread_mutex_lock(&didaq_lock);
+    didaq_set_thresholds(didaq, phased_changed ? &phased_th : NULL, coinc_changed ? &coin_th : NULL);
+    pthread_mutex_unlock(&didaq_lock);
+  }
 }
 
 #else
@@ -821,10 +1120,10 @@ static int do_bias_scan()
   //apply attenuation
   if (cfg.radiant.bias_scan.apply_attenuation)
   {
-     for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-     {
-       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4);
-     }
+    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+    {
+      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4);
+    }
   }
 
  //make sure we apply the lab4 vbias in this case, otherwise it will be lost!
@@ -1071,6 +1370,13 @@ typedef struct radiant_servo_state
 
 } radiant_servo_state_t;
 
+/** File-scope (not local to radiant_flower_servo()) so that mon_thread() can
+ *  free scaler_v_mem after the acquisition loop exits -- radiant_flower_servo()
+ *  is not called again once quit is set, so a cleanup gated on quit inside it
+ *  would never run.
+ */
+static radiant_servo_state_t rad_servo_state = {0};
+
 static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_daqstatus_t * ds)
 {
 
@@ -1226,9 +1532,10 @@ static void radiant_flower_servo(double nowf)
   // The `static` locals below have static storage duration: each is allocated once,
   // for the lifetime of the program (not per-call like a normal local), and keeps
   // its value between calls. This is only safe because radiant_flower_servo()
-  // is only ever called from mon_thread (a single thread).
+  // is only ever called from mon_thread (a single thread). rad_servo_state is
+  // declared at file scope instead (see above its typedef) so mon_thread() can
+  // free its scaler_v_mem after the loop exits.
   static int last_cfg_counter = -1;
-  static radiant_servo_state_t rad_servo_state = {0};
   static flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
   static flower_phased_servo_state_t flwr_phased_servo_state = {0};
 
@@ -1264,7 +1571,6 @@ static void radiant_flower_servo(double nowf)
 
     for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
     for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
-
   }
 
   //do we need radiant scalers?
@@ -1599,8 +1905,7 @@ static float clamp(float val, float min, float max)
 #ifdef ON_DIDAQ
 static int soft_trigger()
 {
-  //TODO: no didaq soft trigger implementation yet
-  return 1;
+  return didaq_force_trigger(didaq);
 }
 #else
 static int soft_trigger()
@@ -1666,7 +1971,7 @@ void * acq_thread(void* v)
       if (flower) flower_fill_header(flower, &mem->hd);
 
 #else
-    pthread_rwlock_rdlock(&didaq_lock);
+    pthread_mutex_lock(&didaq_lock);
     // wait for the DIDAQ to trigger
     if (didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
     {
@@ -1689,7 +1994,7 @@ void * acq_thread(void* v)
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
 #else
-    pthread_rwlock_unlock(&didaq_lock);
+    pthread_mutex_unlock(&didaq_lock);
 #endif
   }
 
