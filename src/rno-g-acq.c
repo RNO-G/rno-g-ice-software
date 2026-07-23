@@ -397,7 +397,19 @@ int didaq_initial_setup() {
   // Runs once at startup (single thread, no need for a lock?)
   if (!didaq) return -1;
 
-  //seed thresholds from config, unless we already have valid ones from the shmem file
+  return didaq_configure();
+}
+
+int didaq_configure()
+{
+
+  pthread_mutex_lock(&didaq_lock);
+  pthread_rwlock_rdlock(&cfg_lock);
+
+  //seed thresholds from config, unless we already have valid ones from the shmem file. This runs
+  //on every (re)configure -- not just the one at startup via didaq_initial_setup() -- so that a
+  //live config reread (SIGUSR1) with load_from_threshold_file turned off actually takes effect,
+  //instead of ds's thresholds silently staying whatever they were before the reread.
   int need_to_copy_didaq_coin_thresholds_from_cfg = !(
     cfg.didaq.thresholds.coinc.load_from_threshold_file &&
     shared_ds_file_size == sizeof(rno_g_daqstatus_t));
@@ -431,15 +443,6 @@ int didaq_initial_setup() {
   memcpy(phased_th.beam_servo_thresholds, ds->didaq_phased_servo_thresholds, sizeof(phased_th.beam_servo_thresholds));
 
   didaq_set_thresholds(didaq, &phased_th, &coin_th);
-
-  return didaq_configure();
-}
-
-int didaq_configure()
-{
-
-  pthread_mutex_lock(&didaq_lock);
-  pthread_rwlock_rdlock(&cfg_lock);
 
   didaq_trigger_setup_t trig = {
     .enable_ext = cfg.didaq.trigger.ext.enabled,
@@ -777,6 +780,22 @@ int radiant_configure()
   pthread_rwlock_wrlock(&radiant_lock);
   pthread_rwlock_rdlock(&cfg_lock);
 
+  //set thresholds, seeding them from the config if we don't already have valid ones from the
+  //shmem file. This runs on every (re)configure -- not just the one at startup via
+  //radiant_initial_setup() -- so that a live config reread (SIGUSR1) with
+  //load_from_threshold_file turned off actually takes effect, instead of ds's thresholds
+  //silently staying whatever they were before the reread.
+  int need_to_copy_radiant_thresholds_from_cfg = !(
+    cfg.radiant.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_radiant_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    }
+  }
+  radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
+
   radiant_pps_config_t pps_cfg = {.pps_holdoff = cfg.radiant.pps.pps_holdoff,
                                   .enable_sync_out= cfg.radiant.pps.sync_out,
                                   .use_internal_pps = cfg.radiant.pps.use_internal};
@@ -895,6 +914,36 @@ int flower_configure()
 
   pthread_rwlock_wrlock(&flower_lock);
   pthread_rwlock_rdlock(&cfg_lock);
+
+  //if we don't already have valid thresholds loaded from the shmem file, seed them from the
+  //config. This runs on every (re)configure -- not just the one at startup via
+  //flower_initial_setup() -- so that a live config reread (SIGUSR1) with load_from_threshold_file
+  //turned off actually takes effect, instead of ds's thresholds silently staying whatever they
+  //were before the reread.
+  int need_to_copy_lt_thresholds_from_cfg = !(
+    cfg.lt.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_lt_thresholds_from_cfg)
+  {
+    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
+    {
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
+      ds->lt_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 255);
+    }
+
+    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
+    {
+      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
+      ds->lt_phased_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 4095);
+    }
+  }
+
+  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff);
+
   rno_g_lt_trigger_config_t ltcfg;
   rno_g_lt_phased_trigger_config_t ltcfg_phased;
 
@@ -970,32 +1019,8 @@ int flower_initial_setup()
     }
   }
 
-  //if we don't already have valid thresholds loaded from the shmem file, seed them from the config
-  int need_to_copy_lt_thresholds_from_cfg = !(
-    cfg.lt.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
-  if (need_to_copy_lt_thresholds_from_cfg)
-  {
-    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
-    {
-      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
-      ds->lt_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac +
-          cfg.lt.servo.servo_thresh_offset, 0, 255);
-    }
-
-    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
-    {
-      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
-      ds->lt_phased_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac +
-          cfg.lt.servo.servo_thresh_offset, 0, 4095);
-    }
-  }
-
-  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
-  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff);
-
-  //then the rest of the configuration;
+  //thresholds are seeded/pushed inside flower_configure() itself now (so a live config reread
+  //re-applies them too, not just this startup call)
   flower_configure();
 
   return 0;
@@ -1311,17 +1336,8 @@ int radiant_initial_setup()
     }
   }
 
-  //set thresholds, seeding them from the config if we don't already have valid ones from the shmem file
-  int need_to_copy_radiant_thresholds_from_cfg = !(
-    cfg.radiant.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
-  if (need_to_copy_radiant_thresholds_from_cfg)
-  {
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
-    }
-  }
-  radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
+  //thresholds are seeded/pushed inside radiant_configure() itself now (so a live config reread
+  //re-applies them too, not just this startup call)
 
   //set up DMA correctly
   radiant_reset_fifo_counters(radiant);
