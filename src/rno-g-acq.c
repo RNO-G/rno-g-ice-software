@@ -196,6 +196,11 @@ static int didaq_configure();
  * rwlock's shared mode any value; every access needs to be exclusive. */
 static pthread_mutex_t didaq_lock;
 
+//gain codes and measured RMS from the last auto-gain equalization, one per channel (mirrors
+//flower_codes/flower_rms); written to disk at each run start by write_gain_codes_didaq()
+static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
+
 #else
 ///// Radiant & Flower specific definitions /////
 
@@ -397,6 +402,15 @@ int didaq_initial_setup() {
   // Runs once at startup (single thread, no need for a lock?)
   if (!didaq) return -1;
 
+  //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
+  if (cfg.didaq.gain.auto_gain)
+  {
+    //disable triggers momentarily so they don't fire spuriously during equalization
+    didaq_trigger_setup_t disabled = {0};
+    didaq_configure_trigger(didaq, &disabled);
+    didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
+  }
+
   return didaq_configure();
 }
 
@@ -473,6 +487,35 @@ int didaq_configure()
   pthread_mutex_unlock(&didaq_lock);
 
   return ret;
+}
+
+/** Write out the gain codes/RMS from the last auto-gain equalization (mirrors
+ *  write_gain_codes_flower()). Called once at the start of each run, so the
+ *  codes computed once at daemon startup (didaq_initial_setup()) get logged
+ *  into every run's aux directory for provenance.
+ */
+int write_gain_codes_didaq(char * buf)
+{
+  if (!didaq) return -1;
+  static int gain_codes_counter = 0;
+  time_t now;
+  time(&now);
+
+  sprintf(buf, "%s/aux/didaq_gain_codes.%d.txt", output_dir, gain_codes_counter++);
+  FILE * of = fopen(buf,"w");
+  if (!of) return 1;
+  fprintf(of,"# DIDAQ gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    fprintf(of, "%u%s", didaq_gain_codes[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");
+  }
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    fprintf(of, "%.3f%s", didaq_gain_rms[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");
+  }
+  fclose(of);
+  add_to_file_list(buf);
+  return 0;
 }
 
 /** Per-channel state for the coincidence-trigger threshold servo, mirroring
@@ -2322,7 +2365,12 @@ static void * wri_thread(void* v)
   //now we can release the cfg lock, for a bit
   pthread_rwlock_unlock(&cfg_lock);
 
-#ifndef ON_DIDAQ
+#ifdef ON_DIDAQ
+
+  //write gain codes
+  write_gain_codes_didaq(bigbuf);
+
+#else
 
   //write gain codes
 
