@@ -101,7 +101,7 @@ typedef struct mon_buffer_item
  *
  **/
 static acq_config_t cfg;
-char * cfgpath = NULL;
+static char * cfgpath = NULL;
 
 /*read-write lock for the config */
 static pthread_rwlock_t cfg_lock;
@@ -176,17 +176,120 @@ static int please_stop();
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
 static void start_threads();
+static float clamp(float val, float min, float max);
+static void servo_record_value(float * value, float * last_value, float * error, float * last_error,
+                                float * sum_error, float new_value, float goal, float max_sum_err);
+static double servo_pid_step(double P, double I, double D, float error, float sum_error, float last_error);
 
-struct timespec precise_start_time;
-struct timespec precise_acq_time;
-struct timespec precise_stop_time;
+static struct timespec precise_start_time;
+static struct timespec precise_acq_time;
+static struct timespec precise_stop_time;
 
 static uint32_t delay_clock_estimate = 10000000;
+
+/** Shared per-channel state for a "coincidence-style" threshold servo: any
+ *  digitizer where every channel has its own trigger threshold, serviced
+ *  independently off that channel's own singles-rate scaler, averaged over
+ *  a multi-timescale rolling window. RADIANT's coincidence servo and DIDAQ's
+ *  coincidence servo are otherwise identical (same channel count, same
+ *  config shape -- both configured via rno_g_servo_config_coinc_t), so they
+ *  share this state and the setup_coinc_servo_state()/update_coinc_servo_state()
+ *  functions below; the only real difference between the two boards is how
+ *  a channel's raw scaler value is obtained, which is why
+ *  update_coinc_servo_state() takes that as a callback.
+ */
+typedef struct coinc_servo_state
+{
+  int max_periods;
+  int nperiods_populated;
+  float period_weights[NUM_SERVO_PERIODS];
+  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
+  float * scaler_v_mem;
+  float value[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
+  float error[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
+  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
+} coinc_servo_state_t;
+
+static void setup_coinc_servo_state(coinc_servo_state_t * state, const rno_g_servo_config_coinc_t * servo_cfg)
+{
+  int max_periods = 0;
+  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
+  {
+    if (servo_cfg->nscaler_periods_per_servo_period[i] > max_periods)
+    {
+      max_periods = servo_cfg->nscaler_periods_per_servo_period[i];
+    }
+  }
+
+  if (state->max_periods < max_periods)
+  {
+    if (state->scaler_v_mem)
+    {
+      free(state->scaler_v_mem);
+      memset(state, 0, sizeof(*state));
+    }
+    state->scaler_v_mem = malloc(sizeof(float) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
+    state->max_periods = max_periods;
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      state->scaler_v[i] = state->scaler_v_mem + max_periods * i;
+    }
+  }
+
+  memcpy(state->nscaler_periods_per_servo_period, servo_cfg->nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
+  memcpy(state->period_weights, servo_cfg->period_weights, sizeof(float) * NUM_SERVO_PERIODS);
+}
+
+/** Roll the latest per-channel scalers (obtained via raw_scaler(), the only
+ *  thing that differs between boards) into the multi-timescale average and
+ *  update each channel's servo error state.
+ */
+static void update_coinc_servo_state(coinc_servo_state_t * st, const rno_g_daqstatus_t * ds,
+                                      const rno_g_servo_config_coinc_t * servo_cfg,
+                                      float (*raw_scaler)(const rno_g_daqstatus_t * ds, int chan))
+{
+  int idx = (st->nperiods_populated++) % st->max_periods;
+  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
+
+  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
+  {
+    st->scaler_v[chan][idx] = raw_scaler(ds, chan);  // raw_scaler if function for either radiant or didaq
+
+    float new_value = 0;
+    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
+    {
+      if (!st->period_weights[j]) continue;
+      int nthis = 0;
+      float sumthis = 0;
+      for (int i = 0; i < max_idxs; i++)
+      {
+        if (i < st->nscaler_periods_per_servo_period[j])
+        {
+          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
+          nthis++;
+        }
+      }
+      new_value += st->period_weights[j]*sumthis/nthis;
+    }
+
+    if (servo_cfg->use_log)
+    {
+      new_value = log10(servo_cfg->log_offset + new_value);
+    }
+
+    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
+                        &st->sum_error[chan], new_value, servo_cfg->scaler_goals[chan], servo_cfg->max_sum_err);
+  }
+}
 
 #ifdef ON_DIDAQ
 static didaq_dev_t * didaq = 0;
 
 static int didaq_configure();
+static int didaq_initial_setup();
 
 /* Mutex guarding all access to the didaq SPI bus/handle. A plain mutex (not a
  * rwlock like radiant_lock/flower_lock) because every operation on didaq --
@@ -223,12 +326,12 @@ static uint32_t radiant_trig_chan = 0;
 /** flower handle */
 static flower_dev_t * flower = 0;
 
-uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
-float flower_rms[RNO_G_NUM_LT_CHANNELS];
+static uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
+static float flower_rms[RNO_G_NUM_LT_CHANNELS];
 
-uint8_t *flower_waveforms_data;
-uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
-int flower_waveforms_len;
+static uint8_t *flower_waveforms_data;
+static uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
+static int flower_waveforms_len;
 
 static int radiant_configure();
 static int flower_configure();
@@ -349,7 +452,7 @@ static void read_config()
 
 }
 
-int add_to_file_list(const char *path)
+static int add_to_file_list(const char *path)
 {
   flock(file_list_fd, LOCK_EX);
   fprintf(file_list,"%s\n", path);
@@ -359,7 +462,7 @@ int add_to_file_list(const char *path)
 }
 
 //Feeds the systemd watchdog
-void feed_watchdog(time_t * now)
+static void feed_watchdog(time_t * now)
 {
   time_t when;
   if (!now) time(&when) ;
@@ -371,7 +474,7 @@ void feed_watchdog(time_t * now)
 
 #ifdef ON_DIDAQ
 
-int open_and_setup_didaq()
+static int open_and_setup_didaq()
 {
 
   didaq_setup_t setup = {
@@ -398,23 +501,23 @@ int open_and_setup_didaq()
   return 0;
 }
 
-int didaq_initial_setup() {
+static int didaq_initial_setup() {
   // Runs once at startup (single thread, no need for a lock?)
   if (!didaq) return -1;
 
-  //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
-  if (cfg.didaq.gain.auto_gain)
-  {
-    //disable triggers momentarily so they don't fire spuriously during equalization
-    didaq_trigger_setup_t disabled = {0};
-    didaq_configure_trigger(didaq, &disabled);
-    didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
-  }
+  // //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
+  // if (cfg.didaq.gain.auto_gain)
+  // {
+  //   //disable triggers momentarily so they don't fire spuriously during equalization
+  //   didaq_trigger_setup_t disabled = {0};
+  //   didaq_configure_trigger(didaq, &disabled);
+  //   didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
+  // }
 
   return didaq_configure();
 }
 
-int didaq_configure()
+static int didaq_configure()
 {
 
   pthread_mutex_lock(&didaq_lock);
@@ -494,7 +597,7 @@ int didaq_configure()
  *  codes computed once at daemon startup (didaq_initial_setup()) get logged
  *  into every run's aux directory for provenance.
  */
-int write_gain_codes_didaq(char * buf)
+static int write_gain_codes_didaq(char * buf)
 {
   if (!didaq) return -1;
   static int gain_codes_counter = 0;
@@ -518,28 +621,12 @@ int write_gain_codes_didaq(char * buf)
   return 0;
 }
 
-/** Per-channel state for the coincidence-trigger threshold servo, mirroring
- *  radiant_servo_state_t: each of the RNO_G_NUM_RADIANT_CHANNELS channels has
- *  its own DAC threshold and is serviced off its own 1Hz singles scaler,
- *  averaged over the same multi-timescale rolling window RADIANT uses.
- */
-typedef struct didaq_coinc_servo_state
-{
-  int max_periods;
-  int nperiods_populated;
-  float period_weights[NUM_SERVO_PERIODS];
-  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
-  float * scaler_v_mem;
-  float value[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
-  float error[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
-  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
-} didaq_coinc_servo_state_t;
-
 /** Per-beam state for the phased-array threshold servo (RNO_G_NUM_DIDAQ_BEAMS
- *  beams), mirroring flower_phased_servo_state_t.
+ *  beams), mirroring flower_phased_servo_state_t. (DIDAQ's coincidence servo
+ *  uses the shared coinc_servo_state_t/setup_coinc_servo_state()/
+ *  update_coinc_servo_state() above instead -- RADIANT's coincidence servo is
+ *  otherwise identical -- but there's no phased-trigger analogue on RADIANT
+ *  to share this with.)
  */
 typedef struct didaq_phased_servo_state
 {
@@ -550,75 +637,13 @@ typedef struct didaq_phased_servo_state
   float sum_error[RNO_G_NUM_DIDAQ_BEAMS];
 } didaq_phased_servo_state_t;
 
-static void setup_didaq_coinc_servo_state(didaq_coinc_servo_state_t * state)
-{
-  int max_periods = 0;
-  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
-  {
-    if (cfg.didaq.servo.coinc.nscaler_periods_per_servo_period[i] > max_periods)
-    {
-      max_periods = cfg.didaq.servo.coinc.nscaler_periods_per_servo_period[i];
-    }
-  }
-
-  if (state->max_periods < max_periods)
-  {
-    if (state->scaler_v_mem)
-    {
-      free(state->scaler_v_mem);
-      memset(state, 0, sizeof(*state));
-    }
-    state->scaler_v_mem = malloc(sizeof(float) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
-    state->max_periods = max_periods;
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      state->scaler_v[i] = state->scaler_v_mem + max_periods * i;
-    }
-  }
-
-  memcpy(state->nscaler_periods_per_servo_period, cfg.didaq.servo.coinc.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
-  memcpy(state->period_weights, cfg.didaq.servo.coinc.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
-}
-
-/** Roll the latest coincidence singles scalers into the multi-timescale
- *  average and update each channel's servo error state. Unlike RADIANT's
- *  scalers, DIDAQ's coinc_singles_1Hz is already a plain per-second rate (no
- *  prescaler/period bookkeeping needed).
+/** DIDAQ's coincidence singles scaler is already a plain per-second rate (no
+ *  prescaler/period bookkeeping needed, unlike RADIANT's radiant_scalers) --
+ *  see radiant_raw_coinc_scaler() for the RADIANT counterpart.
  */
-static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const rno_g_daqstatus_t * ds)
+static float didaq_raw_coinc_scaler(const rno_g_daqstatus_t * ds, int chan)
 {
-  int idx = (st->nperiods_populated++) % st->max_periods;
-  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
-
-  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
-  {
-    st->scaler_v[chan][idx] = ds->didaq_scalers.coinc_singles_1Hz[chan];
-
-    float new_value = 0;
-    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
-    {
-      if (!st->period_weights[j]) continue;
-      int nthis = 0;
-      float sumthis = 0;
-      for (int i = 0; i < max_idxs; i++)
-      {
-        if (i < st->nscaler_periods_per_servo_period[j])
-        {
-          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
-          nthis++;
-        }
-      }
-      new_value += st->period_weights[j]*sumthis/nthis;
-    }
-
-    if (cfg.didaq.servo.coinc.use_log)
-    {
-      new_value = log10(cfg.didaq.servo.coinc.log_offset + new_value);
-    }
-
-    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
-                        &st->sum_error[chan], new_value, cfg.didaq.servo.coinc.scaler_goals[chan], cfg.didaq.servo.coinc.max_sum_err);
-  }
+  return ds->didaq_scalers.coinc_singles_1Hz[chan];
 }
 
 /** Update the phased/beam servo error state from the latest beam scalers.
@@ -667,7 +692,7 @@ static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, con
 static void didaq_servo(double nowf)
 {
   static int last_cfg_counter = -1;
-  static didaq_coinc_servo_state_t coinc_state = {0};
+  static coinc_servo_state_t coinc_state = {0};
   static didaq_phased_servo_state_t phased_state = {0};
 
   static float didaq_coinc_float_thresh[RNO_G_NUM_RADIANT_CHANNELS];
@@ -693,7 +718,7 @@ static void didaq_servo(double nowf)
   if (config_counter > last_cfg_counter)
   {
     last_cfg_counter = config_counter;
-    setup_didaq_coinc_servo_state(&coinc_state);
+    setup_coinc_servo_state(&coinc_state, &cfg.didaq.servo.coinc);
     memset(&phased_state, 0, sizeof(phased_state));
 
     min_coinc_thresh = cfg.didaq.thresholds.coinc.min;
@@ -738,7 +763,7 @@ static void didaq_servo(double nowf)
 
       if (need_coinc_scalers)
       {
-        update_didaq_coinc_servo_state(&coinc_state, ds);
+        update_coinc_servo_state(&coinc_state, ds, &cfg.didaq.servo.coinc, didaq_raw_coinc_scaler);
         last_scalers_coinc = nowf;
       }
       if (need_phased_scalers)
@@ -817,7 +842,7 @@ static void didaq_servo(double nowf)
 
 #else
 /** This configures the radiant. It holds the radiant write lock (and acquires the config read lock)*/
-int radiant_configure()
+static int radiant_configure()
 {
 
   pthread_rwlock_wrlock(&radiant_lock);
@@ -925,7 +950,7 @@ int radiant_configure()
 }
 
 
-int write_gain_codes_flower(char * buf)
+static int write_gain_codes_flower(char * buf)
 {
   if (!flower) return -1;
   static int gain_codes_counter = 0;
@@ -951,7 +976,7 @@ int write_gain_codes_flower(char * buf)
 
 
 /** this configures the flower trigger. It holds the flower write lock (and acquires the config read lock)*/
-int flower_configure()
+static int flower_configure()
 {
   if (!flower) return -1;
 
@@ -1038,7 +1063,7 @@ int flower_configure()
 }
 
 
-int flower_initial_setup()
+static int flower_initial_setup()
 {
   if (!flower) return -1;
 
@@ -1071,7 +1096,7 @@ int flower_initial_setup()
 
 
 //right now this can only run in the main thread before and after data taking!!!
-int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
+static int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
 {
 
   if (!force || !cfg.lt.waveforms.preclear_force_trigger) flower_buffer_clear(flower);
@@ -1127,7 +1152,7 @@ int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadli
 }
 
 //right now this can only run in the main thread before and after data taking!!!
-int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
+static int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
 {
 
   gzFile of = gzopen(outfile,"w");
@@ -1171,7 +1196,7 @@ static void record_timimg()
 }
 
 
-const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz";
+static const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz";
 static int did_bias_scan = 0;
 
 static int do_bias_scan()
@@ -1236,7 +1261,7 @@ static int do_bias_scan()
  *
  *
  * */
-int radiant_initial_setup()
+static int radiant_initial_setup()
 {
   if (!radiant) return -1;
   //just in case
@@ -1412,73 +1437,20 @@ typedef struct flower_phased_servo_state
   float sum_error[RNO_G_NUM_LT_BEAMS];
 } flower_phased_servo_state_t;
 
-typedef struct radiant_servo_state
-{
-  int max_periods;
-  int nperiods_populated;
-  float period_weights[NUM_SERVO_PERIODS];
-  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
-  float * scaler_v_mem;
-  float value[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
-  float error[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
-  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
-  int nsum;
-
-} radiant_servo_state_t;
-
 /** File-scope (not local to radiant_flower_servo()) so that mon_thread() can
  *  free scaler_v_mem after the acquisition loop exits -- radiant_flower_servo()
  *  is not called again once quit is set, so a cleanup gated on quit inside it
  *  would never run.
  */
-static radiant_servo_state_t rad_servo_state = {0};
+static coinc_servo_state_t rad_servo_state = {0};
 
-static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_daqstatus_t * ds)
+/** RADIANT's scalers need adjusting for prescaling/period before they're a
+ *  plain per-second rate -- see didaq_raw_coinc_scaler() for the DIDAQ
+ *  counterpart, which doesn't need this since its scalers are already rates.
+ */
+static float radiant_raw_coinc_scaler(const rno_g_daqstatus_t * ds, int chan)
 {
-
-  int idx = (st->nperiods_populated++) % st->max_periods;
-  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
-
-  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
-  {
-    //calculate adjusted scaler
-    float adjusted_scaler = ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1);
-
-    //put in rolling window
-    st->scaler_v[chan][idx] = adjusted_scaler;
-
-    float new_value = 0;
-    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
-    {
-      if (!st->period_weights[j]) continue;
-      int nthis = 0;
-      float sumthis = 0;
-      for (int i = 0; i < max_idxs; i++)
-      {
-        if (i < st->nscaler_periods_per_servo_period[j])
-        {
-          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
-          nthis++;
-        }
-      }
-      new_value += st->period_weights[j]*sumthis/nthis;
-    }
-
-    if (cfg.radiant.servo.use_log)
-    {
-      new_value = log10(cfg.radiant.servo.log_offset + new_value);
-    }
-
-    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
-                        &st->sum_error[chan], new_value, cfg.radiant.servo.scaler_goals[chan], cfg.radiant.servo.max_sum_err);
-
-  }
-  st->nsum++;
-
-  return;
+  return ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1);
 }
 
 
@@ -1549,38 +1521,6 @@ static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, co
 
 
 
-static void setup_radiant_servo_state(radiant_servo_state_t * state)
-{
-  int max_periods = 0;
-  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
-  {
-    if (cfg.radiant.servo.nscaler_periods_per_servo_period[i] > max_periods)
-    {
-      max_periods = cfg.radiant.servo.nscaler_periods_per_servo_period[i];
-    }
-  }
-
-
-  if (state->max_periods < max_periods)
-  {
-
-    if (state->scaler_v_mem)
-    {
-      free(state->scaler_v_mem);
-      memset(state,0, sizeof(*state));
-    }
-    state->scaler_v_mem = malloc(sizeof(int) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
-    state->max_periods = max_periods;
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      state->scaler_v[i]  = state->scaler_v_mem + max_periods * i;
-    }
-  }
-
-  memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
-  memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
-}
-
 /** Servo/scaler-monitoring logic for the RADIANT + FLOWER boards, split out of
  *  mon_thread() for readability. Called once per mon_thread loop iteration (with
  *  the cfg read lock already held); keeps its own persistent state (servo
@@ -1619,7 +1559,7 @@ static void radiant_flower_servo(double nowf)
   if (config_counter > last_cfg_counter)
   {
     last_cfg_counter = config_counter;
-    setup_radiant_servo_state(&rad_servo_state);
+    setup_coinc_servo_state(&rad_servo_state, &cfg.radiant.servo);
     memset(&flwr_coinc_servo_state, 0, sizeof(flower_coinc_servo_state_t));
     memset(&flwr_phased_servo_state, 0, sizeof(flower_phased_servo_state_t));
 
@@ -1643,7 +1583,7 @@ static void radiant_flower_servo(double nowf)
       static rno_g_daqstatus_t ds0 = {0};
       memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
       static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS] = {0};
-      int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
+      int ok = radiant_read_daqstatus(radiant, &ds0) + radiant_get_scalers(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
 
       if (ok) fprintf(stderr,"Problem reading daqstatus\n");
 
@@ -1657,7 +1597,7 @@ static void radiant_flower_servo(double nowf)
     }
 
     //update the running averages for the radiant
-    update_radiant_servo_state(&rad_servo_state, ds);
+    update_coinc_servo_state(&rad_servo_state, ds, &cfg.radiant.servo, radiant_raw_coinc_scaler);
     last_scalers_radiant = nowf;
   }
 
@@ -1845,7 +1785,7 @@ static int open_and_setup_radiant_and_flower()
 }
 
 // you should be holding a flower lock while calling this
-int flower_update_pps_offset()
+static int flower_update_pps_offset()
 {
   float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
 
@@ -1861,7 +1801,7 @@ int flower_update_pps_offset()
 
 
 static struct drand48_data sw_rand;
-double calc_next_sw_trig(float now)
+static double calc_next_sw_trig(float now)
 {
   if (!cfg.radiant.trigger.soft.enabled) return 0;
 
@@ -1890,7 +1830,7 @@ static void set_calpulser_atten(float atten)
     rno_g_cal_set_atten(calpulser,(uint8_t) atten);
 }
 
-int calpulser_configure()
+static int calpulser_configure()
 {
   pthread_rwlock_rdlock(&cfg_lock);
   if (cfg.calib.enable_cal && !calpulser)
@@ -2008,7 +1948,7 @@ static double servo_pid_step(double P, double I, double D, float error, float su
  * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock.
  *
  **/
-void * acq_thread(void* v)
+static void * acq_thread(void* v)
 {
   (void) v;
   while(!quit)
@@ -2209,11 +2149,11 @@ static int make_dirs_for_output(const char * prefix)
   return 0;
 }
 
-const char * tmp_suffix = ".tmp";
-const int tmp_suffix_len = 4;
+static const char * tmp_suffix = ".tmp";
+static const int tmp_suffix_len = 4;
 
 
-int do_close(rno_g_file_handle_t h, char *path)
+static int do_close(rno_g_file_handle_t h, char *path)
 {
   int ret = rno_g_close_handle(&h);
   int pathlen = strlen(path);
@@ -2800,7 +2740,7 @@ static void start_threads()
 }
 
 
-int please_stop()
+static int please_stop()
 {
   printf("Stopping...\n");
   quit = 1;
@@ -2889,7 +2829,7 @@ int main(int nargs, char ** args)
   return teardown();
 }
 
-int teardown()
+static int teardown()
 {
   pthread_join(the_acq_thread,0);
   pthread_join(the_mon_thread,0);
