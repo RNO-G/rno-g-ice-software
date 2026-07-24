@@ -187,16 +187,10 @@ static struct timespec precise_stop_time;
 
 static uint32_t delay_clock_estimate = 10000000;
 
-/** Shared per-channel state for a "coincidence-style" threshold servo: any
+/** Shared per-channel multi-period state for a "coincidence-style" threshold servo: any
  *  digitizer where every channel has its own trigger threshold, serviced
  *  independently off that channel's own singles-rate scaler, averaged over
- *  a multi-timescale rolling window. RADIANT's coincidence servo and DIDAQ's
- *  coincidence servo are otherwise identical (same channel count, same
- *  config shape -- both configured via rno_g_servo_config_coinc_t), so they
- *  share this state and the setup_coinc_servo_state()/update_coinc_servo_state()
- *  functions below; the only real difference between the two boards is how
- *  a channel's raw scaler value is obtained, which is why
- *  update_coinc_servo_state() takes that as a callback.
+ *  a multi-timescale rolling window.
  */
 typedef struct coinc_servo_state
 {
@@ -212,6 +206,13 @@ typedef struct coinc_servo_state
   float last_error[RNO_G_NUM_RADIANT_CHANNELS];
   float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
 } coinc_servo_state_t;
+
+/** File-scope (not local to didaq_servo()/radiant_flower_servo()) so that
+ *  mon_thread() can free scaler_v_mem after the acquisition loop exits.
+ *  A single shared instance is enough since ON_DIDAQ and RADIANT are mutually
+ *  exclusive.
+ */
+static coinc_servo_state_t coinc_servo_state = {0};
 
 static void setup_coinc_servo_state(coinc_servo_state_t * state, const rno_g_servo_config_coinc_t * servo_cfg)
 {
@@ -244,7 +245,7 @@ static void setup_coinc_servo_state(coinc_servo_state_t * state, const rno_g_ser
 }
 
 /** Roll the latest per-channel scalers (obtained via raw_scaler(), the only
- *  thing that differs between boards) into the multi-timescale average and
+ *  thing that differs between RADIANT and DIDAQ boards) into the multi-timescale average and
  *  update each channel's servo error state.
  */
 static void update_coinc_servo_state(coinc_servo_state_t * st, const rno_g_daqstatus_t * ds,
@@ -692,7 +693,6 @@ static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, con
 static void didaq_servo(double nowf)
 {
   static int last_cfg_counter = -1;
-  static coinc_servo_state_t coinc_state = {0};
   static didaq_phased_servo_state_t phased_state = {0};
 
   static float didaq_coinc_float_thresh[RNO_G_NUM_RADIANT_CHANNELS];
@@ -718,7 +718,7 @@ static void didaq_servo(double nowf)
   if (config_counter > last_cfg_counter)
   {
     last_cfg_counter = config_counter;
-    setup_coinc_servo_state(&coinc_state, &cfg.didaq.servo.coinc);
+    setup_coinc_servo_state(&coinc_servo_state, &cfg.didaq.servo.coinc);
     memset(&phased_state, 0, sizeof(phased_state));
 
     min_coinc_thresh = cfg.didaq.thresholds.coinc.min;
@@ -763,7 +763,7 @@ static void didaq_servo(double nowf)
 
       if (need_coinc_scalers)
       {
-        update_coinc_servo_state(&coinc_state, ds, &cfg.didaq.servo.coinc, didaq_raw_coinc_scaler);
+        update_coinc_servo_state(&coinc_servo_state, ds, &cfg.didaq.servo.coinc, didaq_raw_coinc_scaler);
         last_scalers_coinc = nowf;
       }
       if (need_phased_scalers)
@@ -788,7 +788,7 @@ static void didaq_servo(double nowf)
       if (0 == (coinc_active_chan & (1u << ch))) continue;
 
       double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I, cfg.didaq.servo.coinc.D,
-                           coinc_state.error[ch], coinc_state.sum_error[ch], coinc_state.last_error[ch]);
+                           coinc_servo_state.error[ch], coinc_servo_state.sum_error[ch], coinc_servo_state.last_error[ch]);
 
       if (max_coinc_change && fabs(dthreshold) > max_coinc_change)
       {
@@ -1437,13 +1437,6 @@ typedef struct flower_phased_servo_state
   float sum_error[RNO_G_NUM_LT_BEAMS];
 } flower_phased_servo_state_t;
 
-/** File-scope (not local to radiant_flower_servo()) so that mon_thread() can
- *  free scaler_v_mem after the acquisition loop exits -- radiant_flower_servo()
- *  is not called again once quit is set, so a cleanup gated on quit inside it
- *  would never run.
- */
-static coinc_servo_state_t rad_servo_state = {0};
-
 /** RADIANT's scalers need adjusting for prescaling/period before they're a
  *  plain per-second rate -- see didaq_raw_coinc_scaler() for the DIDAQ
  *  counterpart, which doesn't need this since its scalers are already rates.
@@ -1531,7 +1524,7 @@ static void radiant_flower_servo(double nowf)
   // The `static` locals below have static storage duration: each is allocated once,
   // for the lifetime of the program (not per-call like a normal local), and keeps
   // its value between calls. This is only safe because radiant_flower_servo()
-  // is only ever called from mon_thread (a single thread). rad_servo_state is
+  // is only ever called from mon_thread (a single thread). coinc_servo_state is
   // declared at file scope instead (see above its typedef) so mon_thread() can
   // free its scaler_v_mem after the loop exits.
   static int last_cfg_counter = -1;
@@ -1559,7 +1552,7 @@ static void radiant_flower_servo(double nowf)
   if (config_counter > last_cfg_counter)
   {
     last_cfg_counter = config_counter;
-    setup_coinc_servo_state(&rad_servo_state, &cfg.radiant.servo);
+    setup_coinc_servo_state(&coinc_servo_state, &cfg.radiant.servo);
     memset(&flwr_coinc_servo_state, 0, sizeof(flower_coinc_servo_state_t));
     memset(&flwr_phased_servo_state, 0, sizeof(flower_phased_servo_state_t));
 
@@ -1597,7 +1590,7 @@ static void radiant_flower_servo(double nowf)
     }
 
     //update the running averages for the radiant
-    update_coinc_servo_state(&rad_servo_state, ds, &cfg.radiant.servo, radiant_raw_coinc_scaler);
+    update_coinc_servo_state(&coinc_servo_state, ds, &cfg.radiant.servo, radiant_raw_coinc_scaler);
     last_scalers_radiant = nowf;
   }
 
@@ -1611,7 +1604,7 @@ static void radiant_flower_servo(double nowf)
       if ( 0 == (radiant_trig_chan & (1 << ch))) continue;
 
       double dthreshold = servo_pid_step(cfg.radiant.servo.P, cfg.radiant.servo.I, cfg.radiant.servo.D,
-                           rad_servo_state.error[ch], rad_servo_state.sum_error[ch], rad_servo_state.last_error[ch]);
+                           coinc_servo_state.error[ch], coinc_servo_state.sum_error[ch], coinc_servo_state.last_error[ch]);
 
       if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
       {
@@ -2112,10 +2105,8 @@ static void * mon_thread(void* v)
     usleep(sleep_amt *1e6);
   }
 
-#ifndef ON_DIDAQ
   //mostly to suppress warnings
-  if (rad_servo_state.scaler_v_mem) free(rad_servo_state.scaler_v_mem);
-#endif
+  if (coinc_servo_state.scaler_v_mem) free(coinc_servo_state.scaler_v_mem);
 
   return 0;
 }
