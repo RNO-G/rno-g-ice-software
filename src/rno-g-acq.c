@@ -166,6 +166,9 @@ static int please_stop();
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
 static void start_threads();
+static void servo_record_value(float * value, float * last_value, float * error, float * last_error,
+                                float * sum_error, float new_value, float goal, float max_sum_err);
+static double servo_pid_step(double P, double I, double D, float error, float sum_error, float last_error);
 
 struct timespec precise_start_time;
 struct timespec precise_acq_time;
@@ -889,6 +892,11 @@ typedef struct radiant_servo_state
 
 } radiant_servo_state_t;
 
+/** File-scope (not local to mon_thread()) so that mon_thread() can free its
+ *  scaler_v_mem after the acquisition loop exits.
+ */
+static radiant_servo_state_t rad_servo_state = {0};
+
 static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_daqstatus_t * ds)
 {
 
@@ -903,8 +911,7 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
     //put in rolling window
     st->scaler_v[chan][idx] = adjusted_scaler;
 
-    st->last_value[chan] = st->value[chan];
-    st->value[chan] = 0;
+    float new_value = 0;
     for (int j = 0; j < NUM_SERVO_PERIODS; j++)
     {
       if (!st->period_weights[j]) continue;
@@ -918,21 +925,16 @@ static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_d
           nthis++;
         }
       }
-      st->value[chan] += st->period_weights[j]*sumthis/nthis;
+      new_value += st->period_weights[j]*sumthis/nthis;
     }
 
     if (cfg.radiant.servo.use_log)
     {
-      st->value[chan] = log10(cfg.radiant.servo.log_offset + st->value[chan]);
+      new_value = log10(cfg.radiant.servo.log_offset + new_value);
     }
 
-    st->last_error[chan] = st->error[chan];
-    st->error[chan] = (st->value[chan] - cfg.radiant.servo.scaler_goals[chan]);
-    st->sum_error[chan] += st->error[chan];
-    if (fabs(st->sum_error[chan]) > cfg.radiant.servo.max_sum_err)
-    {
-      st->sum_error[chan] = st->sum_error[chan] < 0 ? -cfg.radiant.servo.max_sum_err: cfg.radiant.servo.max_sum_err;
-    }
+    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
+                        &st->sum_error[chan], new_value, cfg.radiant.servo.scaler_goals[chan], cfg.radiant.servo.max_sum_err);
 
   }
   st->nsum++;
@@ -978,11 +980,8 @@ static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, cons
   {
 
     float val =  fw * fast_factor*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
-    st->last_value[i] = st->value[i];
-    st->value[i] = val;
-    st->last_error[i] = st->error[i];
-    st->error[i] = (val-cfg.lt.servo.coinc_scaler_goals[i]);
-    st->sum_error[i] += st->error[i];
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+                        &st->sum_error[i], val, cfg.lt.servo.coinc_scaler_goals[i], 0);
   }
 }
 
@@ -1014,11 +1013,8 @@ static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, co
   {
 
     float val =  fw * fast_factor*fast->servo_per_beam[i] + sw *(slow->servo_per_beam[i]-sub*slow_gated->servo_per_beam[i]);
-    st->last_value[i] = st->value[i];
-    st->value[i] = val;
-    st->last_error[i] = st->error[i];
-    st->error[i] = (val-cfg.lt.servo.phased_scaler_goals[i]);
-    st->sum_error[i] += st->error[i];
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+                        &st->sum_error[i], val, cfg.lt.servo.phased_scaler_goals[i], 0);
   }
 }
 
@@ -1054,6 +1050,177 @@ static void setup_radiant_servo_state(radiant_servo_state_t * state)
 
   memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
   memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
+}
+
+/** Servo/scaler-monitoring logic for the RADIANT + FLOWER boards, split out of
+ *  mon_thread() for readability. Called once per mon_thread loop iteration (with
+ *  the cfg read lock already held); keeps its own persistent state (servo
+ *  history, computed thresholds, last-update times) across calls via statics.
+ */
+static void radiant_flower_servo(double nowf)
+{
+  // The `static` locals below have static storage duration: each is allocated once,
+  // for the lifetime of the program (not per-call like a normal local), and keeps
+  // its value between calls. Their `= ...` initializer only takes effect once, the
+  // first time this function runs; on every later call that line is a no-op and the
+  // variable still holds whatever was left in it at the end of the previous call.
+  // This is only safe because radiant_flower_servo() is only ever called from
+  // mon_thread (a single thread) -- if multiple threads called it concurrently,
+  // these statics would be unguarded shared state (a race condition). rad_servo_state
+  // is declared at file scope instead (see above its typedef) so mon_thread() can
+  // free its scaler_v_mem after the loop exits.
+  static int last_cfg_counter = -1;
+  static flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
+  static flower_phased_servo_state_t flwr_phased_servo_state = {0};
+
+  static float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS];
+  static float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS];
+
+  static uint32_t min_rad_thresh = 0;
+  static uint32_t max_rad_thresh = 0;
+  static uint32_t max_rad_change = 0;
+
+  static double last_scalers_radiant = 0;
+  static double last_scalers_lt = 0;
+  static double last_servo_radiant = 0;
+  static double last_servo_lt = 0;
+
+  float diff_scalers_radiant = nowf - last_scalers_radiant;
+  float diff_scalers_lt = nowf - last_scalers_lt;
+  float diff_servo_radiant = nowf - last_servo_radiant;
+  float diff_servo_lt = nowf - last_servo_lt;
+
+  //re set up the RADIANT
+  if (config_counter > last_cfg_counter)
+  {
+    last_cfg_counter = config_counter;
+    setup_radiant_servo_state(&rad_servo_state);
+    setup_flower_coinc_servo_state(&flwr_coinc_servo_state);
+    setup_flower_phased_servo_state(&flwr_phased_servo_state);
+
+    min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5;
+    max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5;
+    max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5;
+    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
+
+  }
+
+  //do we need radiant scalers?
+  if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
+  {
+    while (1)
+    {
+      //read twice and make sure equal
+      static rno_g_daqstatus_t ds0 = {0};
+      memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
+      static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0};
+      int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
+
+      if (ok) fprintf(stderr,"Problem reading daqstatus\n");
+
+      if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
+      {
+          memcpy(ds, &ds0, sizeof(ds0));
+          break;
+      }
+
+      printf("WARNING: Unequal sequential DAQStatus, trying again\n");
+    }
+
+    //update the running averages for the radiant
+    update_radiant_servo_state(&rad_servo_state, ds);
+    last_scalers_radiant = nowf;
+  }
+
+  // do we need to servo radiant?
+  if ((cfg.radiant.trigger.RF[0].enabled||cfg.radiant.trigger.RF[1].enabled) && cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
+      && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)
+  {
+    for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
+    {
+      //only servo channels that are part of the trigger?
+      if ( 0 == (radiant_trig_chan & (1 << ch))) continue;
+
+      double dthreshold = servo_pid_step(cfg.radiant.servo.P, cfg.radiant.servo.I, cfg.radiant.servo.D,
+                           rad_servo_state.error[ch], rad_servo_state.sum_error[ch], rad_servo_state.last_error[ch]);
+
+      if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
+      {
+        dthreshold = (dthreshold < 0)  ? -max_rad_change : max_rad_change;
+      }
+
+      ds->radiant_thresholds[ch] -= dthreshold;
+      if (ds->radiant_thresholds[ch] < min_rad_thresh)  ds->radiant_thresholds[ch] = min_rad_thresh;
+      if (ds->radiant_thresholds[ch] > max_rad_thresh)  ds->radiant_thresholds[ch] = max_rad_thresh;
+    }
+
+    //set the thresholds
+    radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
+    last_servo_radiant = nowf;
+  }
+
+
+  // do we need LT scalers?
+  if ((cfg.lt.trigger.coinc.enable_rf_coinc_trigger||cfg.lt.trigger.phased.enable_rf_phased_trigger)&&cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)
+  {
+    flower_fill_daqstatus(flower, ds);
+
+    update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds);
+    update_flower_phased_servo_state(&flwr_phased_servo_state, ds);
+
+    //if cycle counter is in the right realm, use it...
+    if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6)
+    {
+      delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
+      //if we have the pps trigger out and it's not 0, let's update our estimate
+      if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+          && cfg.lt.trigger.pps_trigger_delay)
+      {
+        flower_update_pps_offset();
+      }
+    }
+    last_scalers_lt = nowf;
+  }
+
+  // do we need to servo LT?
+
+  if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
+      && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)
+  {
+    if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
+    {
+      for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++)
+      {
+         if(!(cfg.lt.trigger.coinc.rf_coinc_channel_mask&(1<<ch))) continue;//ignore turned off beams
+         double d_servo_threshold = servo_pid_step(cfg.lt.servo.P, cfg.lt.servo.I, cfg.lt.servo.D,
+                                  flwr_coinc_servo_state.error[ch], flwr_coinc_servo_state.sum_error[ch], flwr_coinc_servo_state.last_error[ch]);
+
+
+         flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120);
+         ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch];
+         ds->lt_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
+      }
+      flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
+    }
+    if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
+    {
+      for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
+      {
+         if(!(cfg.lt.trigger.phased.rf_phased_beam_mask&(1<<beam))) continue;//ignore turned off beams
+         double d_servo_threshold = servo_pid_step(cfg.lt.servo.phased_P, cfg.lt.servo.I, cfg.lt.servo.D,
+                                  flwr_phased_servo_state.error[beam], flwr_phased_servo_state.sum_error[beam], flwr_phased_servo_state.last_error[beam]);
+
+
+       flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold, 4, 4095);
+       ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam];
+       ds->lt_phased_trigger_thresholds[beam] = clamp((flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
+      }
+      flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased.rf_phased_beam_mask);
+    }
+
+    last_servo_lt = nowf;
+  }
 }
 
 static struct drand48_data sw_rand;
@@ -1157,6 +1324,33 @@ static float clamp(float val, float min, float max)
 }
 
 
+/** Update a single servo channel's error-tracking state given its latest raw value.
+ *  This bookkeeping (value/last_value/error/last_error/sum_error, with optional
+ *  clamping of the accumulated error) is the same regardless of how the raw value
+ *  or goal were computed, so any digitizer's servo loop can share it. Pass 0 for
+ *  max_sum_err to disable clamping.
+ */
+static void servo_record_value(float * value, float * last_value, float * error, float * last_error,
+                                float * sum_error, float new_value, float goal, float max_sum_err)
+{
+  *last_value = *value;
+  *value = new_value;
+  *last_error = *error;
+  *error = new_value - goal;
+  *sum_error += *error;
+  if (max_sum_err && fabs(*sum_error) > max_sum_err)
+  {
+    *sum_error = *sum_error < 0 ? -max_sum_err : max_sum_err;
+  }
+}
+
+/** Standard PID step, given the gains and a channel's current error state. */
+static double servo_pid_step(double P, double I, double D, float error, float sum_error, float last_error)
+{
+  return P * error + I * sum_error + D * (error - last_error);
+}
+
+
 /** The acquisition thread
  *
  * This has sole control over the SPI interface for the RADIANT.
@@ -1225,62 +1419,20 @@ static void * mon_thread(void* v)
     sweep_time = start.tv_sec + 1e-9*start.tv_nsec;
   }
 
-  //last monitor time
-  double last_scalers_radiant = 0;
-  double last_scalers_lt = 0;
-
-  //last srevo time
-  double last_servo_radiant = 0;
-  double last_servo_lt = 0;
-
   //last output time
   double last_daqstatus_out = 0;
-  static int last_cfg_counter = -1;
 
   double next_sw_trig = -1;
-  radiant_servo_state_t rad_servo_state = {0};
-  flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
-  flower_phased_servo_state_t flwr_phased_servo_state = {0};
 
-  float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS];
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
-
-  float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS];
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
-
-  uint32_t min_rad_thresh = 0;
-  uint32_t max_rad_thresh = 0;
-  uint32_t max_rad_change = 0;
   while(!quit)
   {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     double nowf = now.tv_sec + 1e-9 * now.tv_nsec;
 
-    //figure out how long it's been since we got statuses and sent a sw trig
-    float diff_scalers_radiant = nowf - last_scalers_radiant;
-    float diff_scalers_lt = nowf - last_scalers_lt;
-    float diff_servo_radiant = nowf - last_servo_radiant;
-    float diff_servo_lt = nowf - last_servo_lt;
+    //figure out how long it's been since we wrote a daqstatus or swept the calpulser
     float diff_last_daqstatus_out = nowf - last_daqstatus_out;
     float diff_sweep = nowf - sweep_time;
-
-
-    //re set up the RADIANT
-    if (config_counter > last_cfg_counter)
-    {
-      last_cfg_counter = config_counter;
-      setup_radiant_servo_state(&rad_servo_state);
-      setup_flower_coinc_servo_state(&flwr_coinc_servo_state);
-      setup_flower_phased_servo_state(&flwr_phased_servo_state);
-
-      min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5;
-      max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5;
-      max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5;
-      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
-      for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
-
-    }
 
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
@@ -1297,124 +1449,7 @@ static void * mon_thread(void* v)
     }
 
 
-    //do we need radiant scalers?
-    if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
-    {
-      while (1)
-      {
-        //read twice and make sure equal
-        static rno_g_daqstatus_t ds0 = {0};
-        memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
-        static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0};
-        int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
-
-        if (ok) fprintf(stderr,"Problem reading daqstatus\n");
-
-        if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
-        {
-            memcpy(ds, &ds0, sizeof(ds0));
-            break;
-        }
-
-        printf("WARNING: Unequal sequential DAQStatus, trying again\n");
-      }
-
-      //update the running averages for the radiant
-      update_radiant_servo_state(&rad_servo_state, ds);
-      last_scalers_radiant = nowf;
-    }
-
-    // do we need to servo radiant?
-    if ((cfg.radiant.trigger.RF[0].enabled||cfg.radiant.trigger.RF[1].enabled) && cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
-        && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)
-    {
-      for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
-      {
-        //only servo channels that are part of the trigger?
-        if ( 0 == (radiant_trig_chan & (1 << ch))) continue;
-
-        double dthreshold = cfg.radiant.servo.P * rad_servo_state.error[ch] +
-                             cfg.radiant.servo.I * rad_servo_state.sum_error[ch] +
-                             cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]);
-
-        if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
-        {
-          dthreshold = (dthreshold < 0)  ? -max_rad_change : max_rad_change;
-        }
-
-        ds->radiant_thresholds[ch] -= dthreshold;
-        if (ds->radiant_thresholds[ch] < min_rad_thresh)  ds->radiant_thresholds[ch] = min_rad_thresh;
-        if (ds->radiant_thresholds[ch] > max_rad_thresh)  ds->radiant_thresholds[ch] = max_rad_thresh;
-      }
-
-      //set the thresholds
-      radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
-      last_servo_radiant = nowf;
-    }
-
-
-    // do we need LT scalers?
-    if ((cfg.lt.trigger.coinc.enable_rf_coinc_trigger||cfg.lt.trigger.phased.enable_rf_phased_trigger)&&cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)
-    {
-      flower_fill_daqstatus(flower, ds);
-
-      update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds);
-      update_flower_phased_servo_state(&flwr_phased_servo_state, ds);
-
-      //if cycle counter is in the right realm, use it...
-      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6)
-      {
-        delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
-        //if we have the pps trigger out and it's not 0, let's update our estimate
-        if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
-            && cfg.lt.trigger.pps_trigger_delay)
-        {
-          flower_update_pps_offset();
-        }
-      }
-      last_scalers_lt = nowf;
-    }
-
-    // do we need to servo LT?
-
-    if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
-        && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)
-    {
-      if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
-      {
-        for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++)
-        {
-           if(!(cfg.lt.trigger.coinc.rf_coinc_channel_mask&(1<<ch))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.P * flwr_coinc_servo_state.error[ch] +
-                                    cfg.lt.servo.I * flwr_coinc_servo_state.sum_error[ch] +
-                                    cfg.lt.servo.D * (flwr_coinc_servo_state.error[ch] - flwr_coinc_servo_state.last_error[ch]);
-
-
-           flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120);
-           ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch];
-           ds->lt_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
-        }
-        flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
-      }
-      if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
-      {
-        for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
-        {
-           if(!(cfg.lt.trigger.phased.rf_phased_beam_mask&(1<<beam))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] +
-                                    cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] +
-                                    cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]);
-
-
-         flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold, 4, 4095);
-         ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam];
-         ds->lt_phased_trigger_thresholds[beam] = clamp((flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
-        }
-        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased.rf_phased_beam_mask);
-      }
-
-      last_servo_lt = nowf;
-    }
+    radiant_flower_servo(nowf);
 
     //do we need to write out the DAQ status?
 
