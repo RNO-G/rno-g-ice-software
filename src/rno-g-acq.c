@@ -453,7 +453,9 @@ static int didaq_configure()
     for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
     {
       ds->didaq_phased_trigger_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
-      ds->didaq_phased_servo_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
+      ds->didaq_phased_servo_thresholds[i] = clamp(
+        cfg.didaq.thresholds.phased.initial[i] * cfg.didaq.servo.phased_servo_thresh_frac +
+        cfg.didaq.servo.servo_thresh_offsetm 0, 65535);
     }
   }
 
