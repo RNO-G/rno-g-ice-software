@@ -664,10 +664,11 @@ static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, con
   for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
     float val = fw * ds->didaq_scalers.beam_servo_1Hz[i]
-              + sw * slow_to_hz * (ds->didaq_scalers.beam_trig_100mHz[i] - sub * ds->didaq_scalers.beam_trig_100mHz_gated[i]);
+              + sw * slow_to_hz * (ds->didaq_scalers.beam_trig_100mHz[i]
+              - sub * ds->didaq_scalers.beam_trig_100mHz_gated[i]);
 
     servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
-                        &st->sum_error[i], val, cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
+      &st->sum_error[i], val, cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
   }
 }
 
@@ -729,19 +730,26 @@ static void didaq_servo(double nowf)
     max_phased_thresh = cfg.didaq.thresholds.phased.max;
 
     coinc_active_chan = 0;
-    if (cfg.didaq.trigger.coinc[0].enable) coinc_active_chan |= (~(uint32_t) cfg.didaq.trigger.coinc[0].exclude_mask) & 0xfff;
-    if (cfg.didaq.trigger.coinc[1].enable) coinc_active_chan |= ((~(uint32_t) cfg.didaq.trigger.coinc[1].exclude_mask) & 0xfff) << 12;
+    if (cfg.didaq.trigger.coinc[0].enable)
+      coinc_active_chan |= (~(uint32_t) cfg.didaq.trigger.coinc[0].exclude_mask) & 0xfff;
+    if (cfg.didaq.trigger.coinc[1].enable)
+      coinc_active_chan |= ((~(uint32_t) cfg.didaq.trigger.coinc[1].exclude_mask) & 0xfff) << 12;
+
     phased_exclude_beam = cfg.didaq.trigger.phased.beam_exclude_mask;
 
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++) didaq_coinc_float_thresh[i] = ds->didaq_coin_thresholds[i];
-    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++) didaq_phased_float_thresh[i] = ds->didaq_phased_servo_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+      didaq_coinc_float_thresh[i] = ds->didaq_coin_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+      didaq_phased_float_thresh[i] = ds->didaq_phased_servo_thresholds[i];
   }
 
   float diff_scalers_coinc = nowf - last_scalers_coinc;
   float diff_scalers_phased = nowf - last_scalers_phased;
 
-  int need_coinc_scalers = coinc_active && cfg.didaq.servo.coinc.scaler_update_interval && cfg.didaq.servo.coinc.scaler_update_interval < diff_scalers_coinc;
-  int need_phased_scalers = phased_active && cfg.didaq.servo.phased.scaler_update_interval && cfg.didaq.servo.phased.scaler_update_interval < diff_scalers_phased;
+  int need_coinc_scalers = coinc_active && cfg.didaq.servo.coinc.scaler_update_interval
+    && cfg.didaq.servo.coinc.scaler_update_interval < diff_scalers_coinc;
+  int need_phased_scalers = phased_active && cfg.didaq.servo.phased.scaler_update_interval
+    && cfg.didaq.servo.phased.scaler_update_interval < diff_scalers_phased;
 
   if (need_coinc_scalers || need_phased_scalers)
   {
@@ -766,6 +774,7 @@ static void didaq_servo(double nowf)
         update_coinc_servo_state(&coinc_servo_state, ds, &cfg.didaq.servo.coinc, didaq_raw_coinc_scaler);
         last_scalers_coinc = nowf;
       }
+
       if (need_phased_scalers)
       {
         update_didaq_phased_servo_state(&phased_state, ds);
@@ -785,20 +794,19 @@ static void didaq_servo(double nowf)
   {
     for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
     {
-      if (0 == (coinc_active_chan & (1u << ch))) continue;
+      if ((coinc_active_chan & (1u << ch)) == 0) continue;
 
-      double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I, cfg.didaq.servo.coinc.D,
-                           coinc_servo_state.error[ch], coinc_servo_state.sum_error[ch], coinc_servo_state.last_error[ch]);
+      double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I,
+        cfg.didaq.servo.coinc.D, coinc_servo_state.error[ch], coinc_servo_state.sum_error[ch],
+        coinc_servo_state.last_error[ch]);
 
       if (max_coinc_change && fabs(dthreshold) > max_coinc_change)
       {
         dthreshold = (dthreshold < 0) ? -max_coinc_change : max_coinc_change;
       }
 
-      // higher DAC code assumed to mean a higher (harder to cross) threshold,
-      // same sense as FLOWER's coinc servo -- unverified against real DIDAQ
-      // hardware polarity.
-      didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold, min_coinc_thresh, max_coinc_thresh);
+      didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold,
+        min_coinc_thresh, max_coinc_thresh);
       ds->didaq_coin_thresholds[ch] = didaq_coinc_float_thresh[ch];
     }
     coinc_changed = 1;
@@ -812,13 +820,17 @@ static void didaq_servo(double nowf)
     {
       if (phased_exclude_beam & (1u << beam)) continue;
 
-      double d_servo_threshold = servo_pid_step(cfg.didaq.servo.phased.P, cfg.didaq.servo.phased.I, cfg.didaq.servo.phased.D,
-                           phased_state.error[beam], phased_state.sum_error[beam], phased_state.last_error[beam]);
+      double d_servo_threshold = servo_pid_step(cfg.didaq.servo.phased.P, cfg.didaq.servo.phased.I,
+        cfg.didaq.servo.phased.D, phased_state.error[beam], phased_state.sum_error[beam],
+        phased_state.last_error[beam]);
 
-      didaq_phased_float_thresh[beam] = clamp(didaq_phased_float_thresh[beam] + d_servo_threshold, min_phased_thresh, max_phased_thresh);
+      didaq_phased_float_thresh[beam] = clamp(didaq_phased_float_thresh[beam] + d_servo_threshold,
+        min_phased_thresh, max_phased_thresh);
       ds->didaq_phased_servo_thresholds[beam] = didaq_phased_float_thresh[beam];
+
       ds->didaq_phased_trigger_thresholds[beam] = clamp(
-          (didaq_phased_float_thresh[beam] - cfg.didaq.servo.phased.servo_thresh_offset) / cfg.didaq.servo.phased.servo_thresh_frac,
+          (didaq_phased_float_thresh[beam] - cfg.didaq.servo.phased.servo_thresh_offset) /
+          cfg.didaq.servo.phased.servo_thresh_frac,
           min_phased_thresh, max_phased_thresh);
     }
     phased_changed = 1;
