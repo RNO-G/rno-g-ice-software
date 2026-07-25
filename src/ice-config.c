@@ -121,15 +121,9 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.servo.coinc
 
   SECT.enable = 1;
-  SECT.use_log = 0;
-  SECT.log_offset = 0.1;
+  SECT.subtract_gated = 0;
   SECT.scaler_update_interval = 0.5;
   SECT.servo_interval = 1;
-  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
-  {
-    SECT.nscaler_periods_per_servo_period[i] = i+1;
-    SECT.period_weights[i] = i == 0 ? 1 : 0;
-  }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     SECT.scaler_goals[i] = 5;
@@ -137,8 +131,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.P = 5;
   SECT.I = 0;
   SECT.D = 0;
-  SECT.max_thresh_change = 10;
-  SECT.max_sum_err = 10000;
 
 #undef SECT
 #define SECT cfg->didaq.servo.phased
@@ -628,16 +620,9 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //servo
   LOOKUP_INT(didaq.servo.coinc.enable);
-  LOOKUP_INT(didaq.servo.coinc.use_log);
-  LOOKUP_FLOAT(didaq.servo.coinc.log_offset);
-  if (cfg->didaq.servo.coinc.log_offset <= 0) cfg->didaq.servo.coinc.log_offset = 1e-10;
+  LOOKUP_INT(didaq.servo.coinc.subtract_gated);
   LOOKUP_FLOAT(didaq.servo.coinc.scaler_update_interval);
   LOOKUP_FLOAT(didaq.servo.coinc.servo_interval);
-  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
-  {
-    LOOKUP_INT_ELEM(didaq.servo.coinc.nscaler_periods_per_servo_period,i);
-    LOOKUP_FLOAT_ELEM(didaq.servo.coinc.period_weights,i);
-  }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     LOOKUP_FLOAT_ELEM(didaq.servo.coinc.scaler_goals,i);
@@ -645,8 +630,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(didaq.servo.coinc.P);
   LOOKUP_FLOAT(didaq.servo.coinc.I);
   LOOKUP_FLOAT(didaq.servo.coinc.D);
-  LOOKUP_FLOAT(didaq.servo.coinc.max_thresh_change);
-  LOOKUP_FLOAT(didaq.servo.coinc.max_sum_err);
 
   LOOKUP_INT(didaq.servo.phased.enable);
   LOOKUP_INT(didaq.servo.phased.subtract_gated);
@@ -978,21 +961,14 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(servo, "Threshold servo configuration");
       SECT(coinc,"Servo settings for the coincidence trigger");
         WRITE_INT(didaq.servo.coinc, enable, "Enable servoing of DiDAQ coincidence thresholds");
-        WRITE_INT(didaq.servo.coinc, use_log, "Use log10(log_offset + value) for servo instead of servo directly");
-        WRITE_FLT(didaq.servo.coinc, log_offset, "Log offset when using log servoing. Should be > 0 (otherwise forced to 1e-10).");
+        WRITE_INT(didaq.servo.coinc, subtract_gated, "Subtract gated scalers");
         WRITE_FLT(didaq.servo.coinc, scaler_update_interval, "Time interval (in seconds) that scalers are updated at");
         WRITE_FLT(didaq.servo.coinc, servo_interval, "Time interval (in seconds) that thresholds are updated at");
-        WRITE_ARR(didaq.servo.coinc, nscaler_periods_per_servo_period,
-                   "Multiple time periods may be considered in servoing. This sets the length of each time period (" NUM_SERVO_PERIODS_STR " periods must be defined)", NUM_SERVO_PERIODS, "%d" );
-        WRITE_ARR(didaq.servo.coinc, period_weights,
-                   "The weights of the aforementioned periods. For scaler goal to mean something sensible, these should add to 1.", NUM_SERVO_PERIODS, "%g" );
         WRITE_ARR(didaq.servo.coinc, scaler_goals,
                    "The scaler goal for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%g" );
-        WRITE_FLT(didaq.servo.coinc, max_thresh_change, "The maximum amount the threshold can change by in each step");
         WRITE_FLT(didaq.servo.coinc,P,"servo PID loop P");
         WRITE_FLT(didaq.servo.coinc,I,"servo PID loop I");
         WRITE_FLT(didaq.servo.coinc,D,"servo PID loop D");
-        WRITE_FLT(didaq.servo.coinc, max_sum_err, "Maximum allowed error sum (in Hz)");
       UNSECT();
       SECT(phased,"Servo settings for the phased trigger");
         WRITE_INT(didaq.servo.phased,enable,"Enable servoing");

@@ -19,7 +19,21 @@
   float target_rms;                \
   float fixed_gain_codes[n];
 
-typedef struct rno_g_servo_config_coinc
+
+typedef struct rno_g_take_waveforms
+{
+  int enable;
+  int nsecs_rf;
+  int nforce;
+} rno_g_take_waveforms_t;
+
+/** RADIANT's per-channel coincidence-trigger threshold servo config. Unlike
+ *  DIDAQ/FLOWER, RADIANT's raw scaler counts need smoothing over a
+ *  multi-timescale rolling window (see nscaler_periods_per_servo_period /
+ *  period_weights below), hence the extra fields relative to DIDAQ's
+ *  (much simpler) acq_config_t.didaq.servo.coinc.
+ */
+typedef struct rno_g_radiant_servo_config
 {
   int enable;
   int use_log;
@@ -34,14 +48,7 @@ typedef struct rno_g_servo_config_coinc
   float P;
   float I;
   float D;
-} rno_g_servo_config_coinc_t;
-
-typedef struct rno_g_take_waveforms
-{
-  int enable;
-  int nsecs_rf;
-  int nforce;
-} rno_g_take_waveforms_t;
+} rno_g_radiant_servo_config_t;
 
 
 /** The acquisition config
@@ -97,7 +104,17 @@ typedef struct acq_config
         float D;
       } phased;
 
-      rno_g_servo_config_coinc_t coinc;
+      struct {
+        int enable;
+        int subtract_gated;
+        float scaler_update_interval;
+        float servo_interval;
+        float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
+        float P;
+        float I;
+        float D;
+      } coinc;
+
     } servo;
 
 
@@ -159,7 +176,7 @@ typedef struct acq_config
 
     struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } thresholds;
 
-    rno_g_servo_config_coinc_t servo;
+    rno_g_radiant_servo_config_t servo;
 
     struct
     {
