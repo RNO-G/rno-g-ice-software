@@ -99,11 +99,11 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.thresholds.coinc
 
   SECT.load_from_threshold_file = 1;
-  SECT.min = 0.5;
-  SECT.max = 1.45;
+  SECT.min = 0;
+  SECT.max = 255;
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
-    SECT.initial[i] = 1.05;
+    SECT.initial[i] = 200;
   }
 
 #undef SECT
@@ -111,10 +111,10 @@ int init_acq_config(acq_config_t * cfg)
 
   SECT.load_from_threshold_file = 1;
   SECT.min = 0;
-  SECT.max = 4095;
+  SECT.max = 65535;  // 2**16-1
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
-    SECT.initial[i] = 600;
+    SECT.initial[i] = 800;
   }
 
 #undef SECT
@@ -137,7 +137,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.P = 5;
   SECT.I = 0;
   SECT.D = 0;
-  SECT.max_thresh_change = 0.01;
+  SECT.max_thresh_change = 10;
   SECT.max_sum_err = 10000;
 
 #undef SECT
@@ -147,7 +147,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.subtract_gated = 0;
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
-    SECT.phased_scaler_goals[i] = 500;
+    SECT.phased_scaler_goals[i] = 700;
   }
   SECT.servo_thresh_frac = 0.6;
   SECT.servo_thresh_offset = 0;
@@ -201,7 +201,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.target_rms=5;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.fixed_gain_codes[i] =5;
+    SECT.fixed_gain_codes[i] = 5;
   }
 
 #undef SECT
@@ -214,21 +214,21 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->lt.trigger
 
-  SECT.coinc.vpp =1;
-  SECT.coinc.min_coincidence=2;
+  SECT.coinc.vpp = 1;
+  SECT.coinc.min_coincidence = 2;
   SECT.coinc.window = 5;
   SECT.coinc.enable_rf_coinc_trigger = 0;
   SECT.coinc.rf_coinc_channel_mask=0xf;
 
   SECT.phased.enable_rf_phased_trigger = 1;
-  SECT.phased.rf_phased_beam_mask=0xfff;
-  SECT.phased.rf_phased_threshold_offset=0x000; //should be unused
+  SECT.phased.rf_phased_beam_mask = 0xfff;
+  SECT.phased.rf_phased_threshold_offset = 0x000; //should be unused
 
-  SECT.enable_rf_trigger_sys_out =1;
-  SECT.enable_rf_trigger_sma_out =0;
+  SECT.enable_rf_trigger_sys_out = 1;
+  SECT.enable_rf_trigger_sma_out = 0;
 
-  SECT.enable_pps_trigger_sys_out =0;
-  SECT.enable_pps_trigger_sma_out =0;
+  SECT.enable_pps_trigger_sys_out = 0;
+  SECT.enable_pps_trigger_sma_out = 0;
   SECT.pps_trigger_delay = 0;
 
 #undef SECT
@@ -280,16 +280,16 @@ int init_acq_config(acq_config_t * cfg)
 #undef SECT
 #define SECT cfg->lt.waveforms.at_finish
 
-  SECT.enable=0;
-  SECT.nsecs_rf=100;
-  SECT.nforce=100;
+  SECT.enable = 0;
+  SECT.nsecs_rf = 100;
+  SECT.nforce = 100;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_start
 
-  SECT.enable=0;
-  SECT.nsecs_rf=100;
-  SECT.nforce=100;
+  SECT.enable = 0;
+  SECT.nsecs_rf = 100;
+  SECT.nforce = 100;
 
 ////RADIANT
 #undef SECT
@@ -353,7 +353,7 @@ int init_acq_config(acq_config_t * cfg)
 
   //Upward Surface
   SECT.RF[0].enabled = 1;
-  SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
+  SECT.RF[0].mask = 0x092000; //upward pointing LPDAs
   SECT.RF[0].window = 50 ; // ?!??
   SECT.RF[0].num_coincidences = 2;
   SECT.RF[0].readout_delay=1014; //delay 19*(53.3ns)=1013.3ns
