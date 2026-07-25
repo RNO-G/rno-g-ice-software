@@ -779,6 +779,27 @@ static void didaq_servo(double nowf)
   }
 }
 
+static struct drand48_data sw_rand;
+static double calc_next_sw_trig(float now)
+{
+  if (!cfg.didaq.trigger.soft.enabled) return 0;
+
+  double interval = cfg.didaq.trigger.soft.interval;
+  double u;
+  if (cfg.didaq.trigger.soft.interval_jitter)
+  {
+    drand48_r(&sw_rand,&u);
+    interval += 2*cfg.didaq.trigger.soft.interval_jitter*(u-0.5);
+  }
+
+  if (cfg.didaq.trigger.soft.use_exponential_distribution)
+  {
+    drand48_r(&sw_rand,&u);
+    return  now-log(u)*interval;
+  }
+  else return now+interval;
+}
+
 #else
 /** This configures the radiant. It holds the radiant write lock (and acquires the config read lock)*/
 static int radiant_configure()
@@ -1828,9 +1849,6 @@ static int flower_update_pps_offset()
   return flower_set_delayed_pps_delay(flower,delay_cycles);
 }
 
-#endif
-
-
 static struct drand48_data sw_rand;
 static double calc_next_sw_trig(float now)
 {
@@ -1851,6 +1869,8 @@ static double calc_next_sw_trig(float now)
   }
   else return now+interval;
 }
+
+#endif
 
 
 static void set_calpulser_atten(float atten)
