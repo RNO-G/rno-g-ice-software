@@ -91,12 +91,9 @@ typedef struct acq_config
       struct
       {
         int enable;
-        int subtract_gated;
         uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS];
         float servo_thresh_frac;
         float servo_thresh_offset;
-        float fast_scaler_weight;
-        float slow_scaler_weight;
         float scaler_update_interval;
         float servo_interval;
         float P;

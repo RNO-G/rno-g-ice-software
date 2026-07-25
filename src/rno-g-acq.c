@@ -590,19 +590,12 @@ static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const
  */
 static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, const rno_g_daqstatus_t * ds)
 {
-  float fw = cfg.didaq.servo.phased.fast_scaler_weight;
-  float sw = cfg.didaq.servo.phased.slow_scaler_weight;
-  int sub = cfg.didaq.servo.phased.subtract_gated;
-  const float slow_to_hz = 0.1;
 
   for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
-    float val = fw * ds->didaq_scalers.beam_servo_1Hz[i]
-              + sw * slow_to_hz * (ds->didaq_scalers.beam_trig_100mHz[i]
-              - sub * ds->didaq_scalers.beam_trig_100mHz_gated[i]);
-
     servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
-      &st->sum_error[i], val, cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
+      &st->sum_error[i], ds->didaq_scalers.beam_servo_1Hz[i],
+      cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
   }
 }
 

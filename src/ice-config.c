@@ -136,15 +136,12 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.servo.phased
 
   SECT.enable = 1;
-  SECT.subtract_gated = 0;
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
     SECT.phased_scaler_goals[i] = 700;
   }
   SECT.servo_thresh_frac = 0.6;
   SECT.servo_thresh_offset = 0;
-  SECT.fast_scaler_weight = 0.3;
-  SECT.slow_scaler_weight = 0.7;
   SECT.scaler_update_interval = 0.5;
   SECT.servo_interval = 1;
   SECT.P = 0.002;
@@ -632,15 +629,12 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(didaq.servo.coinc.D);
 
   LOOKUP_INT(didaq.servo.phased.enable);
-  LOOKUP_INT(didaq.servo.phased.subtract_gated);
   for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
   {
     LOOKUP_INT_ELEM(didaq.servo.phased.phased_scaler_goals,i);
   }
   LOOKUP_FLOAT(didaq.servo.phased.servo_thresh_frac);
   LOOKUP_FLOAT(didaq.servo.phased.servo_thresh_offset);
-  LOOKUP_FLOAT(didaq.servo.phased.fast_scaler_weight);
-  LOOKUP_FLOAT(didaq.servo.phased.slow_scaler_weight);
   LOOKUP_FLOAT(didaq.servo.phased.scaler_update_interval);
   LOOKUP_FLOAT(didaq.servo.phased.servo_interval);
   LOOKUP_FLOAT(didaq.servo.phased.P);
@@ -972,12 +966,9 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       UNSECT();
       SECT(phased,"Servo settings for the phased trigger");
         WRITE_INT(didaq.servo.phased,enable,"Enable servoing");
-        WRITE_INT(didaq.servo.phased,subtract_gated,"Subtract gated scalers");
         WRITE_ARR(didaq.servo.phased,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_LT_BEAMS,"%u");
         WRITE_FLT(didaq.servo.phased,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
         WRITE_FLT(didaq.servo.phased,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
-        WRITE_FLT(didaq.servo.phased,fast_scaler_weight,"Weight of fast (100Hz) scalers in calculating PID goal");
-        WRITE_FLT(didaq.servo.phased,slow_scaler_weight,"Weight of slow (1Hz) scalers in calculating PID goal");
         WRITE_FLT(didaq.servo.phased,scaler_update_interval,"How often we update the scalers");
         WRITE_FLT(didaq.servo.phased,servo_interval,"How often we run the servo");
         WRITE_FLT(didaq.servo.phased,P,"PID loop P term");
