@@ -409,6 +409,7 @@ static int didaq_initial_setup() {
   // Runs once at startup (single thread, no need for a lock?)
   if (!didaq) return -1;
 
+  pthread_mutex_lock(&didaq_lock);
   // //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
   // if (cfg.didaq.gain.auto_gain)
   // {
@@ -418,6 +419,8 @@ static int didaq_initial_setup() {
   //   didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
   // }
   didaq_reset_acq(didaq);
+
+  pthread_mutex_unlock(&didaq_lock);
 
   return didaq_configure();
 }
@@ -1538,7 +1541,7 @@ static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, co
   {
 
     uint8_t station, major, minor;
-    flower_get_fwversion(flower, &station,&major,&minor,0,0,0);
+    flower_get_fwversion(flower, &station, &major, &minor,0,0,0);
 
     if (!major && minor < 6) fast_factor = 1000;
     else fast_factor = 100;
@@ -1705,6 +1708,7 @@ static void radiant_flower_servo(double nowf)
       }
       flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
     }
+
     if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
     {
       for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
@@ -2075,7 +2079,9 @@ static void * mon_thread(void* v)
     //do we need to send a soft trigger?
     if (cfg.didaq.trigger.soft.enabled && nowf > next_sw_trig)
     {
+      pthread_mutex_lock(&didaq_lock);
       didaq_force_trigger(didaq);
+      pthread_mutex_unlock(&didaq_lock);
       next_sw_trig = calc_next_sw_trig(nowf);
     }
 
