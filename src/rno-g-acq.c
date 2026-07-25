@@ -2111,7 +2111,7 @@ static void * mon_thread(void* v)
     float sleep_amt = 0.1; //maximum sleep amount
 
     //sleep less if we need to send a soft trigger sooner
-    if (cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt)
+    if ((cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled) && next_sw_trig - nowf < sleep_amt)
       sleep_amt = (next_sw_trig - nowf) * 3./4;
 
     usleep(sleep_amt * 1e6);
