@@ -481,7 +481,7 @@ static int open_and_setup_didaq()
   didaq_setup_t setup = {
     .spi_device = cfg.didaq.device.spi_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
-    .trig_ready_gpio_label = 0,  // cfg.didaq.device.trig_ready_gpio_label
+    .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label;
   };
 
   didaq = didaq_open(&setup);
