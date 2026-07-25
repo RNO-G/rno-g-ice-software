@@ -417,6 +417,7 @@ static int didaq_initial_setup() {
   //   didaq_configure_trigger(didaq, &disabled);
   //   didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
   // }
+  didaq_reset_acq(didaq);
 
   return didaq_configure();
 }
