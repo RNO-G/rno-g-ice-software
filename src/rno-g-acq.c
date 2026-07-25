@@ -755,17 +755,20 @@ static void didaq_servo(double nowf)
   {
     pthread_mutex_lock(&didaq_lock);
     didaq_scalers_t raw = {0};
-    int ok = didaq_read_scalers(didaq, &raw);
+    rno_g_daqstatus_t ds0 = {0};
+    int ok = didaq_read_scalers(didaq, &raw) + didaq_read_daqstatus(didaq, &ds0);
+    // didaq_dump_scalers(&raw, stdout);
+
     pthread_mutex_unlock(&didaq_lock);
 
-    didaq_dump_scalers(&raw, stdout);
 
     if (ok)
     {
-      fprintf(stderr, "Problem reading didaq scalers\n");
+      fprintf(stderr, "Problem reading didaq scalers/daqstatus\n");
     }
     else
     {
+      memcpy(ds, &ds0, sizeof(ds0));
       // rno_g_didaq_scalers_t mirrors didaq_scalers_t field-for-field, minus
       // the trailing readout_time; a straight memcpy of the smaller struct's
       // size copies exactly the shared fields.
@@ -783,6 +786,7 @@ static void didaq_servo(double nowf)
         last_scalers_phased = nowf;
       }
     }
+
   }
 
   float diff_servo_coinc = nowf - last_servo_coinc;
