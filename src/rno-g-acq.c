@@ -454,7 +454,7 @@ static int didaq_configure()
     {
       ds->didaq_phased_trigger_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
       ds->didaq_phased_servo_thresholds[i] = clamp(
-        cfg.didaq.thresholds.phased.initial[i] * cfg.didaq.servo.phased_servo_thresh_frac +
+        cfg.didaq.thresholds.phased.initial[i] * cfg.didaq.servo.servo_thresh_frac +
         cfg.didaq.servo.servo_thresh_offset, 0, 65535);
     }
   }
