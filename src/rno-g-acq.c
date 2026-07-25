@@ -481,7 +481,7 @@ static int open_and_setup_didaq()
   didaq_setup_t setup = {
     .spi_device = cfg.didaq.device.spi_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
-    .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label
+    .trig_ready_gpio_label = 0,  // cfg.didaq.device.trig_ready_gpio_label
   };
 
   didaq = didaq_open(&setup);
@@ -757,6 +757,8 @@ static void didaq_servo(double nowf)
     didaq_scalers_t raw = {0};
     int ok = didaq_read_scalers(didaq, &raw);
     pthread_mutex_unlock(&didaq_lock);
+
+    didaq_dump_scalers(&raw, stdout);
 
     if (ok)
     {
@@ -1905,20 +1907,6 @@ static float clamp(float val, float min, float max)
 }
 
 
-/** Issue a software trigger on whichever digitizer we're running on. */
-#ifdef ON_DIDAQ
-static int soft_trigger()
-{
-  return didaq_force_trigger(didaq);
-}
-#else
-static int soft_trigger()
-{
-  return radiant_soft_trigger(radiant);
-}
-#endif
-
-
 /** Update a single servo channel's error-tracking state given its latest raw value.
  *  This bookkeeping (value/last_value/error/last_error/sum_error, with optional
  *  clamping of the accumulated error) is the same regardless of how the raw value
@@ -2049,20 +2037,31 @@ static void * mon_thread(void* v)
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
 
+
     if (next_sw_trig < 0)
     {
       next_sw_trig = calc_next_sw_trig(nowf);
     }
+
+
+#ifdef ON_DIDAQ
     //do we need to send a soft trigger?
-    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
+    if (cfg.didaq.trigger.soft.enabled && nowf > next_sw_trig)
     {
-      soft_trigger();
+      printf("Soft trigger");
+      didaq_force_trigger(didaq);
       next_sw_trig = calc_next_sw_trig(nowf);
     }
 
-#ifdef ON_DIDAQ
     didaq_servo(nowf);
 #else
+    //do we need to send a soft trigger?
+    if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
+    {
+      radiant_force_trigger(didaq);
+      next_sw_trig = calc_next_sw_trig(nowf);
+    }
+
     radiant_flower_servo(nowf);
 #endif
 
@@ -2112,9 +2111,10 @@ static void * mon_thread(void* v)
     float sleep_amt = 0.1; //maximum sleep amount
 
     //sleep less if we need to send a soft trigger sooner
-    if (cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4;
+    if (cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt)
+      sleep_amt = (next_sw_trig - nowf) * 3./4;
 
-    usleep(sleep_amt *1e6);
+    usleep(sleep_amt * 1e6);
   }
 
   //mostly to suppress warnings
