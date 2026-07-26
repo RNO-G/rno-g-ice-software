@@ -122,12 +122,12 @@ int init_acq_config(acq_config_t * cfg)
 
   SECT.enable = 1;
   SECT.subtract_gated = 0;
-  SECT.scaler_update_interval = 0.5;
-  SECT.servo_interval = 1;
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
-    SECT.scaler_goals[i] = 5;
+    SECT.scaler_goals[i] = 30;
   }
+  SECT.scaler_update_interval = 0.5;
+  SECT.servo_interval = 1;
   SECT.P = 5;
   SECT.I = 0;
   SECT.D = 0;
@@ -622,7 +622,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(didaq.servo.coinc.servo_interval);
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
-    LOOKUP_FLOAT_ELEM(didaq.servo.coinc.scaler_goals,i);
+    LOOKUP_INT_ELEM(didaq.servo.coinc.scaler_goals,i);
   }
   LOOKUP_FLOAT(didaq.servo.coinc.P);
   LOOKUP_FLOAT(didaq.servo.coinc.I);
