@@ -185,7 +185,6 @@ static struct timespec precise_start_time;
 static struct timespec precise_acq_time;
 static struct timespec precise_stop_time;
 
-static uint32_t delay_clock_estimate = 10000000;
 
 #ifdef ON_DIDAQ
 
@@ -209,6 +208,9 @@ static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
 static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
 
 #else
+
+static uint32_t delay_clock_estimate = 10000000;
+
 ///// Radiant & Flower specific definitions /////
 
 /*read-write lock for cofiguring the radiant */
