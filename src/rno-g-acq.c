@@ -2695,7 +2695,7 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
 
   if (!shared_ds_fd)
   {
-    ds = calloc(sizeof(rno_g_daqstatus_t),1);
+    ds = calloc(1,sizeof(rno_g_daqstatus_t));
   }
 
 
