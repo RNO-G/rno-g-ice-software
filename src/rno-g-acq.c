@@ -580,6 +580,12 @@ static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const
     float val = ds->didaq_scalers.coinc_singles_1Hz[chan]
       - sub * ds->didaq_scalers.coinc_singles_1Hz_gated[chan];
 
+    if (chan == 2 || chan == 16)
+    {
+      printf("Channel: %d, Current count: %d, Error: %f\n",
+        chan, val, st->error[i]);
+    }
+
     servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
                         &st->sum_error[chan], val, cfg.didaq.servo.coinc.scaler_goals[chan], 0);
   }
@@ -755,6 +761,12 @@ static void didaq_servo(double nowf)
       double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I,
         cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
         coinc_state.last_error[ch]);
+
+      if (ch == 2 || ch == 16)
+      {
+        printf("Channel: %d, Current count: %d, Current threshold: %d , delta: %f\n",
+          ch, ds->didaq_scalers.coinc_singles_1Hz[ch], ds->didaq_coin_thresholds[ch], dthreshold);
+      }
 
       didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold,
         min_coinc_thresh, max_coinc_thresh);
@@ -2134,7 +2146,6 @@ static void * mon_thread(void* v)
     if (cfg.didaq.trigger.soft.enabled && nowf > next_sw_trig)
     {
       pthread_mutex_lock(&didaq_lock);
-      printf("Force trigger\n");
       didaq_force_trigger(didaq);
       pthread_mutex_unlock(&didaq_lock);
       next_sw_trig = calc_next_sw_trig(nowf);
