@@ -702,7 +702,6 @@ static void didaq_servo(double nowf)
 
     pthread_mutex_unlock(&didaq_lock);
 
-
     if (ok)
     {
       fprintf(stderr, "Problem reading didaq scalers/daqstatus\n");
@@ -2120,6 +2119,7 @@ static void * mon_thread(void* v)
     if (cfg.didaq.trigger.soft.enabled && nowf > next_sw_trig)
     {
       pthread_mutex_lock(&didaq_lock);
+      printf("Force trigger\n");
       didaq_force_trigger(didaq);
       pthread_mutex_unlock(&didaq_lock);
       next_sw_trig = calc_next_sw_trig(nowf);
@@ -2180,12 +2180,12 @@ static void * mon_thread(void* v)
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock);
 
-    float sleep_amt = 0.1; //maximum sleep amount
+    float sleep_amt = 0.05; //maximum sleep amount
 
     //sleep less if we need to send a soft trigger sooner
-    if ((cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled) && next_sw_trig - nowf < sleep_amt)
+    if ((cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled) && next_sw_trig - nowf < sleep_amt) {
       sleep_amt = (next_sw_trig - nowf) * 3./4;
-
+    }
     usleep(sleep_amt * 1e6);
   }
 
