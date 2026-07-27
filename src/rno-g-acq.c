@@ -594,9 +594,23 @@ static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, con
 
   for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
+#ifdef SERVO_DEBUG
+    if (i == 0 || i == 6)
+    {
+      printf("Beam: %d, Current count: %d, Error: %f (%f)\n",
+        i, ds->didaq_scalers.beam_servo_1Hz[i], st->error[i], st->last_error[i]);
+    }
+#endif
     servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
       &st->sum_error[i], ds->didaq_scalers.beam_servo_1Hz[i],
       cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
+#ifdef SERVO_DEBUG
+    if (i == 0 || i == 6)
+    {
+      printf("Beam: %d, Current count: %d, Error: %f (%f)\n",
+        i, ds->didaq_scalers.beam_servo_1Hz[i], st->error[i], st->last_error[i]);
+    }
+#endif
   }
 }
 
@@ -755,6 +769,13 @@ static void didaq_servo(double nowf)
       didaq_phased_float_thresh[beam] = clamp(didaq_phased_float_thresh[beam] + d_servo_threshold,
         min_phased_thresh, max_phased_thresh);
       ds->didaq_phased_servo_thresholds[beam] = didaq_phased_float_thresh[beam];
+
+#ifdef SERVO_DEBUG
+      if (beam == 0 || beam == 6) {
+        printf("Beam: %d, Current count: %d, Current threshold: %d (%f), delta: %f\n",
+          beam, ds->didaq_scalers.beam_servo_1Hz[beam], ds->didaq_phased_servo_thresholds[beam], didaq_phased_float_thresh[beam], d_servo_threshold);
+      }
+#endif
 
       ds->didaq_phased_trigger_thresholds[beam] = clamp(
           (didaq_phased_float_thresh[beam] - cfg.didaq.servo.phased.servo_thresh_offset) /
