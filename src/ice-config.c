@@ -128,7 +128,7 @@ int init_acq_config(acq_config_t * cfg)
   }
   SECT.scaler_update_interval = 0.5;
   SECT.servo_interval = 1;
-  SECT.P = 5;
+  SECT.P = 0.001;
   SECT.I = 0;
   SECT.D = 0;
 

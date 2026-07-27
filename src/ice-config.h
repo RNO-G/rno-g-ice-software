@@ -104,7 +104,7 @@ typedef struct acq_config
       struct {
         int enable;
         int subtract_gated;
-        uint8_t scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
+        uint16_t scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
         float scaler_update_interval;
         float servo_interval;
         float P;
