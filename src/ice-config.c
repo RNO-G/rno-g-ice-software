@@ -959,7 +959,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_FLT(didaq.servo.coinc, scaler_update_interval, "Time interval (in seconds) that scalers are updated at");
         WRITE_FLT(didaq.servo.coinc, servo_interval, "Time interval (in seconds) that thresholds are updated at");
         WRITE_ARR(didaq.servo.coinc, scaler_goals,
-                   "The scaler goal for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%g" );
+                   "The scaler goal for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%d" );
         WRITE_FLT(didaq.servo.coinc,P,"servo PID loop P");
         WRITE_FLT(didaq.servo.coinc,I,"servo PID loop I");
         WRITE_FLT(didaq.servo.coinc,D,"servo PID loop D");
