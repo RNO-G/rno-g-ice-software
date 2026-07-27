@@ -1,7 +1,7 @@
 BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
-CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
+CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include -fanalyzer
 BINDIR=bin
 
 ON_DIDAQ?=no

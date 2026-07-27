@@ -251,6 +251,7 @@ int mv_file(const char *oldpath, const char *newpath)
      if (new_fd < 0) 
      {
        fprintf(stderr,"Could not open %s for writing\n", newpath); 
+       close(old_fd);
        return -ENOENT; 
      }
 
@@ -259,6 +260,8 @@ int mv_file(const char *oldpath, const char *newpath)
      if (fstat(old_fd,&st)) 
      {
        fprintf(stderr,"Could not stat %s\n",oldpath); 
+       close(old_fd);
+       close(new_fd);
        return -ENOENT;
      }
 

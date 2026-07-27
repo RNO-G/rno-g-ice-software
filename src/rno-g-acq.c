@@ -360,6 +360,7 @@ static void read_config()
 
 static int add_to_file_list(const char *path)
 {
+  if (!file_list) return -1;
   flock(file_list_fd, LOCK_EX);
   fprintf(file_list,"%s\n", path);
   fflush(file_list);
@@ -2622,8 +2623,12 @@ static int setup_run_and_daqstatus(FILE ** frun_out)
   // Read the station number
   const char * station_number_file = "/STATION_ID";
   FILE *fstation = fopen(station_number_file,"r");
-  fscanf(fstation, "%d\n", &station_number);
-  fclose(fstation);
+  if (fstation) 
+  {
+    fscanf(fstation, "%d\n", &station_number);
+    fclose(fstation);
+  }
+
   if (station_number < 0)
   {
     fprintf(stderr,"Could not get a station number... using 0\n");
@@ -2741,11 +2746,15 @@ static int setup_output_dir_and_runfile(FILE * frun)
       fprintf(stderr, "Could not open temporary run file: %s\n", tmp_run_file);
       return 1;
     }
-    if (0 > fprintf(frun, "%d\n", run_number + 1) || 0 != fclose(frun))
+    if (0 > fprintf(frun, "%d\n", run_number + 1))
     {
       fprintf(stderr, "Problem writing temporary run file %s\n", tmp_run_file);
+      fclose(frun);
       return 1;
     }
+
+    fclose(frun);
+
     if (rename(tmp_run_file, cfg.output.runfile))
     {
       fprintf(stderr,"Problem moving %s to %s\n", tmp_run_file, cfg.output.runfile);
@@ -2769,7 +2778,7 @@ static int setup_output_dir_and_runfile(FILE * frun)
   //open the file list
   sprintf(bigbuf, "%s/aux/acq-file-list.txt", output_dir);
   file_list = fopen(bigbuf, "w");
-  file_list_fd = fileno(file_list);
+  file_list_fd = file_list ? fileno(file_list) : -1;
   add_to_file_list(bigbuf);
 
   return 0;
