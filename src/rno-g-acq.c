@@ -385,6 +385,7 @@ static int open_and_setup_didaq()
     .spi_device = cfg.didaq.device.spi_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
     .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label,
+    .poll_mutex = &didaq_lock
   };
 
   didaq = didaq_open(&setup);
@@ -2007,13 +2008,16 @@ static void * acq_thread(void* v)
       if (flower) flower_fill_header(flower, &mem->hd);
 
 #else
-    pthread_mutex_lock(&didaq_lock);
     // wait for the DIDAQ to trigger
-    if (didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
+    // don't need to lock on poll ; gpio doesn't use SPI, if using polling, we passed poll_mutex (new feature!) in config which holds the lock only during the SPI active time
+    // this has the inverse logic doesn't it. doh.
+    if (!didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
     {
       // Get a buffer , and fill it
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
+      pthread_mutex_lock(&didaq_lock);
       didaq_read_event(didaq, &mem->hd, &mem->wf);
+      pthread_mutex_unlock(&didaq_lock);
 
 #endif
 
@@ -2030,8 +2034,10 @@ static void * acq_thread(void* v)
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
 #else
-    pthread_mutex_unlock(&didaq_lock);
+    usleep(0.05 * 1e6);  // To give the mon_thread a chance!
+                         // TODO make configurable
 #endif
+
   }
 
   return 0;
