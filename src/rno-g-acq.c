@@ -59,6 +59,7 @@
 #ifdef ON_DIDAQ
 
 #include "didaq.h"
+// #include "didaq-internal.h"  // needed for didaq struct
 #include "rno-g-didaq.h"
 
 #else
@@ -187,7 +188,6 @@ static struct timespec precise_stop_time;
 
 
 #ifdef ON_DIDAQ
-
 
 static didaq_dev_t * didaq = 0;
 
@@ -580,11 +580,13 @@ static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const
     float val = ds->didaq_scalers.coinc_singles_1Hz[chan]
       - sub * ds->didaq_scalers.coinc_singles_1Hz_gated[chan];
 
+#ifdef SERVO_DEBUG
     if (chan == 2 || chan == 16)
     {
-      printf("Channel: %d, Current count: %d, Error: %f\n",
-        chan, val, st->error[i]);
+      printf("Channel: %d, Current count: %f (goal: %d), Error: %f\n",
+        chan, val, cfg.didaq.servo.coinc.scaler_goals[chan], st->error[chan]);
     }
+#endif
 
     servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
                         &st->sum_error[chan], val, cfg.didaq.servo.coinc.scaler_goals[chan], 0);
@@ -762,15 +764,31 @@ static void didaq_servo(double nowf)
         cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
         coinc_state.last_error[ch]);
 
+      if (fabs(dthreshold) < 1 && fabs(coinc_state.error[ch]) > 20) {
+        dthreshold = dthreshold < 0 ? -1 : 1;
+      }
+
+#ifdef SERVO_DEBUG
       if (ch == 2 || ch == 16)
       {
         printf("Channel: %d, Current count: %d, Current threshold: %d , delta: %f\n",
           ch, ds->didaq_scalers.coinc_singles_1Hz[ch], ds->didaq_coin_thresholds[ch], dthreshold);
       }
+#endif
 
       didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold,
         min_coinc_thresh, max_coinc_thresh);
       ds->didaq_coin_thresholds[ch] = didaq_coinc_float_thresh[ch];
+
+#ifdef SERVO_DEBUG
+      if (ch == 2 || ch == 16)
+      {
+        printf("Channel: %d, Current count: %d, Current threshold: %d\n",
+          ch, ds->didaq_scalers.coinc_singles_1Hz[ch], ds->didaq_coin_thresholds[ch]);
+      }
+#endif
+
+
     }
     coinc_changed = 1;
     last_servo_coinc = nowf;
@@ -2329,7 +2347,7 @@ static void * wri_thread(void* v)
     //write down didaq info to runinfo
 
     fprintf(runinfo, "LIBDIDAQ-REV = %02u.%02u.%02u\n", DIDAQ_VERSION_REV, DIDAQ_VERSION_MAJOR, DIDAQ_VERSION_MINOR);
-    fprintf(runinfo, "DIDAQ-REV = %02u\n", didaq->rev);
+    // fprintf(runinfo, "DIDAQ-REV = %02u\n", didaq->revision);
 
     // uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
     // didaq_get_fw_version(didaq, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
