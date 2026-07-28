@@ -83,7 +83,7 @@ typedef struct acq_config
     struct
     {
       struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } coinc;
-      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_LT_BEAMS) } phased;
+      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_DIDAQ_BEAMS) } phased;
     } thresholds;
 
     struct
@@ -91,7 +91,7 @@ typedef struct acq_config
       struct
       {
         int enable;
-        uint16_t phased_scaler_goals[RNO_G_NUM_LT_BEAMS];
+        uint16_t phased_scaler_goals[RNO_G_NUM_DIDAQ_BEAMS];
         float servo_thresh_frac;
         float servo_thresh_offset;
         float scaler_update_interval;

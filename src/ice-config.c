@@ -112,7 +112,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.load_from_threshold_file = 1;
   SECT.min = 0;
   SECT.max = 65535;  // 2**16-1
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
     SECT.initial[i] = 800;
   }
@@ -136,7 +136,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.servo.phased
 
   SECT.enable = 1;
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
     SECT.phased_scaler_goals[i] = 700;
   }
@@ -610,7 +610,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(didaq.thresholds.phased.load_from_threshold_file);
   LOOKUP_FLOAT(didaq.thresholds.phased.min);
   LOOKUP_FLOAT(didaq.thresholds.phased.max);
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
     LOOKUP_FLOAT_ELEM(didaq.thresholds.phased.initial,i);
   }
@@ -629,7 +629,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(didaq.servo.coinc.D);
 
   LOOKUP_INT(didaq.servo.phased.enable);
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
   {
     LOOKUP_INT_ELEM(didaq.servo.phased.phased_scaler_goals,i);
   }
@@ -946,7 +946,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       UNSECT();
       SECT(phased,"Phased trigger threshold settings");
         WRITE_INT(didaq.thresholds.phased, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used");
-        WRITE_ARR(didaq.thresholds.phased,initial,"Initial thresholds if not loaded from file", RNO_G_NUM_LT_BEAMS, "%g");
+        WRITE_ARR(didaq.thresholds.phased,initial,"Initial thresholds if not loaded from file", RNO_G_NUM_DIDAQ_BEAMS, "%g");
         WRITE_FLT(didaq.thresholds.phased, min, "Minimum allowed threshold");
         WRITE_FLT(didaq.thresholds.phased, max, "Maximum allowed threshold");
       UNSECT();
@@ -966,7 +966,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       UNSECT();
       SECT(phased,"Servo settings for the phased trigger");
         WRITE_INT(didaq.servo.phased,enable,"Enable servoing");
-        WRITE_ARR(didaq.servo.phased,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_LT_BEAMS,"%u");
+        WRITE_ARR(didaq.servo.phased,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_DIDAQ_BEAMS,"%u");
         WRITE_FLT(didaq.servo.phased,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
         WRITE_FLT(didaq.servo.phased,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
         WRITE_FLT(didaq.servo.phased,scaler_update_interval,"How often we update the scalers");
