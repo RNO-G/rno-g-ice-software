@@ -746,7 +746,7 @@ static void didaq_servo(double nowf)
         cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
         coinc_state.last_error[ch]);
 
-      if (fabs(dthreshold) < 1 && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.scaler_goals[chan] / 2) {
+      if (fabs(dthreshold) < 1 && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.scaler_goals[ch] / 2) {
         dthreshold = dthreshold < 0 ? -1 : 1;
       }
 
