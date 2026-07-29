@@ -24,6 +24,11 @@ else
 	LIBS += -lradiant -lflower
 endif
 
+SERVO_DEBUG?=no
+ifeq ($(SERVO_DEBUG),yes)
+	CFLAGS += -DSERVO_DEBUG
+endif
+
 .PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
