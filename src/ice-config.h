@@ -95,7 +95,7 @@ typedef struct acq_config
     {
         int auto_gain;
         float target_rms;
-        int fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+        uint8_t fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
         uint16_t full_scale_range_codes[DIDAQ_NUM_ADC];
     } gain;
 
@@ -377,7 +377,7 @@ typedef struct acq_config
     {
         int auto_gain;
         float target_rms;
-        int fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
+        uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
     } gain;
 
     struct
