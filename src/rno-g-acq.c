@@ -388,7 +388,10 @@ static int open_and_setup_didaq()
     .spi_device = cfg.didaq.device.spi_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
     .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label,
-    .poll_mutex = &didaq_lock
+    .poll_mutex = &didaq_lock,
+    .default_len = cfg.didaq.readout.num_samples,
+    .default_start = cfg.didaq.readout.sample_offset,
+    .dbg = cfg.didaq.device.enable_dbg,
   };
 
   didaq = didaq_open(&setup);

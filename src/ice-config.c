@@ -76,6 +76,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.spi_name = "/dev/spidev1.0";
   SECT.trig_ready_gpio_label = "TRIG_READY";
   SECT.spi_en_label = "NSPIBUS_EN";
+  SECT.enable_dbg = 0;
 
 #undef SECT
 #define SECT cfg->didaq.readout
@@ -583,6 +584,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_STRING(didaq.device, spi_name);
   LOOKUP_STRING(didaq.device, trig_ready_gpio_label);
   LOOKUP_STRING(didaq.device, spi_en_label);
+  LOOKUP_INT(didaq.device.enable_dbg);
 
   //readout
   LOOKUP_UINT(didaq.readout.num_samples);
@@ -922,10 +924,11 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_STR(didaq.device, spi_name,"SPI device for the DiDAQ board");
       WRITE_STR(didaq.device, trig_ready_gpio_label,"GPIO label for the trigger-ready line");
       WRITE_STR(didaq.device, spi_en_label,"GPIO label for the SPI-enable line");
+      WRITE_INT(didaq.device, enable_dbg, "If 1, enable debug prints in libdidaq");
     UNSECT();
 
     SECT(readout,"Readout settings for the DiDAQ");
-      WRITE_UINT(didaq.readout,num_samples,"Number of samples to read out per waveform");
+      WRITE_UINT(didaq.readout,num_samples,"Number of samples to read out per waveform (if 0 defaults to 768 in libdidaq)");
       WRITE_UINT(didaq.readout,sample_offset,"Sample offset for readout");
       WRITE_HEX(didaq.readout,reaodut_mask,"Mask of channels to read out");
       WRITE_INT(didaq.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
