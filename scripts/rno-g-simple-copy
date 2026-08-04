@@ -54,30 +54,35 @@ do
   timeout 2d rsync -avh --exclude '*.tmp' --exclude 'aux/' --exclude 'cfg/' /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
   #in 1K blocks
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  FREESPACE=$(df /data | awk 'NR>1 {print $4}')
   if [ $FREESPACE -lt $THRESH1 ] ;
   then
     # Try to copy a last time and delete if / after copied
     find . -${CMP} +${AGE1} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
-    find . -type d -empty -${CMP} +${AGE1} -delete
     # delete wind monitoring
     if test -d /data/windmon ; then
       find /data/windmon -mtime  +3 -delete
     fi
   fi
 
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  FREESPACE=$(df /data | awk 'NR>1 {print $4}')
   if [ $FREESPACE -lt $THRESH2 ] ;
   then
     find . -${CMP} +${AGE2} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
-    find . -type d -empty -${CMP} +${AGE2} -delete
   fi
 
-  FREESPACE=`df /data | awk 'NR>1 {print $4}'`
+  FREESPACE=$(df /data | awk 'NR>1 {print $4}')
   if [ $FREESPACE -lt $THRESH3 ] ;
   then
     find . -${CMP} +${AGE3} | rsync  -avh --remove-source-files --files-from=- ./ 10.1.0.1:/data/ingress/station$STN/
-    find . -type d -empty -${CMP} +${AGE3} -delete
   fi
+
+  # `rsync --remove-source-files` only removes files, never the directories it
+  # empties. Pruning them cannot be done in the blocks above: unlinking a file
+  # sets its parent's mtime to now, so a just-emptied directory never matches
+  # the -${CMP} +${AGE} tests there. The +60 min guard keeps us off run dirs
+  # the DAQ has just created but not yet written to. -delete implies -depth,
+  # so run<N>/ goes once its subdirs have.
+  find . -type d -empty -mmin +60 -delete
 
 done
