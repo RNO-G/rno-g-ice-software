@@ -116,6 +116,7 @@ cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
 
 polkit-install:
+	install -d /etc/polkit-1/rules.d
 	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
 
 service-install: polkit-install
