@@ -59,7 +59,6 @@
 #ifdef ON_DIDAQ
 
 #include "didaq.h"
-// #include "didaq-internal.h"  // needed for didaq struct
 #include "rno-g-didaq.h"
 
 #else
@@ -2347,7 +2346,10 @@ static void * wri_thread(void* v)
     //write down didaq info to runinfo
 
     fprintf(runinfo, "LIBDIDAQ-REV = %02u.%02u.%02u\n", DIDAQ_VERSION_REV, DIDAQ_VERSION_MAJOR, DIDAQ_VERSION_MINOR);
-    // fprintf(runinfo, "DIDAQ-REV = %02u\n", didaq->revision);
+
+    //cached by didaq_open(), so no lock or SPI traffic needed here
+    fprintf(runinfo, "DIDAQ-REVISION = 0x%x\n", didaq_get_revision(didaq));
+    fprintf(runinfo, "DIDAQ-BOARD-ID = 0x%x\n", didaq_get_board_id(didaq));
 
     // uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
     // didaq_get_fw_version(didaq, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
