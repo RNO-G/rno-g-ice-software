@@ -467,14 +467,17 @@ static int didaq_configure()
     }
   }
 
-  didaq_coin_thresholds_t coin_th;
-  memcpy(coin_th.coin_thresholds, ds->didaq_coin_thresholds, sizeof(coin_th.coin_thresholds));
+  didaq_write_thresholds(didaq, ds, station_number, 1, 1);
 
-  didaq_phased_thresholds_t phased_th;
-  memcpy(phased_th.beam_trig_thresholds, ds->didaq_phased_trigger_thresholds, sizeof(phased_th.beam_trig_thresholds));
-  memcpy(phased_th.beam_servo_thresholds, ds->didaq_phased_servo_thresholds, sizeof(phased_th.beam_servo_thresholds));
+  // The exclude masks have the same layout as the hardware fields (12 bits per half of the board
+  // (coinc triggers), and 4 for the phased array) but their bits name RNO-G channels. Shift each
+  // up to an absolute 24-bit mask, permute into DiDAQ numbering, shift back. The round trip stays inside the group
+  // because no channel map moves a channel across one (see test/rno-g-test-didaq-chanmap.c).
+  const rno_g_didaq_chanmap_t * chanmap = rno_g_didaq_chanmap(station_number);
 
-  didaq_set_thresholds(didaq, &phased_th, &coin_th);
+  // The phased-array channels start at 0, so this mask is already absolute.
+  uint32_t phased_exclude = rno_g_didaq_mask_to_didaq(
+    cfg.didaq.trigger.phased.channel_exclude_mask & 0xf, chanmap);
 
   didaq_trigger_setup_t trig = {
     .enable_ext = cfg.didaq.trigger.ext.enabled,
@@ -484,7 +487,7 @@ static int didaq_configure()
       .enable_readout = cfg.didaq.trigger.phased.enable_readout,
       .require_consecutive_windows = cfg.didaq.trigger.phased.require_consecutive,
       .divide_by_2 = cfg.didaq.trigger.phased.divide_by_2,
-      .chan_exclude_mask = cfg.didaq.trigger.phased.channel_exclude_mask,
+      .chan_exclude_mask = phased_exclude & 0xf,
       .beam_exclude_mask = cfg.didaq.trigger.phased.beam_exclude_mask
     }
   };
@@ -496,7 +499,10 @@ static int didaq_configure()
     trig.coinc[i].enable_readout = cfg.didaq.trigger.coinc[i].enable_readout;
     trig.coinc[i].num_required = cfg.didaq.trigger.coinc[i].num_required;
     trig.coinc[i].coinc_window = cfg.didaq.trigger.coinc[i].window;
-    trig.coinc[i].channel_exclude_mask = cfg.didaq.trigger.coinc[i].exclude_mask;
+
+    uint32_t coinc_exclude = rno_g_didaq_mask_to_didaq(
+      ((uint32_t) cfg.didaq.trigger.coinc[i].exclude_mask & 0xfff) << (12 * i), chanmap);
+    trig.coinc[i].channel_exclude_mask = (coinc_exclude >> (12 * i)) & 0xfff;
   }
 
   int ret = didaq_configure_trigger(didaq, &trig);
@@ -572,16 +578,18 @@ static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const
     float val = ds->didaq_scalers.coinc_singles_1Hz[chan]
       - sub * ds->didaq_scalers.coinc_singles_1Hz_gated[chan];
 
+    uint16_t goal = cfg.didaq.servo.coinc.scaler_goals[chan];
+
 #ifdef SERVO_DEBUG
     if (chan == 2 || chan == 16)
     {
       printf("Channel: %d, Current count: %f (goal: %d), Error: %f\n",
-        chan, val, cfg.didaq.servo.coinc.scaler_goals[chan], st->error[chan]);
+        chan, val, goal, st->error[chan]);
     }
 #endif
 
     servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
-                        &st->sum_error[chan], val, cfg.didaq.servo.coinc.scaler_goals[chan], 0);
+                        &st->sum_error[chan], val, goal, 0);
   }
 }
 
@@ -673,6 +681,7 @@ static void didaq_servo(double nowf)
     min_phased_thresh = cfg.didaq.thresholds.phased.min;
     max_phased_thresh = cfg.didaq.thresholds.phased.max;
 
+    // Already RNO-G numbering, like ds, so no permutation here.
     coinc_active_chan = 0;
     if (cfg.didaq.trigger.coinc[0].enable)
       coinc_active_chan |= (~(uint32_t) cfg.didaq.trigger.coinc[0].exclude_mask) & 0xfff;
@@ -698,10 +707,11 @@ static void didaq_servo(double nowf)
   if (need_coinc_scalers || need_phased_scalers)
   {
     pthread_mutex_lock(&didaq_lock);
-    didaq_scalers_t raw = {0};
     rno_g_daqstatus_t ds0 = {0};
-    int ok = didaq_read_scalers(didaq, &raw) + didaq_read_daqstatus(didaq, &ds0);
-    // didaq_dump_scalers(&raw, stdout);
+    // didaq_read_daqstatus() issues the didaq_read_scalers() itself and fills in every field of
+    // ds0.didaq_scalers -- already permuted into RNO-G channel numbering, which a raw
+    // didaq_scalers_t copy on top of it would silently undo.
+    int ok = didaq_read_daqstatus(didaq, &ds0, station_number);
 
     pthread_mutex_unlock(&didaq_lock);
 
@@ -712,10 +722,6 @@ static void didaq_servo(double nowf)
     else
     {
       memcpy(ds, &ds0, sizeof(ds0));
-      // rno_g_didaq_scalers_t mirrors didaq_scalers_t field-for-field, minus
-      // the trailing readout_time; a straight memcpy of the smaller struct's
-      // size copies exactly the shared fields.
-      memcpy(&ds->didaq_scalers, &raw, sizeof(ds->didaq_scalers));
 
       if (need_coinc_scalers)
       {
@@ -749,7 +755,8 @@ static void didaq_servo(double nowf)
         cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
         coinc_state.last_error[ch]);
 
-      if (fabs(dthreshold) < 1 && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.scaler_goals[ch] / 2) {
+      if (fabs(dthreshold) < 1
+          && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.scaler_goals[ch] / 2) {
         dthreshold = dthreshold < 0 ? -1 : 1;
       }
 
@@ -812,15 +819,8 @@ static void didaq_servo(double nowf)
 
   if (coinc_changed || phased_changed)
   {
-    didaq_coin_thresholds_t coin_th;
-    memcpy(coin_th.coin_thresholds, ds->didaq_coin_thresholds, sizeof(coin_th.coin_thresholds));
-
-    didaq_phased_thresholds_t phased_th;
-    memcpy(phased_th.beam_trig_thresholds, ds->didaq_phased_trigger_thresholds, sizeof(phased_th.beam_trig_thresholds));
-    memcpy(phased_th.beam_servo_thresholds, ds->didaq_phased_servo_thresholds, sizeof(phased_th.beam_servo_thresholds));
-
     pthread_mutex_lock(&didaq_lock);
-    didaq_set_thresholds(didaq, phased_changed ? &phased_th : NULL, coinc_changed ? &coin_th : NULL);
+    didaq_write_thresholds(didaq, ds, station_number, phased_changed, coinc_changed);
     pthread_mutex_unlock(&didaq_lock);
   }
 }
@@ -2081,7 +2081,7 @@ static void * acq_thread(void* v)
       // Get a buffer , and fill it
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
       pthread_mutex_lock(&didaq_lock);
-      didaq_read_event(didaq, &mem->hd, &mem->wf);
+      didaq_read_event(didaq, &mem->hd, &mem->wf, station_number);
       pthread_mutex_unlock(&didaq_lock);
 
 #endif

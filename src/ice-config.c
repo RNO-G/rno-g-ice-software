@@ -999,7 +999,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_INT(didaq.trigger.coinc[0],quad_mode,"Quad mode (not yet used)");
         WRITE_INT(didaq.trigger.coinc[0],num_required,"Number of channels required for coincidence (0-7)");
         WRITE_INT(didaq.trigger.coinc[0],window,"Coincidence window (8-ns cycles, 0-15)");
-        WRITE_HEX(didaq.trigger.coinc[0],exclude_mask,"Channel exclude mask, 0 to include all");
+        WRITE_HEX(didaq.trigger.coinc[0],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
       UNSECT();
       SECT(coinc1,"Second coincidence trigger configuration (channels 12-23)");
         WRITE_INT(didaq.trigger.coinc[1],enable,"Enable computation of this coincidence trigger");
@@ -1007,14 +1007,14 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_INT(didaq.trigger.coinc[1],quad_mode,"Quad mode (not yet used)");
         WRITE_INT(didaq.trigger.coinc[1],num_required,"Number of channels required for coincidence (0-7)");
         WRITE_INT(didaq.trigger.coinc[1],window,"Coincidence window (8-ns cycles, 0-15)");
-        WRITE_HEX(didaq.trigger.coinc[1],exclude_mask,"Channel exclude mask, 0 to include all");
+        WRITE_HEX(didaq.trigger.coinc[1],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
       UNSECT();
       SECT(phased,"Phased trigger configuration");
         WRITE_INT(didaq.trigger.phased,enable,"Enable computation of the phased trigger");
         WRITE_INT(didaq.trigger.phased,enable_readout,"Readout on the phased trigger");
         WRITE_INT(didaq.trigger.phased,require_consecutive,"Require consecutive windows above threshold");
         WRITE_INT(didaq.trigger.phased,divide_by_2,"Divide by 2");
-        WRITE_HEX(didaq.trigger.phased,channel_exclude_mask,"Channel exclude mask");
+        WRITE_HEX(didaq.trigger.phased,channel_exclude_mask,"Channel exclude mask over the 4 phased-array channels (RNO-G numbering)");
         WRITE_HEX(didaq.trigger.phased,beam_exclude_mask,"Beam exclude mask");
       UNSECT();
     UNSECT();
