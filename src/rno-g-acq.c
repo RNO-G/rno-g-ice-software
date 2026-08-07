@@ -2364,6 +2364,14 @@ static void * wri_thread(void* v)
 
     uint16_t sample_rate = didaq_get_sample_rate(didaq);
     fprintf(runinfo, "DIDAQ-SAMPLERATE = %u\n", sample_rate);
+
+    const rno_g_didaq_chanmap_t * chanmap = rno_g_didaq_chanmap(station_number);
+    fprintf(runinfo, "DIDAQ-CHANNEL-MAPPING = ");
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      fprintf(runinfo, "%d ", chanmap->to_rno_g[i]);
+    }
+    fprintf(runinfo, "\n");
 #else
     //write down radiant info to runinfo
     uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
