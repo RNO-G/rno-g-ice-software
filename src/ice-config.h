@@ -108,6 +108,8 @@ typedef struct acq_config
         uint16_t scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
         float scaler_update_interval;
         float servo_interval;
+        float max_dthreshold;
+        float max_tolerated_error;
         float P;
         float I;
         float D;

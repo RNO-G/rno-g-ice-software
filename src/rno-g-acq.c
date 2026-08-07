@@ -657,6 +657,9 @@ static void didaq_servo(double nowf)
   static float min_phased_thresh = 0;
   static float max_phased_thresh = 0;
 
+  // Maximum threshold change per servo step (0 means no limit)
+  static float max_coinc_dthresh = 0;
+
   static uint32_t coinc_active_chan = 0;
   static uint16_t phased_exclude_beam = 0;
 
@@ -679,6 +682,8 @@ static void didaq_servo(double nowf)
 
     min_phased_thresh = cfg.didaq.thresholds.phased.min;
     max_phased_thresh = cfg.didaq.thresholds.phased.max;
+
+    max_coinc_dthresh = fabs(cfg.didaq.servo.coinc.max_dthreshold);
 
     // Already RNO-G numbering, like ds, so no permutation here.
     coinc_active_chan = 0;
@@ -754,9 +759,15 @@ static void didaq_servo(double nowf)
         cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
         coinc_state.last_error[ch]);
 
+      // Don't let a sub-count PID step stall the servo while we are still far off
       if (fabs(dthreshold) < 1
-          && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.scaler_goals[ch] / 2) {
+          && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.max_tolerated_error) {
         dthreshold = dthreshold < 0 ? -1 : 1;
+      }
+
+      // Hard limit on the step size, applied last so it also caps the nudge above
+      if (max_coinc_dthresh && fabs(dthreshold) > max_coinc_dthresh) {
+        dthreshold = dthreshold < 0 ? -max_coinc_dthresh : max_coinc_dthresh;
       }
 
 #ifdef SERVO_DEBUG
@@ -2350,11 +2361,6 @@ static void * wri_thread(void* v)
     //cached by didaq_open(), so no lock or SPI traffic needed here
     fprintf(runinfo, "DIDAQ-REVISION = 0x%x\n", didaq_get_revision(didaq));
     fprintf(runinfo, "DIDAQ-BOARD-ID = 0x%x\n", didaq_get_board_id(didaq));
-
-    // uint8_t fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
-    // didaq_get_fw_version(didaq, &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
-    // fprintf(runinfo, "DIDAQ-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
-    // fprintf(runinfo, "DIDAQ-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
 
     uint16_t sample_rate = didaq_get_sample_rate(didaq);
     fprintf(runinfo, "DIDAQ-SAMPLERATE = %u\n", sample_rate);

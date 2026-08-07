@@ -129,6 +129,8 @@ int init_acq_config(acq_config_t * cfg)
   }
   SECT.scaler_update_interval = 0.5;
   SECT.servo_interval = 1;
+  SECT.max_dthreshold = 0;
+  SECT.max_tolerated_error = 15;
   SECT.P = 0.001;
   SECT.I = 0;
   SECT.D = 0;
@@ -626,6 +628,8 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   {
     LOOKUP_INT_ELEM(didaq.servo.coinc.scaler_goals,i);
   }
+  LOOKUP_FLOAT(didaq.servo.coinc.max_dthreshold);
+  LOOKUP_FLOAT(didaq.servo.coinc.max_tolerated_error);
   LOOKUP_FLOAT(didaq.servo.coinc.P);
   LOOKUP_FLOAT(didaq.servo.coinc.I);
   LOOKUP_FLOAT(didaq.servo.coinc.D);
@@ -963,6 +967,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_FLT(didaq.servo.coinc, servo_interval, "Time interval (in seconds) that thresholds are updated at");
         WRITE_ARR(didaq.servo.coinc, scaler_goals,
                    "The scaler goal for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%d" );
+        WRITE_FLT(didaq.servo.coinc, max_dthreshold, "Maximum threshold change (in adc counts) per servo step, 0 for no limit");
+        WRITE_FLT(didaq.servo.coinc, max_tolerated_error, "Scaler error (in Hz) above which the threshold is stepped by at least 1 adc count, even if the PID step is smaller");
         WRITE_FLT(didaq.servo.coinc,P,"servo PID loop P");
         WRITE_FLT(didaq.servo.coinc,I,"servo PID loop I");
         WRITE_FLT(didaq.servo.coinc,D,"servo PID loop D");
