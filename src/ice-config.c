@@ -85,7 +85,7 @@ int init_acq_config(acq_config_t * cfg)
   SECT.sample_offset = 0;
   SECT.reaodut_mask = 0xffffff;
   SECT.poll_ms = 10;
-  SECT.acq_timeout = 0.05;
+  SECT.acq_timeout = 0.0;
 
 #undef SECT
 #define SECT cfg->didaq.gain
@@ -938,7 +938,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_UINT(didaq.readout,sample_offset,"Sample offset for readout");
       WRITE_HEX(didaq.readout,reaodut_mask,"Mask of channels to read out");
       WRITE_INT(didaq.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
-      WRITE_FLT(didaq.readout,acq_timeout,"Sleep (in seconds) at the end of each acquisition loop iteration, to give the mon thread a chance at the SPI bus");
+      WRITE_FLT(didaq.readout,acq_timeout,"Sleep (in seconds) at the end of each acquisition loop iteration, to give the mon thread a chance at the SPI bus (0 to disable)");
     UNSECT();
 
     SECT(gain,"Settings related to DiDAQ channel gain (not yet implemented in didaq)");
