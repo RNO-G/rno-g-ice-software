@@ -2109,8 +2109,7 @@ static void * acq_thread(void* v)
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
 #else
-    usleep(0.05 * 1e6);  // To give the mon_thread a chance!
-                         // TODO make configurable
+    usleep(cfg.didaq.readout.acq_timeout * 1e6);  // To give the mon_thread a chance!
 #endif
 
   }
@@ -2412,9 +2411,11 @@ static void * wri_thread(void* v)
   if (fcomment)
   {
     fprintf(fcomment, cfg.output.comment);
+
 #ifndef ON_DIDAQ
     if (!flower) fprintf(fcomment, " !!FLOWER NOT DETECTED!!");
 #endif
+
     fclose(fcomment);
     add_to_file_list(bigbuf);
   }
@@ -2589,7 +2590,7 @@ static void * wri_thread(void* v)
       }
     }
 
-    if ((int) ice_buf_occupancy(acq_buffer) < cfg.runtime.acq_buf_size /3)
+    if ((int) ice_buf_occupancy(acq_buffer) < cfg.runtime.acq_buf_size / 3)
     {
       usleep(25000);
     }

@@ -76,6 +76,7 @@ typedef struct acq_config
       uint32_t sample_offset;
       uint32_t reaodut_mask;
       int poll_ms;
+      float acq_timeout;
     } readout;
 
     // will hopefully eventually be implemented in didaq
