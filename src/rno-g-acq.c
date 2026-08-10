@@ -397,7 +397,7 @@ static int open_and_setup_didaq()
 
   if (!didaq)
   {
-    fprintf(stderr, "COULD NOT OPEN DIDAQ. Giving up.");
+    fprintf(stderr, "COULD NOT OPEN DIDAQ. Giving up.\n");
     return 1;
   }
 
