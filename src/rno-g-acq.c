@@ -203,6 +203,7 @@ static pthread_mutex_t didaq_lock;
 
 //gain codes and measured RMS from the last auto-gain equalization, one per channel (mirrors
 //flower_codes/flower_rms); written to disk at each run start by write_gain_codes_didaq()
+static uint8_t didaq_full_scale_codes[RNO_G_NUM_DIDAQ_ADCS];
 static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
 static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
 
@@ -417,13 +418,17 @@ static int didaq_initial_setup() {
 
   pthread_mutex_lock(&didaq_lock);
   // //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
-  // if (cfg.didaq.gain.auto_gain)
-  // {
-  //   //disable triggers momentarily so they don't fire spuriously during equalization
-  //   didaq_trigger_setup_t disabled = {0};
-  //   didaq_configure_trigger(didaq, &disabled);
-  //   didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
-  // }
+  if (cfg.didaq.gain.auto_gain)
+  {
+    //disable triggers momentarily so they don't fire spuriously during equalization
+    didaq_trigger_setup_t disabled = {0};
+    didaq_configure_trigger(didaq, &disabled);
+    didaq_auto_gain(didaq, 0x3f, cfg.didaq.gain.target_rms, didaq_gain_rms, didaq_full_scale_codes);
+  }
+  else
+  {
+    didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
+  }
   didaq_reset_acq(didaq);
 
   pthread_mutex_unlock(&didaq_lock);
@@ -528,6 +533,10 @@ static int write_gain_codes_didaq(char * buf)
   FILE * of = fopen(buf,"w");
   if (!of) return 1;
   fprintf(of,"# DIDAQ gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_ADCS; i++)
+  {
+    fprintf(of, "%u%s", didaq_full_scale_codes[i], i < RNO_G_NUM_DIDAQ_ADCS -1 ? " " : "\n");
+  }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     fprintf(of, "%u%s", didaq_gain_codes[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");

@@ -14,12 +14,6 @@
   float max;                            \
   float min;
 
-#define RNO_G_GAIN_RANGE_FIELDS(n) \
-  int auto_gain;                   \
-  float target_rms;                \
-  float fixed_gain_codes[n];
-
-
 typedef struct rno_g_take_waveforms
 {
   int enable;
@@ -80,7 +74,13 @@ typedef struct acq_config
     } readout;
 
     // will hopefully eventually be implemented in didaq
-    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } gain;
+    struct
+    { 
+        int auto_gain;
+        float target_rms;
+        int fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+        int full_scale_range_codes[RNO_G_NUM_DIDAQ_ADCS];
+    } gain;
 
     struct
     {
@@ -356,7 +356,12 @@ typedef struct acq_config
       int required;
     } device;
 
-    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_LT_CHANNELS) } gain;
+    struct
+    { 
+        int auto_gain;
+        float target_rms;
+        int fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
+    } gain;
 
     struct
     {
