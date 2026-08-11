@@ -96,7 +96,7 @@ int init_acq_config(acq_config_t * cfg)
   {
     SECT.fixed_gain_codes[i] = 5;
   }
-  for(int i = 0; i < RNO_G_NUM_DIDAQ_ADCS; i++)
+  for(int i = 0; i < DIDAQ_NUM_ADC; i++)
   {
     SECT.full_scale_range_codes[i] = 0x1fff;
   }
@@ -607,7 +607,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   {
     LOOKUP_INT_ELEM(didaq.gain.fixed_gain_codes,i);
   }
-  for (int i = 0; i < RNO_G_NUM_DIDAQ_ADCS; i++)
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
   {
     LOOKUP_INT_ELEM(didaq.gain.full_scale_range_codes,i);
   }
@@ -953,7 +953,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_INT(didaq.gain,auto_gain,"Automatically equalize channel gains");
       WRITE_FLT(didaq.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (unused)", RNO_G_NUM_RADIANT_CHANNELS, "%g");
-      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range codes for each ADC", RNO_G_NUM_DIDAQ_ADCS, "%g");
+      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range codes for each ADC", DIDAQ_NUM_ADC, "%g");
 
     UNSECT();
 

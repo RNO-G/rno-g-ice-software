@@ -203,7 +203,7 @@ static pthread_mutex_t didaq_lock;
 
 //gain codes and measured RMS from the last auto-gain equalization, one per channel (mirrors
 //flower_codes/flower_rms); written to disk at each run start by write_gain_codes_didaq()
-static uint8_t didaq_full_scale_codes[RNO_G_NUM_DIDAQ_ADCS];
+static uint16_t didaq_full_scale_codes[DIDAQ_NUM_ADC];
 static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
 static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
 
@@ -533,9 +533,9 @@ static int write_gain_codes_didaq(char * buf)
   FILE * of = fopen(buf,"w");
   if (!of) return 1;
   fprintf(of,"# DIDAQ gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
-  for (int i = 0; i < RNO_G_NUM_DIDAQ_ADCS; i++)
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
   {
-    fprintf(of, "%u%s", didaq_full_scale_codes[i], i < RNO_G_NUM_DIDAQ_ADCS -1 ? " " : "\n");
+    fprintf(of, "%u%s", didaq_full_scale_codes[i], i < DIDAQ_NUM_ADC -1 ? " " : "\n");
   }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
