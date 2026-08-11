@@ -5,7 +5,7 @@ Description=Apply calibration overrides every 12 hours
 
 [Timer]
 # First command fires timer 0s after start,
-# second command 12h after last firing(!)
+# second command 3h after last firing(!)
 OnActiveSec=0s
-OnUnitActiveSec=12h
+OnUnitActiveSec=3h
 Unit=rno-g-apply-calib.service
