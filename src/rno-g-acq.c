@@ -386,6 +386,7 @@ static int open_and_setup_didaq()
 
   didaq_setup_t setup = {
     .spi_device = cfg.didaq.device.spi_name,
+    .uart_device = cfg.didaq.device.uart_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
     .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label,
     .poll_mutex = &didaq_lock,
@@ -417,7 +418,7 @@ static int didaq_initial_setup() {
   if (!didaq) return -1;
 
   pthread_mutex_lock(&didaq_lock);
-  // //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
+  //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
   if (cfg.didaq.gain.auto_gain)
   {
     //disable triggers momentarily so they don't fire spuriously during equalization
@@ -425,10 +426,8 @@ static int didaq_initial_setup() {
     didaq_configure_trigger(didaq, &disabled);
     didaq_auto_gain(didaq, 0x3f, cfg.didaq.gain.target_rms, didaq_gain_rms, didaq_full_scale_codes);
   }
-  else
-  {
-    didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
-  }
+
+  didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
   didaq_reset_acq(didaq);
 
   pthread_mutex_unlock(&didaq_lock);

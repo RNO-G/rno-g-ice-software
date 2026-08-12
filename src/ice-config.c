@@ -74,6 +74,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.device
 
   SECT.spi_name = "/dev/spidev1.0";
+  SECT.uart_name = "/dev/ttyUSB0";
   SECT.trig_ready_gpio_label = "TRIG_READY";
   SECT.spi_en_label = "NSPIBUS_EN";
   SECT.enable_dbg = 0;
@@ -589,6 +590,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //device
   LOOKUP_STRING(didaq.device, spi_name);
+  LOOKUP_STRING(didaq.device, uart_name);
   LOOKUP_STRING(didaq.device, trig_ready_gpio_label);
   LOOKUP_STRING(didaq.device, spi_en_label);
   LOOKUP_INT(didaq.device.enable_dbg);
@@ -936,6 +938,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
     SECT(device,"DiDAQ device settings");
       WRITE_STR(didaq.device, spi_name,"SPI device for the DiDAQ board");
+      WRITE_STR(didaq.device, uart_name,"UART device for the DiDAQ board");
       WRITE_STR(didaq.device, trig_ready_gpio_label,"GPIO label for the trigger-ready line");
       WRITE_STR(didaq.device, spi_en_label,"GPIO label for the SPI-enable line");
       WRITE_INT(didaq.device, enable_dbg, "If 1, enable debug prints in libdidaq");
@@ -953,7 +956,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_INT(didaq.gain,auto_gain,"Automatically equalize channel gains");
       WRITE_FLT(didaq.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (unused)", RNO_G_NUM_RADIANT_CHANNELS, "%g");
-      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range codes for each ADC", DIDAQ_NUM_ADC, "%g");
+      WRITE_ARR(didaq.gain,full_scale_range_codes,"Full scale range code for each ADC, always applied (independent of auto gain). Options: 0x1fff = 1000 mVpp, 0xA000 = 800 mVpp, 0x2000 = 500 mVpp", DIDAQ_NUM_ADC, "%g");
 
     UNSECT();
 
