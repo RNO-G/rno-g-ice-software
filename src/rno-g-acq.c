@@ -190,6 +190,10 @@ static struct timespec precise_stop_time;
 
 static didaq_dev_t * didaq = 0;
 
+/* Largest coincidence multiplicity the hardware can express: didaq_trigger_setup_t's
+ * num_required is 3 bits holding a "more than N" threshold, so N=7 means 8 channels. */
+#define DIDAQ_MAX_COINC_NUM_REQUIRED 8
+
 static int didaq_configure();
 static int didaq_initial_setup();
 
@@ -504,7 +508,19 @@ static int didaq_configure()
     trig.coinc[i].enable = cfg.didaq.trigger.coinc[i].enable;
     trig.coinc[i].quad_mode = cfg.didaq.trigger.coinc[i].quad_mode;
     trig.coinc[i].enable_readout = cfg.didaq.trigger.coinc[i].enable_readout;
-    trig.coinc[i].num_required = cfg.didaq.trigger.coinc[i].num_required;
+    // The config counts channels ("at least N"), but the hardware field is a "more than N"
+    // threshold, so it is one less. Out-of-range values would silently wrap in the 3-bit
+    // field (9 -> 8 -> 0, i.e. the loosest setting), so reject them instead.
+    int num_required = cfg.didaq.trigger.coinc[i].num_required;
+    if (num_required < 1 || num_required > DIDAQ_MAX_COINC_NUM_REQUIRED)
+    {
+      fprintf(stderr, "cfg.didaq.trigger.coinc[%d].num_required is %d, must be 1-%d\n",
+              i, num_required, DIDAQ_MAX_COINC_NUM_REQUIRED);
+      pthread_rwlock_unlock(&cfg_lock);
+      pthread_mutex_unlock(&didaq_lock);
+      return 1;
+    }
+    trig.coinc[i].num_required = num_required - 1;
     trig.coinc[i].coinc_window = cfg.didaq.trigger.coinc[i].window;
 
     uint32_t coinc_exclude = rno_g_didaq_mask_to_didaq(
