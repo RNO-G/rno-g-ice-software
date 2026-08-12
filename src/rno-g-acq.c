@@ -426,8 +426,12 @@ static int didaq_initial_setup() {
     didaq_configure_trigger(didaq, &disabled);
     didaq_auto_gain(didaq, 0x3f, cfg.didaq.gain.target_rms, didaq_gain_rms, didaq_full_scale_codes);
   }
+  else
+  {
+    didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
+    memcpy(didaq_full_scale_codes, cfg.didaq.gain.full_scale_range_codes, sizeof(didaq_full_scale_codes));
+  }
 
-  didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
   didaq_reset_acq(didaq);
 
   pthread_mutex_unlock(&didaq_lock);

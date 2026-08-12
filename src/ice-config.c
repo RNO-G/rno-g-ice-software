@@ -956,7 +956,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_INT(didaq.gain,auto_gain,"Automatically equalize channel gains");
       WRITE_FLT(didaq.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (unused)", RNO_G_NUM_RADIANT_CHANNELS, "%g");
-      WRITE_ARR(didaq.gain,full_scale_range_codes,"Full scale range code for each ADC, always applied (independent of auto gain). Options: 0x1fff = 1000 mVpp, 0xA000 = 800 mVpp, 0x2000 = 500 mVpp", DIDAQ_NUM_ADC, "%g");
+      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range code for each ADC (0x1fff = 1000 mVpp, 0xA000 = 800 mVpp, 0x2000 = 500 mVpp)", DIDAQ_NUM_ADC, "%g");
 
     UNSECT();
 
