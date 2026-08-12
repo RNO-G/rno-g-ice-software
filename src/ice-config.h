@@ -2,6 +2,7 @@
 #define _rno_g_ice_config_h
 
 #include "rno-g.h"
+#include "didaq.h"
 
 /** Configuration structs */
 
@@ -13,12 +14,6 @@
   float initial[n];                     \
   float max;                            \
   float min;
-
-#define RNO_G_GAIN_RANGE_FIELDS(n) \
-  int auto_gain;                   \
-  float target_rms;                \
-  float fixed_gain_codes[n];
-
 
 typedef struct rno_g_take_waveforms
 {
@@ -65,6 +60,7 @@ typedef struct acq_config
     struct
     {
       const char * spi_name;
+      const char * uart_name;
       const char * trig_ready_gpio_label;
       const char * spi_en_label;
       int enable_dbg;
@@ -80,7 +76,13 @@ typedef struct acq_config
     } readout;
 
     // will hopefully eventually be implemented in didaq
-    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } gain;
+    struct
+    {
+        int auto_gain;
+        float target_rms;
+        int fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+        uint16_t full_scale_range_codes[DIDAQ_NUM_ADC];
+    } gain;
 
     struct
     {
@@ -356,7 +358,12 @@ typedef struct acq_config
       int required;
     } device;
 
-    struct { RNO_G_GAIN_RANGE_FIELDS(RNO_G_NUM_LT_CHANNELS) } gain;
+    struct
+    {
+        int auto_gain;
+        float target_rms;
+        int fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
+    } gain;
 
     struct
     {

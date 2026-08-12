@@ -207,6 +207,7 @@ static pthread_mutex_t didaq_lock;
 
 //gain codes and measured RMS from the last auto-gain equalization, one per channel (mirrors
 //flower_codes/flower_rms); written to disk at each run start by write_gain_codes_didaq()
+static uint16_t didaq_full_scale_codes[DIDAQ_NUM_ADC];
 static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
 static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
 
@@ -389,6 +390,7 @@ static int open_and_setup_didaq()
 
   didaq_setup_t setup = {
     .spi_device = cfg.didaq.device.spi_name,
+    .uart_device = cfg.didaq.device.uart_name,
     .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
     .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label,
     .poll_mutex = &didaq_lock,
@@ -420,14 +422,20 @@ static int didaq_initial_setup() {
   if (!didaq) return -1;
 
   pthread_mutex_lock(&didaq_lock);
-  // //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
-  // if (cfg.didaq.gain.auto_gain)
-  // {
-  //   //disable triggers momentarily so they don't fire spuriously during equalization
-  //   didaq_trigger_setup_t disabled = {0};
-  //   didaq_configure_trigger(didaq, &disabled);
-  //   didaq_equalize(didaq, cfg.didaq.gain.target_rms, didaq_gain_codes, DIDAQ_EQUALIZE_VERBOSE, didaq_gain_rms);
-  // }
+  //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
+  if (cfg.didaq.gain.auto_gain)
+  {
+    //disable triggers momentarily so they don't fire spuriously during equalization
+    didaq_trigger_setup_t disabled = {0};
+    didaq_configure_trigger(didaq, &disabled);
+    didaq_auto_gain(didaq, 0x3f, cfg.didaq.gain.target_rms, didaq_gain_rms, didaq_full_scale_codes);
+  }
+  else
+  {
+    didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
+    memcpy(didaq_full_scale_codes, cfg.didaq.gain.full_scale_range_codes, sizeof(didaq_full_scale_codes));
+  }
+
   didaq_reset_acq(didaq);
 
   pthread_mutex_unlock(&didaq_lock);
@@ -544,6 +552,10 @@ static int write_gain_codes_didaq(char * buf)
   FILE * of = fopen(buf,"w");
   if (!of) return 1;
   fprintf(of,"# DIDAQ gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    fprintf(of, "%u%s", didaq_full_scale_codes[i], i < DIDAQ_NUM_ADC -1 ? " " : "\n");
+  }
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     fprintf(of, "%u%s", didaq_gain_codes[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");

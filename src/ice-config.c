@@ -74,6 +74,7 @@ int init_acq_config(acq_config_t * cfg)
 #define SECT cfg->didaq.device
 
   SECT.spi_name = "/dev/spidev1.0";
+  SECT.uart_name = "/dev/ttyUSB0";
   SECT.trig_ready_gpio_label = "TRIG_READY";
   SECT.spi_en_label = "NSPIBUS_EN";
   SECT.enable_dbg = 0;
@@ -95,6 +96,10 @@ int init_acq_config(acq_config_t * cfg)
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     SECT.fixed_gain_codes[i] = 5;
+  }
+  for(int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    SECT.full_scale_range_codes[i] = 0x1fff;
   }
 
 #undef SECT
@@ -585,6 +590,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //device
   LOOKUP_STRING(didaq.device, spi_name);
+  LOOKUP_STRING(didaq.device, uart_name);
   LOOKUP_STRING(didaq.device, trig_ready_gpio_label);
   LOOKUP_STRING(didaq.device, spi_en_label);
   LOOKUP_INT(didaq.device.enable_dbg);
@@ -602,6 +608,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     LOOKUP_INT_ELEM(didaq.gain.fixed_gain_codes,i);
+  }
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    LOOKUP_INT_ELEM(didaq.gain.full_scale_range_codes,i);
   }
 
   //thresholds
@@ -928,6 +938,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
     SECT(device,"DiDAQ device settings");
       WRITE_STR(didaq.device, spi_name,"SPI device for the DiDAQ board");
+      WRITE_STR(didaq.device, uart_name,"UART device for the DiDAQ board");
       WRITE_STR(didaq.device, trig_ready_gpio_label,"GPIO label for the trigger-ready line");
       WRITE_STR(didaq.device, spi_en_label,"GPIO label for the SPI-enable line");
       WRITE_INT(didaq.device, enable_dbg, "If 1, enable debug prints in libdidaq");
@@ -941,10 +952,12 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(didaq.readout,acq_timeout,"Sleep (in seconds) at the end of each acquisition loop iteration, to give the mon thread a chance at the SPI bus (0 to disable)");
     UNSECT();
 
-    SECT(gain,"Settings related to DiDAQ channel gain (not yet implemented in didaq)");
+    SECT(gain,"Settings related to DiDAQ channel gain");
       WRITE_INT(didaq.gain,auto_gain,"Automatically equalize channel gains");
       WRITE_FLT(didaq.gain,target_rms,"Target RMS (in adc) for normalization");
-      WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes", RNO_G_NUM_RADIANT_CHANNELS, "%g");
+      WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (unused)", RNO_G_NUM_RADIANT_CHANNELS, "%d");
+      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range code for each ADC (0x1fff = 1000 mVpp, 0xA000 = 800 mVpp, 0x2000 = 500 mVpp)", DIDAQ_NUM_ADC, "0x%x");
+
     UNSECT();
 
     SECT(thresholds,"Threshold settings for the DiDAQ");
