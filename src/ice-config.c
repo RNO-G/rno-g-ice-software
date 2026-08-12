@@ -1006,7 +1006,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_INT(didaq.trigger.coinc[0],enable,"Enable computation of this coincidence trigger");
         WRITE_INT(didaq.trigger.coinc[0],enable_readout,"Readout on this trigger");
         WRITE_INT(didaq.trigger.coinc[0],quad_mode,"Quad mode (not yet used)");
-        WRITE_INT(didaq.trigger.coinc[0],num_required,"Number of channels required for coincidence (0-7)");
+        WRITE_INT(didaq.trigger.coinc[0],num_required,"Number of channels required for coincidence: the trigger fires when at least this many channels are above threshold (1-8)");
         WRITE_INT(didaq.trigger.coinc[0],window,"Coincidence window (8-ns cycles, 0-15)");
         WRITE_HEX(didaq.trigger.coinc[0],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
       UNSECT();
@@ -1014,7 +1014,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
         WRITE_INT(didaq.trigger.coinc[1],enable,"Enable computation of this coincidence trigger");
         WRITE_INT(didaq.trigger.coinc[1],enable_readout,"Readout on this trigger");
         WRITE_INT(didaq.trigger.coinc[1],quad_mode,"Quad mode (not yet used)");
-        WRITE_INT(didaq.trigger.coinc[1],num_required,"Number of channels required for coincidence (0-7)");
+        WRITE_INT(didaq.trigger.coinc[1],num_required,"Number of channels required for coincidence: the trigger fires when at least this many channels are above threshold (1-8)");
         WRITE_INT(didaq.trigger.coinc[1],window,"Coincidence window (8-ns cycles, 0-15)");
         WRITE_HEX(didaq.trigger.coinc[1],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
       UNSECT();
