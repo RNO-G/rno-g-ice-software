@@ -1,0 +1,63 @@
+#!/bin/sh
+# Generates a one-shot acq config for a calibration run. One "flavor" per
+# invocation; all per-flavor configuration lives in the case block below.
+#
+# Usage: rno-g-apply-calib <DEEP|SURF|SWEEP> [extra args passed to the python script]
+#
+# DEEP alternates calib.channel between fiber0 and fiber1 on each invocation,
+# with the last used channel persisted in $STATE_FILE.
+
+# apply_acq_overrides.py is installed next to this script, so the checkout and
+# the install dir both work
+SCRIPT="$(dirname "$0")/apply_acq_overrides.py"
+STATE_FILE=/rno-g/var/calib_channel.state
+
+TEMPLATE=/rno-g/cfg/acq.cfg
+OVERRIDES=/rno-g/cfg/overrides.json
+OUTDIR=/rno-g/cfg/acq.cfg.once
+
+flavor=$1
+if [ -z "$flavor" ]; then
+    echo "usage: $0 <DEEP|SURF|SWEEP>" >&2
+    exit 1
+fi
+shift
+
+# Per-flavor output file and overrides. "set -- " appends to the argument list,
+# so anything passed on the command line is kept.
+case "$flavor" in
+    DEEP)
+        OUTPUT="$OUTDIR/acq_reg_deep_calib_run.cfg"
+        if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "fiber0" ]; then
+            CHANNEL=fiber1
+        else
+            CHANNEL=fiber0
+        fi
+        set -- "$@" --set "calib.channel=$CHANNEL"
+        ;;
+    SURF)
+        OUTPUT="$OUTDIR/acq_reg_surf_calib_run.cfg"
+        set -- "$@" --set "calib.channel=coax"
+        ;;
+    SWEEP)
+        OUTPUT="$OUTDIR/acq_reg_deep_sweep_calib_run.cfg"
+        set -- "$@" --set "calib.sweep.enable=1"
+        ;;
+    *)
+        echo "unknown flavor: $flavor" >&2
+        exit 1
+        ;;
+esac
+
+python3 "$SCRIPT" -t "$TEMPLATE" -o "$OVERRIDES" -O "$OUTPUT" "$@" || exit 1
+
+# run config checker on calib cfg files
+if ! /rno-g/bin/check-rno-g-config acq "$OUTPUT" > /dev/null 2>&1; then
+    echo "check-rno-g-config failed, removing $OUTPUT" >&2
+    rm -f "$OUTPUT"
+    exit 1
+fi
+
+if [ "$flavor" = "DEEP" ]; then
+    echo "$CHANNEL" > "$STATE_FILE"
+fi

@@ -90,6 +90,8 @@ setup:
 install: $(BINS) setup
 	install $(BINS) $(PREFIX)/bin
 	install scripts/rno-g-* $(PREFIX)/bin
+	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(PREFIX)/bin
+	install -m 644 scripts/calibration/overrides.json $(PREFIX)/cfg
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
@@ -120,5 +122,5 @@ polkit-install:
 	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
 
 service-install: polkit-install
-	install systemd/*.service systemd/*.timer /etc/systemd/system
+	install systemd/*.service systemd/*.timer systemd/*.target /etc/systemd/system
 	systemctl daemon-reload
