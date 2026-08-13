@@ -1,0 +1,5 @@
+[Unit]
+Description=RNO-G Calibration scheduler
+Wants=rno-g-apply-calib@DEEP.timer
+Wants=rno-g-apply-calib@SURF.timer
+Wants=rno-g-apply-calib@SWEEP.timer

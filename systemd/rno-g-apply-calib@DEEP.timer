@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply DEEP calibration overrides
+
+# For now this timer is independent of the DAQ service.
+# PartOf makes stop/restart of the target propagate here
+# (Wants= in the target only propagates start).
+PartOf=rno-g-apply-calib.target
+
+[Timer]
+# OnActiveSec: first firing, relative to the timer being started
+# OnUnitActiveSec: later firings, relative to the last firing(!)
+OnActiveSec=0s
+OnUnitActiveSec=3h
