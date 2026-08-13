@@ -2242,18 +2242,31 @@ static void * mon_thread(void* v)
     }
 
     //do we need to change the calpulser attenuation?
+    //the last step past stop_atten means the sweep is done, so we end the run
+    //(stop_atten itself still gets a full step_time before we get here)
     if (cfg.calib.sweep.enable && diff_sweep  > cfg.calib.sweep.step_time)
     {
+      int sweep_done = 0;
       if (cfg.calib.sweep.stop_atten < cfg.calib.sweep.start_atten)
       {
         sweep_atten -= fabs(cfg.calib.sweep.atten_step);
-        if (sweep_atten < cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten;
+        if (sweep_atten < cfg.calib.sweep.stop_atten) sweep_done = 1;
       }
       else
       {
         sweep_atten += fabs(cfg.calib.sweep.atten_step);
-        if (sweep_atten > cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten;
+        if (sweep_atten > cfg.calib.sweep.stop_atten) sweep_done = 1;
       }
+
+      if (sweep_done)
+      {
+        printf("Calpulser sweep finished (%g to %g dB), stopping run\n",
+               cfg.calib.sweep.start_atten, cfg.calib.sweep.stop_atten);
+        pthread_rwlock_unlock(&cfg_lock);  //the unlock below is skipped by the break
+        please_stop();
+        break;
+      }
+
       set_calpulser_atten(sweep_atten);
       sweep_time = nowf;
     }

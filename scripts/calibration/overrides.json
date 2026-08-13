@@ -33,6 +33,42 @@
       "calib": {
         "atten": 0
       }
+    },
+    "15": {
+      "calib": {
+        "atten": 6,
+        "sweep": {
+          "start_atten": 20,
+          "stop_atten": 4
+        }
+      }
+    },
+    "25": {
+      "calib": {
+        "atten": 6,
+        "sweep": {
+          "start_atten": 20,
+          "stop_atten": 4
+        }
+      }
+    },
+    "34": {
+      "calib": {
+        "atten": 6,
+        "sweep": {
+          "start_atten": 20,
+          "stop_atten": 4
+        }
+      }
+    },
+    "35": {
+      "calib": {
+        "atten": 6,
+        "sweep": {
+          "start_atten": 20,
+          "stop_atten": 4
+        }
+      }
     }
   }
 }

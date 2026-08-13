@@ -38,10 +38,14 @@ case "$flavor" in
     SURF)
         OUTPUT="$OUTDIR/acq_reg_surf_calib_run.cfg"
         set -- "$@" --set "calib.channel=coax"
+        set -- "$@" --set "calib.atten=0"
         ;;
     SWEEP)
         OUTPUT="$OUTDIR/acq_reg_deep_sweep_calib_run.cfg"
         set -- "$@" --set "calib.sweep.enable=1"
+        # The run stops at the end of the sweep - we just need to make sure its
+        # not stopped before by the seconds_per_run...
+        set -- "$@" --set "output.seconds_per_run=10000"
         ;;
     *)
         echo "unknown flavor: $flavor" >&2
