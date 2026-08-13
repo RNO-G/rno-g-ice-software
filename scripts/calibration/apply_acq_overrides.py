@@ -65,7 +65,7 @@ VALIDATORS = {
     "calib.sweep.start_atten": lambda v: _is_half_db_step(float(v)),
     "calib.sweep.stop_atten": lambda v: _is_half_db_step(float(v)),
     "calib.sweep.atten_step": lambda v: _is_half_db_step(float(v)),
-    "output.seconds_per_run": lambda v: float(v) > 50 and float(v) < 10000,  # somewhat abitrary
+    "output.seconds_per_run": lambda v: float(v) > 50 and float(v) <= 10000,  # somewhat abitrary
 }
 
 
