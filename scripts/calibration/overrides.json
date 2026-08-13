@@ -33,6 +33,26 @@
       "calib": {
         "atten": 0
       }
+    },
+    "15": {
+      "calib": {
+        "atten": 6
+      }
+    },
+    "25": {
+      "calib": {
+        "atten": 6
+      }
+    },
+    "34": {
+      "calib": {
+        "atten": 6
+      }
+    },
+    "35": {
+      "calib": {
+        "atten": 6
+      }
     }
   }
 }

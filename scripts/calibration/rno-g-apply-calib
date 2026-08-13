@@ -38,7 +38,7 @@ case "$flavor" in
     SURF)
         OUTPUT="$OUTDIR/acq_reg_surf_calib_run.cfg"
         set -- "$@" --set "calib.channel=coax"
-        set -- "$@" --set "calib.atten=15"
+        set -- "$@" --set "calib.atten=0"
         ;;
     SWEEP)
         OUTPUT="$OUTDIR/acq_reg_deep_sweep_calib_run.cfg"
