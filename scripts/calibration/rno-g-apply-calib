@@ -43,7 +43,9 @@ case "$flavor" in
     SWEEP)
         OUTPUT="$OUTDIR/acq_reg_deep_sweep_calib_run.cfg"
         set -- "$@" --set "calib.sweep.enable=1"
-        set -- "$@" --set "output.seconds_per_run=6400"
+        # The run stops at the end of the sweep - we just need to make sure its
+        # not stopped before by the seconds_per_run...
+        set -- "$@" --set "output.seconds_per_run=10000"
         ;;
     *)
         echo "unknown flavor: $flavor" >&2
