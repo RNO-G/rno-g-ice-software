@@ -38,7 +38,7 @@
       "calib": {
         "atten": 6,
         "sweep": {
-          "start_atten": 20,
+          "start_atten": 31.5,
           "stop_atten": 4
         }
       }
@@ -47,7 +47,7 @@
       "calib": {
         "atten": 6,
         "sweep": {
-          "start_atten": 20,
+          "start_atten": 31.5,
           "stop_atten": 4
         }
       }
@@ -56,7 +56,7 @@
       "calib": {
         "atten": 6,
         "sweep": {
-          "start_atten": 20,
+          "start_atten": 31.5,
           "stop_atten": 4
         }
       }
@@ -65,7 +65,7 @@
       "calib": {
         "atten": 6,
         "sweep": {
-          "start_atten": 20,
+          "start_atten": 31.5,
           "stop_atten": 4
         }
       }
