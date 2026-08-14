@@ -10,4 +10,4 @@ PartOf=rno-g-apply-calib.target
 # OnActiveSec: first firing, relative to the timer being started
 # OnUnitActiveSec: later firings, relative to the last firing(!)
 OnActiveSec=0s
-OnUnitActiveSec=3h
+OnUnitActiveSec=6h

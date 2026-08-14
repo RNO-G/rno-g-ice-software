@@ -9,6 +9,15 @@
 #define NUM_SERVO_PERIODS 3
 #define NUM_SERVO_PERIODS_STR "3"
 
+/* The DiDAQ addresses its sample memory in 4-sample words, so both
+ * didaq.readout.num_samples and .sample_offset (which are in samples) must be
+ * multiples of 4. The readout start address is a 10-bit word address, capping
+ * the offset at 1023; the length is capped by the event buffer we read into
+ * (which is the same 4096 as libdidaq's DIDAQ_MAX_LEN). */
+#define DIDAQ_SAMPLE_ALIGN 4
+#define DIDAQ_SAMPLE_OFFSET_MAX 1023
+#define DIDAQ_NUM_SAMPLES_MAX RNO_G_MAX_DIDAQ_NSAMPLES
+
 #define RNO_G_THRESHOLD_RANGE_FIELDS(n) \
   int load_from_threshold_file;         \
   float initial[n];                     \
@@ -428,6 +437,13 @@ typedef struct acq_config
 
 } acq_config_t;
 
+
+/** Round the didaq readout settings down to something the hardware accepts (see
+ *  DIDAQ_SAMPLE_ALIGN / _MAX above), complaining on stderr if they had to
+ *  change anything. Return the usable value. num_samples == 0 is left alone and
+ *  means "use the libdidaq default". */
+uint32_t didaq_sanitize_sample_offset(uint32_t sample_offset);
+uint32_t didaq_sanitize_num_samples(uint32_t num_samples);
 
 /** Fill in some reasonable defaults for the acq_config_t */
 int init_acq_config(acq_config_t * cfg);

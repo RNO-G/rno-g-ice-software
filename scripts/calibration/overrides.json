@@ -36,37 +36,37 @@
     },
     "15": {
       "calib": {
-        "atten": 6,
+        "atten": 10,
         "sweep": {
           "start_atten": 31.5,
-          "stop_atten": 4
+          "stop_atten": 5
         }
       }
     },
     "25": {
       "calib": {
-        "atten": 6,
+        "atten": 15,
         "sweep": {
           "start_atten": 31.5,
-          "stop_atten": 4
+          "stop_atten": 5
         }
       }
     },
     "34": {
       "calib": {
-        "atten": 6,
+        "atten": 15,
         "sweep": {
           "start_atten": 31.5,
-          "stop_atten": 4
+          "stop_atten": 5
         }
       }
     },
     "35": {
       "calib": {
-        "atten": 6,
+        "atten": 10,
         "sweep": {
           "start_atten": 31.5,
-          "stop_atten": 4
+          "stop_atten": 5
         }
       }
     }

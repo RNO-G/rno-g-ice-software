@@ -17,6 +17,33 @@
  */
 
 
+static uint32_t sanitize_didaq_samples(const char * name, uint32_t val, uint32_t max)
+{
+  uint32_t fixed = val;
+  if (fixed > max) fixed = max;
+  // clear the low bits, i.e. round down to a multiple of ALIGN (a power of 2)
+  fixed &= ~((uint32_t) DIDAQ_SAMPLE_ALIGN - 1);
+
+  if (fixed != val)
+  {
+    fprintf(stderr, "%s=%u is invalid (must be a multiple of %d and at most %u). Using %u instead.\n",
+            name, val, DIDAQ_SAMPLE_ALIGN, max, fixed);
+  }
+
+  return fixed;
+}
+
+uint32_t didaq_sanitize_sample_offset(uint32_t sample_offset)
+{
+  return sanitize_didaq_samples("didaq.readout.sample_offset", sample_offset, DIDAQ_SAMPLE_OFFSET_MAX);
+}
+
+uint32_t didaq_sanitize_num_samples(uint32_t num_samples)
+{
+  return sanitize_didaq_samples("didaq.readout.num_samples", num_samples, DIDAQ_NUM_SAMPLES_MAX);
+}
+
+
 int init_acq_config(acq_config_t * cfg)
 {
 
@@ -597,7 +624,9 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   //readout
   LOOKUP_UINT(didaq.readout.num_samples);
+  cfg->didaq.readout.num_samples = didaq_sanitize_num_samples(cfg->didaq.readout.num_samples);
   LOOKUP_UINT(didaq.readout.sample_offset);
+  cfg->didaq.readout.sample_offset = didaq_sanitize_sample_offset(cfg->didaq.readout.sample_offset);
   LOOKUP_UINT(didaq.readout.reaodut_mask);
   LOOKUP_INT(didaq.readout.poll_ms);
   LOOKUP_FLOAT(didaq.readout.acq_timeout);
@@ -945,8 +974,8 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     UNSECT();
 
     SECT(readout,"Readout settings for the DiDAQ");
-      WRITE_UINT(didaq.readout,num_samples,"Number of samples to read out per waveform (if 0 defaults to 768 in libdidaq)");
-      WRITE_UINT(didaq.readout,sample_offset,"Sample offset for readout");
+      WRITE_UINT(didaq.readout,num_samples,"Number of samples to read out per waveform, must be a multiple of 4 and at most 4096 (if 0 defaults to 768 in libdidaq)");
+      WRITE_UINT(didaq.readout,sample_offset,"Sample offset for readout (must be a multiple of 4 and at most 1023)");
       WRITE_HEX(didaq.readout,reaodut_mask,"Mask of channels to read out");
       WRITE_INT(didaq.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
       WRITE_FLT(didaq.readout,acq_timeout,"Sleep (in seconds) at the end of each acquisition loop iteration, to give the mon thread a chance at the SPI bus (0 to disable)");

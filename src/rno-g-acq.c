@@ -388,6 +388,10 @@ static void feed_watchdog(time_t * now)
 static int open_and_setup_didaq()
 {
 
+  // normally already done by read_acq_config, but not if we fell back to the defaults
+  cfg.didaq.readout.num_samples = didaq_sanitize_num_samples(cfg.didaq.readout.num_samples);
+  cfg.didaq.readout.sample_offset = didaq_sanitize_sample_offset(cfg.didaq.readout.sample_offset);
+
   didaq_setup_t setup = {
     .spi_device = cfg.didaq.device.spi_name,
     .uart_device = cfg.didaq.device.uart_name,
