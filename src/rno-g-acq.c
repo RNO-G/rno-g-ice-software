@@ -417,6 +417,11 @@ static int open_and_setup_didaq()
   if (didaq_initial_setup())
     return 1;
 
+  // No mutex needed, still in single thread.
+  // This reads scalars from the dev and sets clock_estimate
+  rno_g_daqstatus_t ds0 = {0};
+  didaq_read_daqstatus(didaq, &ds0, station_number);
+
   feed_watchdog(0);
   return 0;
 }
