@@ -1,6 +1,7 @@
 #!/bin/sh
 # Generates a one-shot acq config for a calibration run. One "flavor" per
-# invocation; all per-flavor configuration lives in the case block below.
+# invocation; the flavor is passed to the python script, which picks the
+# matching blocks out of $OVERRIDES.
 #
 # Usage: rno-g-apply-calib <DEEP|SURF|SWEEP> [extra args passed to the python script]
 #
@@ -23,8 +24,10 @@ if [ -z "$flavor" ]; then
 fi
 shift
 
-# Per-flavor output file and overrides. "set -- " appends to the argument list,
-# so anything passed on the command line is kept.
+# Output file per flavor. Everything else is configured in $OVERRIDES, which is
+# passed the flavor below; only the DEEP channel alternation needs state and so
+# stays here. "set -- " appends to the argument list, so anything passed on the
+# command line is kept.
 case "$flavor" in
     DEEP)
         OUTPUT="$OUTDIR/acq_reg_deep_calib_run.cfg"
@@ -37,15 +40,9 @@ case "$flavor" in
         ;;
     SURF)
         OUTPUT="$OUTDIR/acq_reg_surf_calib_run.cfg"
-        set -- "$@" --set "calib.channel=coax"
-        set -- "$@" --set "calib.atten=0"
         ;;
     SWEEP)
         OUTPUT="$OUTDIR/acq_reg_deep_sweep_calib_run.cfg"
-        set -- "$@" --set "calib.sweep.enable=1"
-        # The run stops at the end of the sweep - we just need to make sure its
-        # not stopped before by the seconds_per_run...
-        set -- "$@" --set "output.seconds_per_run=10000"
         ;;
     *)
         echo "unknown flavor: $flavor" >&2
@@ -53,7 +50,7 @@ case "$flavor" in
         ;;
 esac
 
-python3 "$SCRIPT" -t "$TEMPLATE" -o "$OVERRIDES" -O "$OUTPUT" "$@" || exit 1
+python3 "$SCRIPT" -t "$TEMPLATE" -o "$OVERRIDES" -O "$OUTPUT" -f "$flavor" "$@" || exit 1
 
 # run config checker on calib cfg files
 if ! /rno-g/bin/check-rno-g-config acq "$OUTPUT" > /dev/null 2>&1; then

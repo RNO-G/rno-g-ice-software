@@ -23,8 +23,13 @@ Key properties (matter for a periodically-run service):
                  half-written cfg.
   * Idempotent:  running twice with the same overrides yields the same file.
 
+The overrides file is a set of blocks, each optionally scoped to a list of
+``stations`` and/or calibration ``flavors``; they are merged in file order, so
+a block written further down wins. Per-station blocks live in the ``stations``
+mapping and must name the flavor(s) they are for. See overrides.json.
+
 Usage:
-    apply_acq_overrides.py -t acq.cfg.template -o overrides.json \
+    apply_acq_overrides.py -t acq.cfg.template -o overrides.json -f DEEP \
                            -O /rno-g/cfg/acq.cfg
     apply_acq_overrides.py -t acq.cfg.template -o overrides.json --dry-run
 """
@@ -110,9 +115,15 @@ def render(value, kind: str) -> str:
 
 # --- core ------------------------------------------------------------------
 def flatten(d, prefix=""):
-    """Flatten nested dicts into dotted keys; pass dotted keys through as-is."""
+    """Flatten nested dicts into dotted keys; pass dotted keys through as-is.
+
+    Keys starting with "_" are dropped: JSON has no comments, so a "_note" key
+    anywhere in the document serves as one.
+    """
     out = {}
     for k, v in d.items():
+        if str(k).startswith("_"):
+            continue
         key = f"{prefix}.{k}" if prefix else str(k)
         if isinstance(v, dict):
             out.update(flatten(v, key))
@@ -196,7 +207,24 @@ def reserved_keys(doc):
     "defaults_didaq"), so several of them can coexist.
     """
     return {k for k in doc
-            if k in ("station_source", "stations") or k.startswith("defaults")}
+            if k in ("station_source", "flavors", "stations")
+            or k.startswith("defaults")}
+
+
+def check_top_level(doc):
+    """Reject unknown top-level keys, so a typo'd block name is not ignored."""
+    for k in doc:
+        if (k in ("station_source", "flavors", "stations")
+                or k.startswith("defaults") or k.startswith("_")):
+            continue
+        sys.exit(f"error: unknown top-level key '{k}' "
+                 "(override blocks must be named 'defaults*')")
+
+
+def check_flavor(name, declared, where):
+    if name not in declared:
+        sys.exit(f"error: unknown flavor '{name}' in {where} "
+                 f"(declared: {', '.join(declared) or 'none'})")
 
 
 def deep_merge(base, over):
@@ -214,20 +242,21 @@ def resolve_station(cli_station, source_cfg):
     """Determine which station we're on. First hit wins:
 
     1. ``--station`` on the command line (explicit; for testing/manual runs)
-    2. contents of the file at ``station_source.file`` (default: /STATION_ID)
+    2. contents of the file named by ``station_source`` (default: /STATION_ID)
 
     Returns the resolved id as a stripped string.
     """
     if cli_station is not None:
         return str(cli_station).strip()
 
-    src = source_cfg or {}
-    path = src.get("file", STATION_ID_FILE)
-    if path and os.path.exists(path):
+    path = source_cfg or STATION_ID_FILE
+    if not isinstance(path, str):
+        sys.exit("error: 'station_source' must be the path to the station id file")
+    if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
 
-    sys.exit("error: could not determine station id — use --station or set station_source.file")
+    sys.exit(f"error: could not determine station id — no {path}; use --station")
 
 
 def station_matches(station, key):
@@ -254,54 +283,110 @@ def select_station_block(stations, station):
     return None, None
 
 
-def collect_defaults(doc, station):
-    """Merge every top-level ``defaults*`` block that applies to ``station``.
+def block_applies(block, name, station, flavor, declared):
+    """True if a ``defaults*`` block's optional filters match this run.
 
-    A block without a ``stations`` list applies to all stations; with one, only
-    to the listed ids. Blocks are merged in document order, so a later block
-    wins over an earlier one on a shared leaf. Returns (merged, applied_names).
+    ``stations`` limits the block to the listed ids, ``flavors`` to the listed
+    calibration flavors; an absent filter matches everything.
     """
+    only = block.get("stations")
+    if only is not None and not any(station_matches(station, s) for s in only):
+        return False
+
+    only = block.get("flavors")
+    if only is None:
+        return True
+    for f in only:
+        check_flavor(f, declared, f"'{name}'")
+    if flavor is None:
+        sys.exit(f"error: '{name}' is flavor-scoped but no --flavor was given")
+    return flavor in only
+
+
+def station_overrides(entry, station, flavor, declared):
+    """Merge the sub-blocks of one ``stations`` entry that apply to ``flavor``.
+
+    Unlike a defaults block, a station entry must say what it is for: its keys
+    are flavor names ("SURF"), comma-separated lists of them ("DEEP,SWEEP"), or
+    "ALL" for every flavor. Returns (overrides, applied_keys).
+    """
+    form = (f"error: station '{station}' must map flavor names (or \"ALL\") to "
+            "override blocks")
+    if not isinstance(entry, dict) or not all(
+            isinstance(v, dict) for k, v in entry.items() if not k.startswith("_")):
+        sys.exit(form)
+    if not declared:
+        sys.exit("error: station entries are flavor-keyed, so the valid flavors "
+                 "must be declared in a top-level \"flavors\" list")
+
     merged, applied = {}, []
-    for name, block in doc.items():
-        if not name.startswith("defaults"):
+    for key, sub in entry.items():
+        if key.startswith("_"):
             continue
-        if not isinstance(block, dict):
-            sys.exit(f"error: '{name}' must be a mapping")
-        only = block.get("stations")
-        if only is not None and not any(station_matches(station, s) for s in only):
-            continue
-        merged = deep_merge(merged, {k: v for k, v in block.items() if k != "stations"})
-        applied.append(name)
+        names = [f.strip() for f in key.split(",")]
+        for f in names:
+            if f != "ALL":
+                check_flavor(f, declared, f"station '{station}'")
+        if "ALL" not in names:
+            if flavor is None:
+                sys.exit(f"error: station '{station}' is flavor-scoped but no "
+                         "--flavor was given")
+            if flavor not in names:
+                continue
+        merged = deep_merge(merged, sub)
+        applied.append(key)
     return merged, applied
 
 
-def build_overrides(doc, cli_station):
+def build_overrides(doc, cli_station, flavor):
     """Return (flat_overrides, station_label, has_station_block).
 
     Two modes:
-      * structured: doc has ``station_source`` / ``stations`` / any ``defaults*``
-        key. Resolves the station, then deep-merges the applicable defaults
-        blocks and finally that station's own block on top.
+      * structured: doc has ``station_source`` / ``flavors`` / ``stations`` /
+        any ``defaults*`` key. Resolves the station, then merges every block
+        that applies **in file order**, so a block written further down wins on
+        a shared leaf (put the flavor-specific ones last).
       * simple: doc is a flat/nested set of overrides applied unconditionally.
     """
     if not reserved_keys(doc):
         return flatten(doc), None, False  # simple mode, no station logic
 
-    stations = doc.get("stations", {}) or {}  # JSON keys are always strings
+    check_top_level(doc)
+    declared = doc.get("flavors") or []
+    if flavor is not None:
+        check_flavor(flavor, declared, "--flavor")
 
     station = resolve_station(cli_station, doc.get("station_source"))
-    merged, applied = collect_defaults(doc, station)
-    block, matched = select_station_block(stations, station)
-    if block is not None:
-        merged = deep_merge(merged, block)
+    merged, applied, matched, station_keys = {}, [], None, []
+
+    for name, block in doc.items():
+        if name == "stations":
+            # JSON keys are always strings, so no key normalisation is needed
+            entry, matched = select_station_block(block or {}, station)
+            if entry is None:
+                continue
+            over, station_keys = station_overrides(entry, matched, flavor, declared)
+            merged = deep_merge(merged, over)
+            applied += [f"stations[{matched}]:{k}" for k in station_keys]
+        elif name.startswith("defaults"):
+            if not isinstance(block, dict):
+                sys.exit(f"error: '{name}' must be a mapping")
+            if not block_applies(block, name, station, flavor, declared):
+                continue
+            merged = deep_merge(merged, {k: v for k, v in block.items()
+                                         if k not in ("stations", "flavors")})
+            applied.append(name)
 
     label = str(station)
-    if matched is not None and matched != station:
-        label += f" (matched '{matched}')"
-    elif block is None:
+    if matched is None:
         label += " (no station-specific block)"
-    label += f" [{', '.join(applied) if applied else 'no defaults'}]"
-    return flatten(merged), label, block is not None
+    else:
+        if matched != station:
+            label += f" (matched '{matched}')"
+        if not station_keys:
+            label += f" (station block has nothing for {flavor})"
+    label += f" [{', '.join(applied) if applied else 'nothing applied'}]"
+    return flatten(merged), label, bool(station_keys)
 
 
 def atomic_write(path, lines):
@@ -341,6 +426,9 @@ def main(argv=None):
                     help="output path (defaults to --template, i.e. in place)")
     ap.add_argument("-s", "--station", default=None,
                     help="force the station id (overrides auto-detection)")
+    ap.add_argument("-f", "--flavor", default=None,
+                    help="calibration flavor (DEEP/SURF/SWEEP); selects the "
+                         "flavor-scoped blocks in the overrides file")
     ap.add_argument("--require-station", action="store_true",
                     help="fail if the resolved station has no block in 'stations'")
     ap.add_argument("--allow-missing", action="store_true",
@@ -357,7 +445,8 @@ def main(argv=None):
         lines = f.readlines()
 
     doc = load_doc(args.overrides)
-    overrides, station_label, has_station_block = build_overrides(doc, args.station)
+    overrides, station_label, has_station_block = build_overrides(
+        doc, args.station, args.flavor)
 
     for item in args.set:
         if "=" not in item:
