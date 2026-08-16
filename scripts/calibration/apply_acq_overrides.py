@@ -47,12 +47,13 @@ import tempfile
 SECTION_RE = re.compile(r"^\s*([A-Za-z_]\w*)\s*:\s*(\{)?\s*$")
 OPEN_RE = re.compile(r"^\s*\{\s*$")
 CLOSE_RE = re.compile(r"^\s*\}\s*;?\s*$")
-# A scalar assignment: indent, key, "=", value (up to the first ";"), rest.
-# NOTE: assumes the value does not itself contain a ";" -- true for every
-# scalar in acq.cfg. Array/group values are detected and refused below.
+# A scalar assignment: indent, key, "=", value, rest (starting at the ";").
+# A quoted string is matched as a whole so that a ";" inside it (e.g. in
+# output.comment) does not end the value; any other value ends at the first ";".
+# Array/group values are detected and refused below.
 ASSIGN_RE = re.compile(
     r"^(?P<indent>\s*)(?P<key>[A-Za-z_]\w*)(?P<eq>\s*=\s*)"
-    r"(?P<value>.*?)(?P<post>\s*;.*)$"
+    r"(?P<value>\"(?:[^\"\\]|\\.)*\"|.*?)(?P<post>\s*;.*)$"
 )
 
 def _is_half_db_step(v: float) -> bool:
@@ -71,6 +72,7 @@ VALIDATORS = {
     "calib.sweep.stop_atten": lambda v: _is_half_db_step(float(v)),
     "calib.sweep.atten_step": lambda v: _is_half_db_step(float(v)),
     "output.seconds_per_run": lambda v: float(v) > 50 and float(v) <= 10000,  # somewhat abitrary
+    "output.comment": lambda v: len(str(v)) <= 200,
     "didaq.trigger.coinc0.enable": lambda v: int(v) in (0, 1),
     "didaq.trigger.coinc1.enable": lambda v: int(v) in (0, 1),
 }

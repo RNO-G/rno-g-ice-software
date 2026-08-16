@@ -50,6 +50,10 @@ case "$flavor" in
         ;;
 esac
 
+# Tags the resulting runs as calibration runs in the run metadata. The quoting of
+# the libconfig string is added by the python script.
+set -- "$@" --set "output.comment=Regular calibration run: $flavor"
+
 python3 "$SCRIPT" -t "$TEMPLATE" -o "$OVERRIDES" -O "$OUTPUT" -f "$flavor" "$@" || exit 1
 
 # run config checker on calib cfg files
