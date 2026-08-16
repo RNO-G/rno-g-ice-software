@@ -2,7 +2,7 @@
   "station_source": {
     "file": "/STATION_ID"
   },
-  "defaults": {
+  "defaults_all": {
     "calib": {
       "enable_cal": 1,
       "channel": "fiber0",
@@ -11,6 +11,19 @@
     },
     "output": {
       "seconds_per_run": 300
+    }
+  },
+  "defaults_didaq": {
+    "stations": [15, 25, 34, 35],
+    "didaq": {
+      "trigger": {
+        "coinc0": {
+          "enable": 0
+        },
+        "coinc1": {
+          "enable": 0
+        }
+      }
     }
   },
   "stations": {

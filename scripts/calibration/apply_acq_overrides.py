@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Apply a set of overrides to an rno-g-acq libconfig file and write a copy.
 
-Reads a *template* libconfig file plus an *overrides* file (YAML or JSON) that
-maps dotted parameter paths to new values, applies them in place, and writes
-the result to an output path.
+Reads a *template* libconfig file plus a JSON *overrides* file that maps dotted
+parameter paths to new values, applies them in place, and writes the result to
+an output path.
 
 Key properties (matter for a periodically-run service):
   * Surgical:    only the targeted scalar assignments are touched. All comments,
@@ -24,9 +24,9 @@ Key properties (matter for a periodically-run service):
   * Idempotent:  running twice with the same overrides yields the same file.
 
 Usage:
-    apply_acq_overrides.py -t acq.cfg.template -o overrides.yaml \
+    apply_acq_overrides.py -t acq.cfg.template -o overrides.json \
                            -O /rno-g/cfg/acq.cfg
-    apply_acq_overrides.py -t acq.cfg.template -o overrides.yaml --dry-run
+    apply_acq_overrides.py -t acq.cfg.template -o overrides.json --dry-run
 """
 
 from __future__ import annotations
@@ -66,6 +66,8 @@ VALIDATORS = {
     "calib.sweep.stop_atten": lambda v: _is_half_db_step(float(v)),
     "calib.sweep.atten_step": lambda v: _is_half_db_step(float(v)),
     "output.seconds_per_run": lambda v: float(v) > 50 and float(v) <= 10000,  # somewhat abitrary
+    "didaq.trigger.coinc0.enable": lambda v: int(v) in (0, 1),
+    "didaq.trigger.coinc1.enable": lambda v: int(v) in (0, 1),
 }
 
 
@@ -74,7 +76,7 @@ def classify(existing: str) -> str:
 
     rno-g-acq uses only quoted strings, integers (incl. hex) and floats.
     Booleans are stored as the integers 0/1, so there is no boolean type:
-    a YAML/JSON ``true``/``false`` is folded into 0/1 by the int renderer.
+    a JSON ``true``/``false`` is folded into 0/1 by the int renderer.
     """
     e = existing.strip()
     if len(e) >= 2 and e[0] == '"' and e[-1] == '"':
@@ -101,7 +103,7 @@ def render(value, kind: str) -> str:
             s += ".0"
         return s
     if kind == "int":
-        # int(True) == 1, int(False) == 0, so YAML/JSON booleans land here too.
+        # int(True) == 1, int(False) == 0, so JSON booleans land here too.
         return str(int(value))
     raise ValueError(f"unknown kind {kind!r}")
 
@@ -177,30 +179,24 @@ def apply_overrides(lines, overrides):
 
 
 def load_doc(path):
-    """Load a YAML/JSON document as a dict (no flattening)."""
+    """Load a JSON document as a dict (no flattening)."""
     if path is None:
         return {}
 
     with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-    if path.endswith(".json"):
-        data = json.loads(text)
-    else:
-        try:
-            import yaml
-        except ImportError:
-            sys.exit(
-                "PyYAML is required for YAML overrides. "
-                "Use a .json file instead, or `pip install pyyaml`."
-            )
-        data = yaml.safe_load(text)
+        data = json.load(f)
     if not isinstance(data, dict):
         sys.exit("overrides file must contain a mapping at the top level")
     return data
 
 
-# Reserved top-level keys that switch the file into per-station mode.
-RESERVED = {"station_source", "defaults", "stations"}
+def reserved_keys(doc):
+    """Top-level keys that switch the file into per-station mode. Any key
+    starting with "defaults" is a defaults block (e.g. "defaults_all",
+    "defaults_didaq"), so several of them can coexist.
+    """
+    return {k for k in doc
+            if k in ("station_source", "stations") or k.startswith("defaults")}
 
 
 def deep_merge(base, over):
@@ -234,52 +230,78 @@ def resolve_station(cli_station, source_cfg):
     sys.exit("error: could not determine station id — use --station or set station_source.file")
 
 
-def select_station_block(stations, station):
-    """Pick the override block for ``station`` from the ``stations`` mapping.
+def station_matches(station, key):
+    """True if ``key`` (a stations-mapping key or an entry of a ``stations``
+    list) refers to ``station``.
 
-    Matches the resolved id as a string; if that misses and the id is numeric,
-    also tries the integer-normalised form (so "11", 11 and "station11"->"11"
-    style keys all work if you key by the bare number).
+    Compared as strings first, then numerically with any leading non-digits
+    stripped, so "11", 11, "011" and "station11" all denote the same station.
     """
+    station, key = str(station).strip(), str(key).strip()
+    if station == key:
+        return True
+    a, b = re.sub(r"^\D*", "", station), re.sub(r"^\D*", "", key)
+    return bool(a) and bool(b) and a.isdigit() and b.isdigit() and int(a) == int(b)
+
+
+def select_station_block(stations, station):
+    """Pick the override block for ``station`` from the ``stations`` mapping."""
     if station in stations:
         return stations[station], station
-    # try with any leading non-digits stripped (e.g. "station11" -> "11")
-    digits = re.sub(r"^\D*", "", station)
-    for cand in {digits, station.lstrip("0") or station}:
-        if cand and cand in stations:
-            return stations[cand], cand
-        if cand.isdigit():
-            for key in stations:
-                if str(key).isdigit() and int(key) == int(cand):
-                    return stations[key], key
+    for key, block in stations.items():
+        if station_matches(station, key):
+            return block, key
     return None, None
 
 
+def collect_defaults(doc, station):
+    """Merge every top-level ``defaults*`` block that applies to ``station``.
+
+    A block without a ``stations`` list applies to all stations; with one, only
+    to the listed ids. Blocks are merged in document order, so a later block
+    wins over an earlier one on a shared leaf. Returns (merged, applied_names).
+    """
+    merged, applied = {}, []
+    for name, block in doc.items():
+        if not name.startswith("defaults"):
+            continue
+        if not isinstance(block, dict):
+            sys.exit(f"error: '{name}' must be a mapping")
+        only = block.get("stations")
+        if only is not None and not any(station_matches(station, s) for s in only):
+            continue
+        merged = deep_merge(merged, {k: v for k, v in block.items() if k != "stations"})
+        applied.append(name)
+    return merged, applied
+
+
 def build_overrides(doc, cli_station):
-    """Return (flat_overrides, station_label) from a loaded overrides doc.
+    """Return (flat_overrides, station_label, has_station_block).
 
     Two modes:
-      * structured: doc has any of ``defaults`` / ``stations`` / ``station_source``.
-        Resolves the station, deep-merges defaults + that station's block.
+      * structured: doc has ``station_source`` / ``stations`` / any ``defaults*``
+        key. Resolves the station, then deep-merges the applicable defaults
+        blocks and finally that station's own block on top.
       * simple: doc is a flat/nested set of overrides applied unconditionally.
     """
-    if not (RESERVED & set(doc)):
-        return flatten(doc), None  # simple mode, no station logic
+    if not reserved_keys(doc):
+        return flatten(doc), None, False  # simple mode, no station logic
 
-    defaults = doc.get("defaults", {}) or {}
-    stations = doc.get("stations", {}) or {}
-    # JSON keys are always strings; normalise YAML int keys to strings too.
-    stations = {str(k): v for k, v in stations.items()}
+    stations = doc.get("stations", {}) or {}  # JSON keys are always strings
 
     station = resolve_station(cli_station, doc.get("station_source"))
+    merged, applied = collect_defaults(doc, station)
     block, matched = select_station_block(stations, station)
-    if block is None:
-        merged = defaults
-        label = f"{station} (no station-specific block; defaults only)"
-    else:
-        merged = deep_merge(defaults, block)
-        label = f"{station}" + ("" if matched == station else f" (matched '{matched}')")
-    return flatten(merged), label
+    if block is not None:
+        merged = deep_merge(merged, block)
+
+    label = str(station)
+    if matched is not None and matched != station:
+        label += f" (matched '{matched}')"
+    elif block is None:
+        label += " (no station-specific block)"
+    label += f" [{', '.join(applied) if applied else 'no defaults'}]"
+    return flatten(merged), label, block is not None
 
 
 def atomic_write(path, lines):
@@ -314,7 +336,7 @@ def main(argv=None):
     ap.add_argument("-t", "--template", required=True,
                     help="input libconfig file (read-only, never modified)")
     ap.add_argument("-o", "--overrides", required=False,
-                    help="overrides file (.yaml/.yml/.json), dotted or nested")
+                    help="overrides file (.json), dotted or nested")
     ap.add_argument("-O", "--output", required=True,
                     help="output path (defaults to --template, i.e. in place)")
     ap.add_argument("-s", "--station", default=None,
@@ -326,7 +348,7 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true",
                     help="print a unified diff and write nothing")
     ap.add_argument("--set", metavar="PATH=VALUE", action="append", default=[],
-                    help="override a dotted path, e.g. --set calib.atten=10.0 (repeatable, wins over yaml)")
+                    help="override a dotted path, e.g. --set calib.atten=10.0 (repeatable, wins over the overrides file)")
     args = ap.parse_args(argv)
 
     output = args.output
@@ -335,7 +357,7 @@ def main(argv=None):
         lines = f.readlines()
 
     doc = load_doc(args.overrides)
-    overrides, station_label = build_overrides(doc, args.station)
+    overrides, station_label, has_station_block = build_overrides(doc, args.station)
 
     for item in args.set:
         if "=" not in item:
@@ -345,7 +367,7 @@ def main(argv=None):
 
     if station_label is not None:
         print(f"station: {station_label}", file=sys.stderr)
-        if "defaults only" in station_label and args.require_station:
+        if not has_station_block and args.require_station:
             sys.exit("error: no station-specific override block found "
                      "(--require-station)")
 
