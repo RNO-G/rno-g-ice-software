@@ -1413,7 +1413,7 @@ static int radiant_initial_setup()
     //in case we didn't get mmaped
     if (!pedestals)
     {
-      pedestals = calloc(sizeof(rno_g_pedestal_t), 1);
+      pedestals = calloc(1, sizeof(rno_g_pedestal_t));
     }
 
     have_peds = !radiant_compute_pedestals(radiant, 0xffffff,
@@ -2220,7 +2220,7 @@ static void * mon_thread(void* v)
     //do we need to send a soft trigger?
     if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
     {
-      radiant_force_trigger(didaq);
+      radiant_soft_trigger(radiant);
       next_sw_trig = calc_next_sw_trig(nowf);
     }
 

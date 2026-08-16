@@ -24,6 +24,12 @@
   float max;                            \
   float min;
 
+#define RNO_G_GAIN_RANGE_FIELDS(n) \
+  int auto_gain;                   \
+  float target_rms;                \
+  uint8_t fixed_gain_codes[n];
+
+
 typedef struct rno_g_take_waveforms
 {
   int enable;
