@@ -1,7 +1,7 @@
 BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
-CFLAGS?=-Og -fPIC -Wall -Wextra -g -fanalyzer
+CFLAGS?=-Og -fPIC -Wall -Wextra -pedantic -g -fanalyzer
 CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)
 BINDIR=bin
 
@@ -92,12 +92,12 @@ setup:
 	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/cfg
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/bin
-	mkdir -p /data/daq
-	chown rno-g:rno-g /data/daq
-	mkdir -p /data/timing
-	chown rno-g:rno-g /data/timing
-	mkdir -p /data/power
-	chown rno-g:rno-g /data/power
+	mkdir -p ${DESTDIR}/data/daq
+	chown rno-g:rno-g ${DESTDIR}/data/daq
+	mkdir -p ${DESTDIR}/data/timing
+	chown rno-g:rno-g ${DESTDIR}/data/timing
+	mkdir -p ${DESTDIR}/data/power
+	chown rno-g:rno-g ${DESTDIR}/data/power
 	touch $(DESTDIR)$(PREFIX)/var/calib_channel.state
 	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var/calib_channel.state
 
@@ -135,9 +135,9 @@ cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
 
 polkit-install:
-	install -d /etc/polkit-1/rules.d
-	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
+	install -d ${DESTDIR}/etc/polkit-1/rules.d
+	install polkit/rno-g.rules ${DESTDIR}/etc/polkit-1/rules.d/10-rno-g.rules
 
 service-install: polkit-install
-	install systemd/*.service systemd/*.timer systemd/*.target /etc/systemd/system
+	install systemd/*.service systemd/*.timer systemd/*.target ${DESTDIR}/etc/systemd/system
 	systemctl daemon-reload
