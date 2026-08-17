@@ -6,6 +6,7 @@ CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)
 BINDIR=bin
 
 ON_DIDAQ?=no
+YOCTO=no
 
 #check if on revn board
 ifneq (,$(shell grep RevN /proc/device-tree/model 2> /dev/null))
@@ -17,6 +18,7 @@ endif
 ifneq (,$(filter ${MACHINE},rno-g-revn))
 $(info We are inside yocto)
 ON_DIDAQ=yes
+YOCTO=yes
 endif
 
 
@@ -140,4 +142,6 @@ polkit-install:
 
 service-install: polkit-install
 	install systemd/*.service systemd/*.timer systemd/*.target ${DESTDIR}/etc/systemd/system
-	systemctl daemon-reload
+	ifeq (${YOCTO),no)
+		systemctl daemon-reload
+	endif
