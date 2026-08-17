@@ -5,6 +5,7 @@ Wants=rno-g-copy.service rno-g-copy-meta.service
 [Service]
 User=rno-g
 Restart=always
+ExecStartPre=/bin/sh -c '[ -f /cfg/acq.cfg ] || /bin/cp /cfg/acq.cfg.default /cfg/acq.cfg'
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
