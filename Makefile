@@ -86,20 +86,13 @@ clean:
 	rm -rf $(BINDIR)
 
 setup:
-	mkdir -p $(DESTDIR)$(PREFIX)/run
-	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/run
-	mkdir -p $(DESTDIR)$(PREFIX)/var
-	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var
-	mkdir -p $(DESTDIR)$(PREFIX)/cfg
-	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/cfg
-	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/bin
-	mkdir -p ${DESTDIR}/data/daq
-	chown rno-g:rno-g ${DESTDIR}/data/daq
-	mkdir -p ${DESTDIR}/data/timing
-	chown rno-g:rno-g ${DESTDIR}/data/timing
-	mkdir -p ${DESTDIR}/data/power
-	chown rno-g:rno-g ${DESTDIR}/data/power
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/run
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/var
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/cfg/default
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/bin
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/daq
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/timing
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/power
 	touch $(DESTDIR)$(PREFIX)/var/calib_channel.state
 	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var/calib_channel.state
 
@@ -110,7 +103,8 @@ install: $(BINS) setup
 	install scripts/rno-g-* $(DESTDIR)$(PREFIX)/bin
 	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(DESTDIR)$(PREFIX)/bin
 	install -m 644 scripts/calibration/overrides.json $(DESTDIR)$(PREFIX)/cfg
-	install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg.default
+	install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/default/acq-.cfg
+	install cfg/acq-*.cfg $(DESTDIR)$(PREFIX)/cfg/default/
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
