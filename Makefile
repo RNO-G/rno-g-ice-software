@@ -1,7 +1,8 @@
 BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
-CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include -fanalyzer
+CFLAGS?=-Og -fPIC -Wall -Wextra -g -fanalyzer
+CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)
 BINDIR=bin
 
 ON_DIDAQ?=no
@@ -12,7 +13,14 @@ $(info We are on the DiDAQ)
 ON_DIDAQ=yes
 endif
 
-LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
+#check if inside rno-g-revn yocto build
+ifneq (,$(filter ${MACHINE},rno-g-revn))
+$(info We are inside yocto)
+ON_DIDAQ=yes
+endif
+
+
+LDFLAGS+=-L$(RNO_G_INSTALL_DIR)/lib
 LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
@@ -76,31 +84,31 @@ clean:
 	rm -rf $(BINDIR)
 
 setup:
-	mkdir -p $(PREFIX)/run
-	chown rno-g:rno-g $(PREFIX)/run
-	mkdir -p $(PREFIX)/var
-	chown rno-g:rno-g $(PREFIX)/var
-	mkdir -p $(PREFIX)/cfg
-	chown rno-g:rno-g $(PREFIX)/cfg
-	mkdir -p $(PREFIX)/bin
-	chown rno-g:rno-g $(PREFIX)/bin
+	mkdir -p $(DESTDIR)$(PREFIX)/run
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/run
+	mkdir -p $(DESTDIR)$(PREFIX)/var
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var
+	mkdir -p $(DESTDIR)$(PREFIX)/cfg
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/cfg
+	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/bin
 	mkdir -p /data/daq
 	chown rno-g:rno-g /data/daq
 	mkdir -p /data/timing
 	chown rno-g:rno-g /data/timing
 	mkdir -p /data/power
 	chown rno-g:rno-g /data/power
-	touch $(PREFIX)/var/calib_channel.state
-	chown rno-g:rno-g $(PREFIX)/var/calib_channel.state
+	touch $(DESTDIR)$(PREFIX)/var/calib_channel.state
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var/calib_channel.state
 
 
 
 install: $(BINS) setup
-	install $(BINS) $(PREFIX)/bin
-	install scripts/rno-g-* $(PREFIX)/bin
-	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(PREFIX)/bin
-	install -m 644 scripts/calibration/overrides.json $(PREFIX)/cfg
-	install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg.default
+	install $(BINS) $(DESTDIR)$(PREFIX)/bin
+	install scripts/rno-g-* $(DESTDIR)$(PREFIX)/bin
+	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(DESTDIR)$(PREFIX)/bin
+	install -m 644 scripts/calibration/overrides.json $(DESTDIR)$(PREFIX)/cfg
+	install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg.default
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
@@ -111,11 +119,11 @@ cfg-install:
 	@ echo "Installing configuration..."
 	@ if [ -f cfg/acq-${STATION_NUMBER}.cfg ] ; \
 	then \
-		echo "Using station-specific file cfg/acq-${STATION_NUMBER}.cfg" ; install cfg/acq-${STATION_NUMBER}.cfg $(PREFIX)/cfg/acq.cfg ;\
+		echo "Using station-specific file cfg/acq-${STATION_NUMBER}.cfg" ; install cfg/acq-${STATION_NUMBER}.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg ;\
 	else \
-		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
+		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg ; \
 	fi
-	@mkdir -p ${PREFIX}/cfg/acq.cfg.once
+	@mkdir -p $(DESTDIR)${PREFIX}/cfg/acq.cfg.once
 
 cfg-round-trip-check:
 	@echo checking config round trip for acq.cfg
