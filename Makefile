@@ -55,11 +55,11 @@ $(BINDIR)/update-rno-g-config:  $(BINDIR)/check-rno-g-config
 
 $(BINDIR)/%: src/%.c $(INCLUDES) $(OBJS) Makefile | $(BINDIR)
 	@echo Compiling $@
-	@cc -o $@ $(CFLAGS) $< $(OBJS) $(LDFLAGS) $(LIBS)
+	@$(CC) -o $@ $(CFLAGS) $< $(OBJS) $(LDFLAGS) $(LIBS)
 
 $(BUILD_DIR)/%.o: src/%.c $(INCLUDES) | $(BUILD_DIR)
 	@echo Compiling $@
-	@cc -c -o $@ $(CFLAGS) $<
+	@$(CC) -c -o $@ $(CFLAGS) $<
 
 # Auto-generated git hash. FORCE makes it always considered out of date so the
 # hash is re-checked on every build, but the file (and hence its mtime) is only
