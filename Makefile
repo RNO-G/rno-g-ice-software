@@ -142,6 +142,6 @@ polkit-install:
 
 service-install: polkit-install
 	install systemd/*.service systemd/*.timer systemd/*.target ${DESTDIR}/etc/systemd/system
-	ifeq ($(YOCTO),no)
+ifeq ($(YOCTO),no)
 		systemctl daemon-reload
-	endif
+endif
