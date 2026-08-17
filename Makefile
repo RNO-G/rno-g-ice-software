@@ -2,7 +2,7 @@ BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
 CFLAGS?=-Og -fPIC -Wall -Wextra -pedantic -g -fanalyzer
-CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)
+CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
 BINDIR=bin
 
 ON_DIDAQ?=no
@@ -10,17 +10,16 @@ YOCTO=no
 
 #check if on revn board
 ifneq (,$(shell grep RevN /proc/device-tree/model 2> /dev/null))
-$(info We are on the DiDAQ)
-ON_DIDAQ=yes
+	$(info We are on the DiDAQ)
+	ON_DIDAQ=yes
 endif
 
 #check if inside rno-g-revn yocto build
 ifneq (,$(filter ${MACHINE},rno-g-revn))
-$(info We are inside yocto)
-ON_DIDAQ=yes
-YOCTO=yes
+	$(info We are inside yocto)
+	ON_DIDAQ=yes
+	YOCTO=yes
 endif
-
 
 LDFLAGS+=-L$(RNO_G_INSTALL_DIR)/lib
 LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
@@ -28,7 +27,7 @@ LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 ifeq ($(ON_DIDAQ),yes)
-  CFLAGS += -DON_DIDAQ
+	CFLAGS += -DON_DIDAQ
 	LIBS += -ldidaq -lrno-g-didaq -lgpios
 else
 	LIBS += -lradiant -lflower
