@@ -5,7 +5,7 @@ Wants=rno-g-copy.service rno-g-copy-meta.service
 [Service]
 User=rno-g
 Restart=always
-ExecStartPre=/bin/sh -c '[ -f  /rno-g/cfg/acq.cfg ] || /bin/cp /rno-g/cfg/default/acq-`/bin/cat /STATION_NUMBER`.cfg /rno-g/cfg/acq.cfg'
+ExecStartPre=/bin/sh -c '[ -f  /rno-g/cfg/acq.cfg ] || /bin/cp /rno-g/cfg/default/acq-$(cat /STATION_NUMBER 2>/dev/null).cfg /rno-g/cfg/acq.cfg'
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
