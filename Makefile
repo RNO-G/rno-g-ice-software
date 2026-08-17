@@ -10,15 +10,15 @@ YOCTO=no
 
 #check if on revn board
 ifneq (,$(shell grep RevN /proc/device-tree/model 2> /dev/null))
-	$(info We are on the DiDAQ)
-	ON_DIDAQ=yes
+$(info We are on the DiDAQ)
+ON_DIDAQ=yes
 endif
 
 #check if inside rno-g-revn yocto build
 ifneq (,$(filter ${MACHINE},rno-g-revn))
-	$(info We are inside yocto)
-	ON_DIDAQ=yes
-	YOCTO=yes
+$(info We are inside yocto)
+ON_DIDAQ=yes
+YOCTO=yes
 endif
 
 LDFLAGS+=-L$(RNO_G_INSTALL_DIR)/lib
