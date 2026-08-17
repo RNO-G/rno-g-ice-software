@@ -26,7 +26,7 @@ LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 ifeq ($(ON_DIDAQ),yes)
-    CFLAGS += -DON_DIDAQ
+  CFLAGS += -DON_DIDAQ
 	LIBS += -ldidaq -lrno-g-didaq -lgpios
 else
 	LIBS += -lradiant -lflower
