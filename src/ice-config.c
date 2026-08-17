@@ -1251,7 +1251,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(gain,"Settings related to HMCAD1511 gain");
       WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
-      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
+      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%hhu");
     UNSECT();
     SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
       WRITE_INT(lt.waveforms,skip_runs, "If >1, will only record waveforms when run % skip_runs == 0");
