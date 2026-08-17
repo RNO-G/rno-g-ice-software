@@ -100,6 +100,7 @@ install: $(BINS) setup
 	install scripts/rno-g-* $(PREFIX)/bin
 	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(PREFIX)/bin
 	install -m 644 scripts/calibration/overrides.json $(PREFIX)/cfg
+	install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg.default
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
