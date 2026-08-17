@@ -2460,7 +2460,7 @@ static void * wri_thread(void* v)
   FILE * fcomment = fopen(bigbuf,"w");
   if (fcomment)
   {
-    fprintf(fcomment, cfg.output.comment);
+    fprintf(fcomment, "%s",cfg.output.comment);
 
 #ifndef ON_DIDAQ
     if (!flower) fprintf(fcomment, " !!FLOWER NOT DETECTED!!");
