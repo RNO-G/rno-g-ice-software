@@ -1,0 +1,59 @@
+{
+  "_note": "Blocks are merged top to bottom; a later block wins. A 'stations'/'flavors' list scopes a block, an absent one matches all. Entries under 'stations' must be keyed by flavor (or 'ALL'). Keys starting with '_' are comments.",
+  "station_source": "/STATION_ID",
+  "flavors": ["DEEP", "SURF", "SWEEP"],
+  "defaults_all": {
+    "calib": {
+      "enable_cal": 1,
+      "channel": "fiber0",
+      "type": "pulser",
+      "atten": 0.0
+    },
+    "output": { "seconds_per_run": 300 }
+  },
+  "defaults_surf": {
+    "_note": "Surface pulsing via coax: no attenuation, regardless of station.",
+    "flavors": ["SURF"],
+    "calib": {
+      "channel": "coax",
+      "atten": 0
+    }
+  },
+  "defaults_sweep": {
+    "_note": "The run ends with the sweep; seconds_per_run must not cut it short.",
+    "flavors": ["SWEEP"],
+    "calib": { "sweep": { "enable": 1 } },
+    "output": { "seconds_per_run": 10000  }
+  },
+  "defaults_didaq_deep": {
+    "_note": "The coincidence triggers fire on the deep calpulser and prevent phased-array trigger, so switch them off.",
+    "stations": [15, 25, 34, 35],
+    "flavors": ["DEEP", "SWEEP"],
+    "didaq": {
+      "trigger": {
+        "coinc0": { "enable": 0 },
+        "coinc1": { "enable": 0 }
+      }
+    },
+    "calib": {
+      "atten": 10,
+      "sweep": {
+        "start_atten": 31.5,
+        "stop_atten": 5
+      }
+    }
+  },
+  "defaults_radiant_deep_more_atten": {
+    "flavors": ["DEEP"],
+    "stations": [12, 13, 14, 23],
+    "calib": { "atten": 5 }
+  },
+  "stations": {
+    "25": {
+      "DEEP": { "calib": { "atten": 15 } }
+    },
+    "34": {
+      "DEEP": { "calib": { "atten": 15 } }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Schedule a calibration using per-station overrides to acq config: %i
+
+[Service]
+# gets called by the timer, %i is the flavor (DEEP, SURF, SWEEP)
+Type=oneshot
+User=rno-g
+
+ExecStart=/rno-g/bin/rno-g-apply-calib %i

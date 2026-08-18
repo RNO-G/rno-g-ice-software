@@ -46,6 +46,8 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256;
   SECT.mon_buf_size = 128;
 
+//lt  (low-threshold)
+//
 #undef SECT
 #define SECT cfg->lt.gain
   SECT.auto_gain=1;
@@ -55,8 +57,6 @@ int init_acq_config(acq_config_t * cfg)
     SECT.fixed_gain_codes[i] =5;
   }
 
-  //lt  (low-threshold)
-  //
 #undef SECT
 #define SECT cfg->lt.device
   SECT.spi_enable_gpio = 0;
@@ -66,10 +66,16 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.trigger
-  SECT.vpp =1;
-  SECT.min_coincidence=2;
-  SECT.window = 5;
-  SECT.enable_rf_trigger = 1;
+  SECT.coinc.vpp =1;
+  SECT.coinc.min_coincidence=2;
+  SECT.coinc.window = 5;
+  SECT.coinc.enable_rf_coinc_trigger = 0;
+  SECT.coinc.rf_coinc_channel_mask=0xf;
+
+  SECT.phased.enable_rf_phased_trigger = 1;
+  SECT.phased.rf_phased_beam_mask=0xfff;
+  SECT.phased.rf_phased_threshold_offset=0x000; //should be unused
+
   SECT.enable_rf_trigger_sys_out =1;
   SECT.enable_rf_trigger_sma_out =0;
 
@@ -83,16 +89,26 @@ int init_acq_config(acq_config_t * cfg)
   SECT.load_from_threshold_file = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.initial[i] = 30;
+    SECT.initial_coinc_thresholds[i] = 30;
+  }
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  {
+    SECT.initial_phased_thresholds[i] = 600;
   }
 #undef SECT
 #define SECT cfg->lt.servo
   SECT.enable = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.scaler_goals[i] = 2500;
+    SECT.coinc_scaler_goals[i] = 2500;
+  }
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  {
+    SECT.phased_scaler_goals[i] = 500;
   }
   SECT.servo_thresh_frac = 0.95;
+  SECT.phased_servo_thresh_frac = 0.6;
+
   SECT.servo_thresh_offset = 0;
   SECT.fast_scaler_weight = 0.3;
   SECT.slow_scaler_weight = 0.7;
@@ -100,8 +116,27 @@ int init_acq_config(acq_config_t * cfg)
   SECT.servo_interval = 1;
   SECT.subtract_gated = 0;
   SECT.P = 0.0002;
+  SECT.phased_P = 0.002;
   SECT.I = 0;
   SECT.D = 0;
+
+#undef SECT
+#define SECT cfg->lt.waveforms
+  SECT.skip_runs = 11;
+  SECT.length = 1024;
+  SECT.preclear_force_trigger = 1;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_finish
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
+
+#undef SECT
+#define SECT cfg->lt.waveforms.at_start
+  SECT.enable=0;
+  SECT.nsecs_rf=100;
+  SECT.nforce=100;
 
 
 ////RADIANT
@@ -536,14 +571,19 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(runtime.mon_buf_size);
 
   //LT
-  LOOKUP_INT(lt.trigger.vpp);
   //for backwards compatibility
-  LOOKUP_INT_RENAME(lt.trigger.enable_rf_trigger, lt.trigger.enable);
+  LOOKUP_INT_RENAME(lt.trigger.coinc.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
 
-  LOOKUP_INT(lt.trigger.enable_rf_trigger);
+  LOOKUP_INT(lt.trigger.coinc.enable_rf_coinc_trigger);
+  LOOKUP_INT(lt.trigger.coinc.rf_coinc_channel_mask);
+  LOOKUP_INT(lt.trigger.coinc.min_coincidence);
+  LOOKUP_INT(lt.trigger.coinc.window);
+  LOOKUP_INT(lt.trigger.coinc.vpp);
 
-  LOOKUP_INT(lt.trigger.min_coincidence);
-  LOOKUP_INT(lt.trigger.window);
+  LOOKUP_INT(lt.trigger.phased.enable_rf_phased_trigger);
+  LOOKUP_INT(lt.trigger.phased.rf_phased_beam_mask);
+  LOOKUP_INT(lt.trigger.phased.rf_phased_threshold_offset);
+
   LOOKUP_INT(lt.trigger.enable_pps_trigger_sys_out);
   LOOKUP_INT(lt.trigger.enable_pps_trigger_sma_out);
   LOOKUP_INT(lt.trigger.enable_rf_trigger_sys_out);
@@ -551,14 +591,23 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.trigger.pps_trigger_delay);
 
   LOOKUP_INT(lt.thresholds.load_from_threshold_file);
+
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    LOOKUP_INT_ELEM(lt.thresholds.initial,i);
-    LOOKUP_INT_ELEM(lt.servo.scaler_goals,i);
+    LOOKUP_INT_ELEM(lt.thresholds.initial_coinc_thresholds,i);
+    LOOKUP_INT_ELEM(lt.servo.coinc_scaler_goals,i);
     LOOKUP_INT_ELEM(lt.gain.fixed_gain_codes,i);
   }
+
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  {
+    LOOKUP_INT_ELEM(lt.thresholds.initial_phased_thresholds,i);
+    LOOKUP_INT_ELEM(lt.servo.phased_scaler_goals,i);
+  }
+
   LOOKUP_INT(lt.servo.subtract_gated);
   LOOKUP_FLOAT(lt.servo.servo_thresh_frac);
+  LOOKUP_FLOAT(lt.servo.phased_servo_thresh_frac);
   LOOKUP_FLOAT(lt.servo.servo_thresh_offset);
   LOOKUP_FLOAT(lt.servo.servo_interval);
   LOOKUP_FLOAT(lt.servo.scaler_update_interval);
@@ -566,6 +615,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_FLOAT(lt.servo.fast_scaler_weight);
   LOOKUP_FLOAT(lt.servo.slow_scaler_weight);
   LOOKUP_FLOAT(lt.servo.P);
+  LOOKUP_FLOAT(lt.servo.phased_P);
   LOOKUP_FLOAT(lt.servo.I);
   LOOKUP_FLOAT(lt.servo.D);
 
@@ -578,6 +628,16 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
 
   LOOKUP_INT(lt.gain.auto_gain);
   LOOKUP_FLOAT(lt.gain.target_rms);
+
+  LOOKUP_INT(lt.waveforms.at_finish.enable);
+  LOOKUP_INT(lt.waveforms.at_finish.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_finish.nforce);
+  LOOKUP_INT(lt.waveforms.at_start.enable);
+  LOOKUP_INT(lt.waveforms.at_start.nsecs_rf);
+  LOOKUP_INT(lt.waveforms.at_start.nforce);
+  LOOKUP_INT(lt.waveforms.skip_runs);
+  LOOKUP_INT(lt.waveforms.length);
+  LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
   LOOKUP_INT(calib.enable_cal);
   LOOKUP_INT(calib.turn_off_at_exit);
@@ -632,7 +692,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   fprintf(f,"// Main configuration file for rno-g-acq (typically /rno-g/cfg/acq.cfg is used)\n");
   fprintf(f,"// This file is in libconfig format, though your syntax highligher might mistake it for json\n");
   fprintf(f,"// Changing values in this file may adversely affect the operation of the DAQ.\n");
-  fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor. \n");
+  fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor.\n");
   fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n\n");
 
 
@@ -690,7 +750,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(radiant.trigger.RF[0],window,"The time window (in ns) for the coincidence  trigger");
       WRITE_INT(radiant.trigger.RF[0],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
       WRITE_INT(radiant.trigger.RF[0],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
-      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
+      WRITE_INT(radiant.trigger.RF[0],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
 
     UNSECT()
     SECT(RF1,"Second RF trigger configuration");
@@ -699,7 +759,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
       WRITE_FLT(radiant.trigger.RF[1],window,"The time window (in ns) for the coincidence  trigger");
       WRITE_INT(radiant.trigger.RF[1],num_coincidences,"Number of coincidences (min 1) in this coincidence trigger");
       WRITE_INT(radiant.trigger.RF[1],readout_delay,"Time delay (in ns) to delay readout of channels in group mask");
-      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask to apply readout delays to (b0001=Ch0-8, b0010=Ch9-11, b0100=12-20, b1000=ch21-23)");
+      WRITE_INT(radiant.trigger.RF[1],readout_delay_mask,"Group mask of which channels will be delayed on this trigger");
     UNSECT()
 
     WRITE_INT(radiant.trigger,clear_mode,"Enable clear mode (don't...)");
@@ -757,7 +817,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(timing_recording, "Timing recording Settings");
     WRITE_INT(radiant.timing_recording,enable, "Enable");
-    WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only do a bias scan when run % skip_runs == 0");
+    WRITE_INT(radiant.timing_recording,skip_runs, "If >1, will only record sample timing when run % skip_runs == 0");
     WRITE_INT(radiant.timing_recording,n_recordings, "Take n recordings per channel and sample.");
     WRITE_STR(radiant.timing_recording,directory, "Define directory in which to store timing recordings");
   UNSECT();
@@ -766,10 +826,19 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
   SECT(lt,"Settings for the low-threshold (FLOWER) board");
     SECT(trigger,"Trigger settings for the low-threshold-board");
-       WRITE_INT(lt.trigger,enable_rf_trigger, "Enable the LT RF trigger (currently a coincidence trigger)");
-       WRITE_INT(lt.trigger,vpp, " Vpp threshold  (max 255) for RF Trigger");
-       WRITE_INT(lt.trigger,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
-       WRITE_INT(lt.trigger,window,"Coincidence window for RF trigger");
+      SECT(coinc,"Trigger settings specific to the coincidence threshold trigger")
+       WRITE_INT(lt.trigger.coinc,enable_rf_coinc_trigger, "Enable the LT RF coincidence trigger");
+       WRITE_INT(lt.trigger.coinc,vpp, " Vpp threshold  (max 255) for RF Trigger");
+       WRITE_INT(lt.trigger.coinc,min_coincidence,"Minimum coincidence threshold for channels (minimum 1) for RF trigger");
+       WRITE_INT(lt.trigger.coinc,window,"Coincidence window for RF trigger");
+       WRITE_INT(lt.trigger.coinc,rf_coinc_channel_mask, "Coincidence trigger channel mask !Not implemented = forced to 0xf!");
+
+      UNSECT();
+      SECT(phased,"Trigger settings specific to the phased power trigger");
+       WRITE_INT(lt.trigger.phased,enable_rf_phased_trigger, "Enable the LT RF phased array trigger");
+       WRITE_INT(lt.trigger.phased,rf_phased_beam_mask, "Phased trigger beam mask");
+       WRITE_INT(lt.trigger.phased,rf_phased_threshold_offset, "Phased trigger threshold base offset - affects scalers too");
+      UNSECT();
        WRITE_INT(lt.trigger,enable_rf_trigger_sma_out,"Send RF trigger to SMA out");
        WRITE_INT(lt.trigger,enable_rf_trigger_sys_out,"Send RF trigger to system out (i.e. to RADIANT)");
 
@@ -780,26 +849,46 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
 
     SECT(thresholds,"Threshold settings for the low-threshold board");
        WRITE_INT(lt.thresholds,load_from_threshold_file,"Load thresholds from threshold file (if available)");
-       WRITE_ARR(lt.thresholds,initial,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.thresholds,initial_coinc_thresholds,"Initial thresholds if not loaded from file (in ADC)",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.thresholds,initial_phased_thresholds,"Initial thresholds if not loaded from file (in ADC^2)",RNO_G_NUM_LT_BEAMS,"%u");
+
     UNSECT();
     SECT(servo, "Servo settings for the low-threshold board");
        WRITE_INT(lt.servo,enable,"Enable servoing");
        WRITE_INT(lt.servo,subtract_gated,"Subtract gated scalers");
-       WRITE_ARR(lt.servo,scaler_goals,"",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.servo,coinc_scaler_goals,"1Hz Servo Scaler Goals For Coincidence Trigger (trigs/s/chan)",RNO_G_NUM_LT_CHANNELS,"%u");
+       WRITE_ARR(lt.servo,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_LT_BEAMS,"%u");
        WRITE_FLT(lt.servo,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
+       WRITE_FLT(lt.servo,phased_servo_thresh_frac,"The phased servo threshold is related to the trigger threshold by a fraction and offset");
        WRITE_FLT(lt.servo,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
-       WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (1Hz?) scalers in calculating PID goal");
-       WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (10Hz?) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,fast_scaler_weight,"Weight of fast (100Hz) scalers in calculating PID goal");
+       WRITE_FLT(lt.servo,slow_scaler_weight,"Weight of slow (1Hz) scalers in calculating PID goal");
        WRITE_FLT(lt.servo,scaler_update_interval,"How often we update the scalers");
        WRITE_FLT(lt.servo,servo_interval,"How often we run the scaler");
        WRITE_FLT(lt.servo,P,"PID loop P term");
+       WRITE_FLT(lt.servo,phased_P,"Phased Trigger PID loop P term");
        WRITE_FLT(lt.servo,I,"PID loop I term");
-       WRITE_FLT(lt.servo,D,"PID loop D term ");
+       WRITE_FLT(lt.servo,D,"PID loop D term");
     UNSECT();
     SECT(gain,"Settings related to HMCAD1511 gain");
       WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
       WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
+    UNSECT();
+    SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
+      WRITE_INT(lt.waveforms,skip_runs, "If >1, will only record waveforms when run % skip_runs == 0");
+      WRITE_INT(lt.waveforms,length,"Number of samples");
+      WRITE_INT(lt.waveforms,preclear_force_trigger,"Clear force trigger before sending in same SPI ioctl tranasaction");
+      SECT(at_finish,"Post-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms after run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
+      SECT(at_start,"Pre-run waveform taking");
+        WRITE_INT(lt.waveforms.at_finish,enable,"Enable taking FLOWER waveforms before run");
+        WRITE_INT(lt.waveforms.at_finish,nsecs_rf,"Number of seconds of RF triggering");
+        WRITE_INT(lt.waveforms.at_finish,nforce,"Number of force triggers");
+      UNSECT()
     UNSECT();
     SECT(device,"Settings related to device interface");
       WRITE_STR(lt.device,spi_device,"The SPI device for the low-threshold board");
@@ -819,13 +908,13 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_STR(output,base_dir,"Base directory for writing out data");
     WRITE_STR(output,runfile,"The file used to persist the run");
     WRITE_STR(output,comment,"A human-readable comment that you can fill what whatever hopefully useful comment (or, an excuse not to take good notes?)");
-    WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages) ");
+    WRITE_FLT(output,daqstatus_interval,"Interval that daqstatus is written out. Some things are measured on this cadence  (e.g. calpulser temperature, radiant voltages)");
     WRITE_INT(output,seconds_per_run,"Number of seconds per run");
     WRITE_INT(output,max_events_per_file,"Maximum number of events per event (and header) file, or 0 to ignore");
     WRITE_INT(output,max_daqstatuses_per_file,"Maximum daqstatuses per daqstatus file, or 0 to ignore");
     WRITE_INT(output,max_seconds_per_file,"Maximum seconds per file (or 0 to ignore)");
     WRITE_INT(output,max_kB_per_file,"Maximum kB per file (or 0 to ignore), not including any compression");
-    WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored. ");
+    WRITE_INT(output,min_free_space_MB_output_partition,"Minimum free space on the partition where data gets stored.");
     WRITE_INT(output,min_free_space_MB_runfile_partition,"Minimum free space on the partition where the runfile gets stored");
     WRITE_INT(output,allow_rundir_overwrite,"Allow overwriting output directories (only effective if there's a runfile)");
     WRITE_INT(output,print_interval,"Interval for printing a bunch of stuff to a screen nobody will see. Ideally done in green text with The Matrix font...");

@@ -10,11 +10,11 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
-BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config rno-g-find-config )
+BINS:=$(addprefix $(BINDIR)/, rno-g-acq make-default-rno-g-config check-rno-g-config update-rno-g-config rno-g-find-config)
 
 
 
@@ -63,15 +63,18 @@ setup:
 	chown rno-g:rno-g /data/timing
 	mkdir -p /data/power
 	chown rno-g:rno-g /data/power
+	touch $(PREFIX)/var/calib_channel.state
+	chown rno-g:rno-g $(PREFIX)/var/calib_channel.state
 
 
 
 install: $(BINS) setup
 	install $(BINS) $(PREFIX)/bin
-	install scripts/* $(PREFIX)/bin
+	install scripts/rno-g-* $(PREFIX)/bin
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
+	@$(BINDIR)/make-default-rno-g-config acq cfg/acq.cfg
 	@ for i in cfg/acq*.cfg ; do echo $$i ; $(BINDIR)/update-rno-g-config acq $$i ; done
 
 cfg-install:
@@ -84,6 +87,12 @@ cfg-install:
 	fi
 	@mkdir -p ${PREFIX}/cfg/acq.cfg.once
 
+cfg-round-trip-check:
+	@echo checking config round trip for acq.cfg
+	@$(BINDIR)/check-rno-g-config acq cfg/acq.cfg | diff cfg/acq.cfg -
+
+
+
 cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
 
@@ -91,5 +100,5 @@ polkit-install:
 	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
 
 service-install: polkit-install
-	install systemd/*.service /etc/systemd/system
+	install systemd/*.service systemd/*.timer /etc/systemd/system
 	systemctl daemon-reload
