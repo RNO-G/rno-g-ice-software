@@ -9,7 +9,7 @@
       "type": "pulser",
       "atten": 0.0
     },
-    "output": { "seconds_per_run": 300 }
+    "output": { "seconds_per_run": 120 }
   },
   "defaults_surf": {
     "_note": "Surface pulsing via coax: no attenuation, regardless of station.",
@@ -17,7 +17,8 @@
     "calib": {
       "channel": "coax",
       "atten": 0
-    }
+    },
+    "output": { "seconds_per_run": 300 }
   },
   "defaults_sweep": {
     "_note": "The run ends with the sweep; seconds_per_run must not cut it short.",
