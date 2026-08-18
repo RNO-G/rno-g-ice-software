@@ -27,18 +27,18 @@ LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
 ifeq ($(ON_DIDAQ),yes)
-	CFLAGS += -DON_DIDAQ
-	LIBS += -ldidaq -lrno-g-didaq -lgpios
+CFLAGS += -DON_DIDAQ
+LIBS += -ldidaq -lrno-g-didaq -lgpios
 else
-	LIBS += -lradiant -lflower
+LIBS += -lradiant -lflower
 endif
 
 SERVO_DEBUG?=no
 ifeq ($(SERVO_DEBUG),yes)
-	CFLAGS += -DSERVO_DEBUG
+CFLAGS += -DSERVO_DEBUG
 endif
 
-.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check FORCE
+.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install sudoers-install polkit-install cfg-round-trip-check FORCE
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
@@ -136,5 +136,9 @@ polkit-install:
 service-install: polkit-install
 	install systemd/*.service systemd/*.timer systemd/*.target ${DESTDIR}/etc/systemd/system
 ifeq ($(YOCTO),no)
-		systemctl daemon-reload
+	systemctl daemon-reload
 endif
+
+sudoers-install:
+	install -m 0440 sudoers/rno-g-drop-caches /etc/sudoers.d/rno-g-drop-caches
+	visudo -cf /etc/sudoers.d/rno-g-drop-caches
