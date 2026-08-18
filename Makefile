@@ -10,7 +10,7 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install cfg-round-trip-check
+.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install sudoers-install polkit-install cfg-round-trip-check
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
@@ -99,6 +99,10 @@ cppcheck:
 polkit-install:
 	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
 
-service-install: polkit-install
+sudoers-install:
+	install -m 0440 sudoers/rno-g-drop-caches /etc/sudoers.d/rno-g-drop-caches
+	visudo -cf /etc/sudoers.d/rno-g-drop-caches
+
+service-install: polkit-install sudoers-install
 	install systemd/*.service systemd/*.timer /etc/systemd/system
 	systemctl daemon-reload
