@@ -23,7 +23,7 @@
     "_note": "The run ends with the sweep; seconds_per_run must not cut it short.",
     "flavors": ["SWEEP"],
     "calib": { "sweep": { "enable": 1 } },
-    "output": { "seconds_per_run": 10000  }
+    "output": { "seconds_per_run": 10000 }
   },
   "defaults_didaq_deep": {
     "_note": "The coincidence triggers fire on the deep calpulser and prevent phased-array trigger, so switch them off.",
@@ -35,13 +35,7 @@
         "coinc1": { "enable": 0 }
       }
     },
-    "calib": {
-      "atten": 10,
-      "sweep": {
-        "start_atten": 31.5,
-        "stop_atten": 5
-      }
-    }
+    "calib": { "atten": 10 }
   },
   "defaults_radiant_deep_more_atten": {
     "_note": "Other stations use default of 0.",
@@ -76,11 +70,19 @@
       "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 11 } } }
     },
     "_note2": "DiDAQ stations. Other stations used default from 'defaults_didaq_deep' of 10.",
+    "15": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 26, "stop_atten": 15 } } }
+    },
     "25": {
-      "DEEP": { "calib": { "atten": 15 } }
+      "DEEP": { "calib": { "atten": 15 } },
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31.5, "stop_atten": 21 } } }
     },
     "34": {
-      "DEEP": { "calib": { "atten": 15 } }
+      "DEEP": { "calib": { "atten": 15 } },
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 20 } } }
+    },
+    "35": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 18 } } }
     }
   }
 }
