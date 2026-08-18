@@ -44,11 +44,38 @@
     }
   },
   "defaults_radiant_deep_more_atten": {
+    "_note": "Other stations use default of 0.",
     "flavors": ["DEEP"],
     "stations": [12, 13, 14, 23],
     "calib": { "atten": 5 }
   },
   "stations": {
+    "_note": "First RADIANT (legacy) stations, than DiDAQ stations.",
+    "11": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 25, "stop_atten": 0 } } }
+    },
+    "12": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 13 } } }
+    },
+    "13": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 13 } } }
+    },
+    "14": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 13 } } }
+    },
+    "21": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 17 } } }
+    },
+    "22": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 22, "stop_atten": 8 } } }
+    },
+    "23": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 15 } } }
+    },
+    "24": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 11 } } }
+    },
+    "_note2": "DiDAQ stations. Other stations used default from 'defaults_didaq_deep' of 10.",
     "25": {
       "DEEP": { "calib": { "atten": 15 } }
     },
