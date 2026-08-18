@@ -2017,14 +2017,16 @@ static int initial_setup()
 
     if (!radiant)
     {
-      fprintf(stderr, "COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
+      fprintf(stderr, "COULD NOT OPEN RADIANT. Attempting to drop caches in case kernel fragmentation is the issue.\n");
       if (nattempts++ > 3)
       {
         fprintf(stderr, "Giving up...\n");
         return 1;
       }
       sleep(1);
-      system("/rno-g/bin/bbb-drop-caches");
+      // Drop the VM page cache via passwordless sudo (see sudoers/rno-g-drop-caches).
+      // Paths are absolute to match the sudoers rule exactly under the minimal PATH.
+      system("/usr/bin/sudo /usr/sbin/sysctl -w vm.drop_caches=3");
     }
 
     if (radiant && nattempts > 0)

@@ -1,0 +1,10 @@
+# RNO-G specific sudoers rule for dropping the VM page cache without a password.
+#
+# Equivalent to `echo 3 > /proc/sys/vm/drop_caches`, but written as a single
+# sysctl command so the shell redirect (which sudo cannot perform) is avoided
+# and sudoers can match the full command line exactly.
+#
+# Usage: sudo sysctl -w vm.drop_caches=3
+#
+# Installed to /etc/sudoers.d/rno-g-drop-caches (see `make sudoers-install`).
+%rno-g ALL=(root) NOPASSWD: /usr/sbin/sysctl -w vm.drop_caches=3
