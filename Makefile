@@ -96,7 +96,7 @@ cfg-install:
 
 cfg-compare:
 	@ echo "Compare config files repo -> installed (hide comments)"
-	-@diff <(grep -v '^\s*//' cfg/acq-${STATION_NUMBER}.cfg) <(grep -v '^\s*//' $(PREFIX)/cfg/acq.cfg)
+	@diff <(grep -v '^\s*//' cfg/acq-${STATION_NUMBER}.cfg) <(grep -v '^\s*//' $(PREFIX)/cfg/acq.cfg) || true
 
 cfg-round-trip-check:
 	@echo checking config round trip for acq.cfg
