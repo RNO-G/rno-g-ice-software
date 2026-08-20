@@ -50,40 +50,40 @@
       "SWEEP": { "calib": { "sweep": { "start_atten": 25, "stop_atten": 0 } } }
     },
     "12": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 13 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 8 } } }
     },
-    "13": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 13 } } }
+    "8": {
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 8 } } }
     },
     "14": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 13 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 8 } } }
     },
     "21": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 17 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 12 } } }
     },
     "22": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 22, "stop_atten": 8 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 22, "stop_atten": 3 } } }
     },
     "23": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 15 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 10 } } }
     },
     "24": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 11 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 27, "stop_atten": 6 } } }
     },
     "_note2": "DiDAQ stations. Other stations used default from 'defaults_didaq_deep' of 10.",
     "15": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 26, "stop_atten": 15 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 26, "stop_atten": 10 } } }
     },
     "25": {
       "DEEP": { "calib": { "atten": 15 } },
-      "SWEEP": { "calib": { "sweep": { "start_atten": 31.5, "stop_atten": 21 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31.5, "stop_atten": 11 } } }
     },
     "34": {
       "DEEP": { "calib": { "atten": 15 } },
-      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 20 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31, "stop_atten": 15 } } }
     },
     "35": {
-      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 18 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 30, "stop_atten": 13 } } }
     }
   }
 }
