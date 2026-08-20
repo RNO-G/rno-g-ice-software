@@ -113,5 +113,5 @@ sudoers-install:
 	visudo -cf /etc/sudoers.d/rno-g-drop-caches
 
 service-install: polkit-install sudoers-install
-	install systemd/*.service systemd/*.timer /etc/systemd/system
+	install systemd/*.service systemd/*.timer systemd/*.target /etc/systemd/system
 	systemctl daemon-reload
