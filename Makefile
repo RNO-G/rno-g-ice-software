@@ -87,6 +87,10 @@ cfg-install:
 	fi
 	@mkdir -p ${PREFIX}/cfg/acq.cfg.once
 
+cfg-compare:
+	@ echo "Compare config files repo -> installed (hide comments)"
+	diff <(grep -v '^\s*//' cfg/acq-${STATION_NUMBER}.cfg) <(grep -v '^\s*//' $(PREFIX)/cfg/acq.cfg)
+
 cfg-round-trip-check:
 	@echo checking config round trip for acq.cfg
 	@$(BINDIR)/check-rno-g-config acq cfg/acq.cfg | diff cfg/acq.cfg -
