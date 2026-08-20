@@ -1,3 +1,5 @@
+SHELL:=/bin/bash
+
 BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
@@ -10,7 +12,7 @@ LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
 
-.PHONY: all clean install uninstall setup cfg-update cfg-install cppcheck service-install sudoers-install polkit-install cfg-round-trip-check FORCE
+.PHONY: all clean install uninstall setup cfg-update cfg-install cfg-compare cppcheck service-install sudoers-install polkit-install cfg-round-trip-check FORCE
 
 OBJS:=$(addprefix $(BUILD_DIR)/, ice-config.o ice-buf.o ice-common.o ice-version.o)
 
@@ -94,13 +96,11 @@ cfg-install:
 
 cfg-compare:
 	@ echo "Compare config files repo -> installed (hide comments)"
-	diff <(grep -v '^\s*//' cfg/acq-${STATION_NUMBER}.cfg) <(grep -v '^\s*//' $(PREFIX)/cfg/acq.cfg)
+	-@diff <(grep -v '^\s*//' cfg/acq-${STATION_NUMBER}.cfg) <(grep -v '^\s*//' $(PREFIX)/cfg/acq.cfg)
 
 cfg-round-trip-check:
 	@echo checking config round trip for acq.cfg
 	@$(BINDIR)/check-rno-g-config acq cfg/acq.cfg | diff cfg/acq.cfg -
-
-
 
 cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
