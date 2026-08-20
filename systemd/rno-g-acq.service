@@ -1,6 +1,9 @@
 [Unit]
 Description=Record RNO-G Data
 Wants=rno-g-copy.service rno-g-copy-meta.service
+AssertPathExists=/STATION_NUMBER
+AssertPathExists=/rno-g/var/runfile
+AssertPathIsDirectory=/data/daq/
 
 [Service]
 User=rno-g
