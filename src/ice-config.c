@@ -193,6 +193,19 @@ int init_acq_config(acq_config_t * cfg)
   SECT.readout_mask = 0xffffff;
   SECT.nbuffers_per_readout = 2;
   SECT.poll_ms = 10;
+  SECT.cap_trigger_rate.RF[0].enable = 0;
+  SECT.cap_trigger_rate.RF[0].max_trigger_rate = 2;
+  SECT.cap_trigger_rate.RF[0].trigger_rate_window = 60;
+  SECT.cap_trigger_rate.RF[0].min_trigger_rate = 0;
+  SECT.cap_trigger_rate.RF[1].enable = 0;
+  SECT.cap_trigger_rate.RF[1].max_trigger_rate = 2;
+  SECT.cap_trigger_rate.RF[1].trigger_rate_window = 60;
+  SECT.cap_trigger_rate.RF[1].min_trigger_rate = 0;
+  SECT.cap_trigger_rate.lt.enable = 0;
+  SECT.cap_trigger_rate.lt.max_trigger_rate = 2;
+  SECT.cap_trigger_rate.lt.trigger_rate_window = 60;
+  SECT.cap_trigger_rate.lt.min_trigger_rate = 0;
+  // SECT.cap_trigger_rate.rfx...: dropped, not independently rate-capped
 
   //radiant trigger
 #undef SECT
@@ -482,6 +495,18 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_UINT(radiant.readout.readout_mask);
   LOOKUP_INT(radiant.readout.nbuffers_per_readout);
   LOOKUP_INT(radiant.readout.poll_ms);
+  LOOKUP_INT_RENAME(radiant.readout.cap_trigger_rate.RF[0].enable, radiant.readout.cap_trigger_rate.RF0.enable);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[0].max_trigger_rate, radiant.readout.cap_trigger_rate.RF0.max_trigger_rate);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[0].trigger_rate_window, radiant.readout.cap_trigger_rate.RF0.trigger_rate_window);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[0].min_trigger_rate, radiant.readout.cap_trigger_rate.RF0.min_trigger_rate);
+  LOOKUP_INT_RENAME(radiant.readout.cap_trigger_rate.RF[1].enable, radiant.readout.cap_trigger_rate.RF1.enable);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[1].max_trigger_rate, radiant.readout.cap_trigger_rate.RF1.max_trigger_rate);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[1].trigger_rate_window, radiant.readout.cap_trigger_rate.RF1.trigger_rate_window);
+  LOOKUP_FLOAT_RENAME(radiant.readout.cap_trigger_rate.RF[1].min_trigger_rate, radiant.readout.cap_trigger_rate.RF1.min_trigger_rate);
+  LOOKUP_INT(radiant.readout.cap_trigger_rate.lt.enable);
+  LOOKUP_FLOAT(radiant.readout.cap_trigger_rate.lt.max_trigger_rate);
+  LOOKUP_FLOAT(radiant.readout.cap_trigger_rate.lt.trigger_rate_window);
+  LOOKUP_FLOAT(radiant.readout.cap_trigger_rate.lt.min_trigger_rate);
 
   //trigger
   LOOKUP_INT(radiant.trigger.clear_mode);
@@ -769,6 +794,26 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_HEX(radiant.readout,readout_mask , "Mask of channels to read (0xffffff for all)");
     WRITE_INT(radiant.readout,nbuffers_per_readout,"The number of 1024-sample buffers per readout. Use 1 or 2...");
     WRITE_INT(radiant.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
+    SECT(cap_trigger_rate,"Trigger rate cap: skip readout of RF-triggered events once their rate is too high, tracked separately per RF trigger source below. soft/ext/pps triggers are never skipped. Triggers ambiguously attributed to RADIANT0 or RADIANT1 (RFX) are not independently rate-capped.");
+      SECT(RF0,"Trigger rate cap for RADIANT's internal RF trigger 0");
+        WRITE_INT(radiant.readout.cap_trigger_rate.RF[0],enable,"Enable the trigger rate cap for this source");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[0],max_trigger_rate,"Maximum sustained rate (Hz), averaged over trigger_rate_window, before events from this source are skipped");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[0],trigger_rate_window,"Sliding time window (s) over which the trigger rate is computed");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[0],min_trigger_rate,"Force readout at least this often (Hz), overriding the cap above, or 0 to disable");
+      UNSECT();
+      SECT(RF1,"Trigger rate cap for RADIANT's internal RF trigger 1");
+        WRITE_INT(radiant.readout.cap_trigger_rate.RF[1],enable,"Enable the trigger rate cap for this source");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[1],max_trigger_rate,"Maximum sustained rate (Hz), averaged over trigger_rate_window, before events from this source are skipped");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[1],trigger_rate_window,"Sliding time window (s) over which the trigger rate is computed");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.RF[1],min_trigger_rate,"Force readout at least this often (Hz), overriding the cap above, or 0 to disable");
+      UNSECT();
+      SECT(lt,"Trigger rate cap for the LT board's trigger");
+        WRITE_INT(radiant.readout.cap_trigger_rate.lt,enable,"Enable the trigger rate cap for this source");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.lt,max_trigger_rate,"Maximum sustained rate (Hz), averaged over trigger_rate_window, before events from this source are skipped");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.lt,trigger_rate_window,"Sliding time window (s) over which the trigger rate is computed");
+        WRITE_FLT(radiant.readout.cap_trigger_rate.lt,min_trigger_rate,"Force readout at least this often (Hz), overriding the cap above, or 0 to disable");
+      UNSECT();
+    UNSECT();
   UNSECT();
   SECT(pedestals,"Pedestal settings for RADIANT");
     WRITE_INT(radiant.pedestals,compute_at_start,"Compute pedestals at start of run");
