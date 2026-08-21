@@ -2,7 +2,16 @@
 #define _rno_g_ice_config_h
 
 #include "rno-g.h"
+
+#ifdef ON_DIDAQ
 #include "didaq.h"
+#else
+/* acq_config_t always carries its didaq section, even where libdidaq isn't
+ * available, so that neither ice-config.c nor rno-g-acq.c has to #ifdef every
+ * reference to it (only the code that talks to the hardware is guarded). Only
+ * the array sizes matter here -- nothing ever reads these fields. */
+#define DIDAQ_NUM_ADC 6
+#endif
 
 /** Configuration structs */
 
