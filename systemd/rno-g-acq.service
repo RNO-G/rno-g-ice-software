@@ -1,7 +1,7 @@
 [Unit]
 Description=Record RNO-G Data
 Wants=rno-g-copy.service rno-g-copy-meta.service
-AssertPathExists=/STATION_NUMBER
+AssertPathExists=/STATION_ID
 AssertPathExists=/rno-g/var/runfile
 AssertPathIsDirectory=/data/daq/
 
@@ -13,3 +13,6 @@ ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
 WatchdogSec=90s
+
+[Install]
+WantedBy=multi-user.target
