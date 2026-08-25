@@ -11,7 +11,7 @@ while true;
 do
   rsync -avh $excludes /data/daq/ 10.1.0.1:/data/ingress/station$STN/
 
-  # only delete if rsync succeeds correctly
+  # only sleep if rsync succeeds correctly
   if [ $? -ne 0 ] ; then
     continue ;
   fi

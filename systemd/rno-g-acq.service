@@ -1,11 +1,18 @@
 [Unit]
 Description=Record RNO-G Data
 Wants=rno-g-copy.service rno-g-copy-meta.service
+AssertPathExists=/STATION_ID
+AssertPathExists=/rno-g/var/runfile
+AssertPathIsDirectory=/data/daq/
 
 [Service]
 User=rno-g
 Restart=always
+ExecStartPre=/bin/sh -c '[ -f  /rno-g/cfg/acq.cfg ] || /bin/cp /rno-g/cfg/default/acq-$(cat /STATION_NUMBER 2>/dev/null).cfg /rno-g/cfg/acq.cfg'
 ExecStart=/rno-g/bin/rno-g-acq
 Environment=LD_LIBRARY_PATH=/rno-g/lib
 ExecReload=/bin/kill -USR1 $MAINPID
 WatchdogSec=90s
+
+[Install]
+WantedBy=multi-user.target

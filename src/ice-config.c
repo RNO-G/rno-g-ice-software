@@ -17,13 +17,40 @@
  */
 
 
+static uint32_t sanitize_didaq_samples(const char * name, uint32_t val, uint32_t max)
+{
+  uint32_t fixed = val;
+  if (fixed > max) fixed = max;
+  // clear the low bits, i.e. round down to a multiple of ALIGN (a power of 2)
+  fixed &= ~((uint32_t) DIDAQ_SAMPLE_ALIGN - 1);
+
+  if (fixed != val)
+  {
+    fprintf(stderr, "%s=%u is invalid (must be a multiple of %d and at most %u). Using %u instead.\n",
+            name, val, DIDAQ_SAMPLE_ALIGN, max, fixed);
+  }
+
+  return fixed;
+}
+
+uint32_t didaq_sanitize_sample_offset(uint32_t sample_offset)
+{
+  return sanitize_didaq_samples("didaq.readout.sample_offset", sample_offset, DIDAQ_SAMPLE_OFFSET_MAX);
+}
+
+uint32_t didaq_sanitize_num_samples(uint32_t num_samples)
+{
+  return sanitize_didaq_samples("didaq.readout.num_samples", num_samples, DIDAQ_NUM_SAMPLES_MAX);
+}
+
+
 int init_acq_config(acq_config_t * cfg)
 {
 
-  //output
   // Yes, I really am this lazy
   // to avoid lots of typing we'll keep #defining and #undefing the section
-#define SECT cfg->output
+
+  #define SECT cfg->output
 
   SECT.base_dir = "/data/daq/";
   SECT.runfile = "/rno-g/var/runfile";
@@ -46,41 +73,187 @@ int init_acq_config(acq_config_t * cfg)
   SECT.acq_buf_size = 256;
   SECT.mon_buf_size = 128;
 
-//lt  (low-threshold)
-//
 #undef SECT
+#define SECT cfg->calib
+
+  SECT.enable_cal = 0;
+  SECT.turn_off_at_exit = 1;
+  SECT.i2c_bus = 2;
+  SECT.gpio = 49;
+  SECT.rev = "/REV";
+  SECT.channel= RNO_G_CAL_NO_OUTPUT;
+  SECT.type = RNO_G_CAL_NO_SIGNAL;
+  SECT.atten = 31.5;
+
+  SECT.sweep.enable = 0;
+  SECT.sweep.start_atten = 31.5;
+  SECT.sweep.stop_atten = 0;
+  SECT.sweep.atten_step = 0.5;
+  SECT.sweep.step_time = 100;
+
+#undef SECT
+
+  // After we set the defaults for all general stuff (runtime, output, calib)
+  // We start with digitizer specific stuff. First the new didaq ...
+
+#ifdef ON_DIDAQ
+
+#define SECT cfg->didaq.device
+
+  SECT.spi_name = "/dev/spidev1.0";
+  SECT.uart_name = "/dev/ttyUSB0";
+  SECT.trig_ready_gpio_label = "TRIG_READY";
+  SECT.spi_en_label = "NSPIBUS_EN";
+  SECT.enable_dbg = 0;
+
+#undef SECT
+#define SECT cfg->didaq.readout
+
+  SECT.num_samples = 2048;
+  SECT.sample_offset = 0;
+  SECT.reaodut_mask = 0xffffff;
+  SECT.poll_ms = 10;
+  SECT.acq_timeout = 0.0;
+
+#undef SECT
+#define SECT cfg->didaq.gain
+
+  SECT.auto_gain = 1;
+  SECT.target_rms = 5;
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    SECT.fixed_gain_codes[i] = 5;
+  }
+  for(int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    SECT.full_scale_range_codes[i] = 0x1fff;
+  }
+
+#undef SECT
+#define SECT cfg->didaq.thresholds.coinc
+
+  SECT.load_from_threshold_file = 1;
+  SECT.min = 0;
+  SECT.max = 255;
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    SECT.initial[i] = 200;
+  }
+
+#undef SECT
+#define SECT cfg->didaq.thresholds.phased
+
+  SECT.load_from_threshold_file = 1;
+  SECT.min = 0;
+  SECT.max = 65535;  // 2**16-1
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+    SECT.initial[i] = 800;
+  }
+
+#undef SECT
+#define SECT cfg->didaq.servo.coinc
+
+  SECT.enable = 1;
+  SECT.subtract_gated = 0;
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    SECT.scaler_goals[i] = 30;
+  }
+  SECT.scaler_update_interval = 0.5;
+  SECT.servo_interval = 1;
+  SECT.max_dthreshold = 0;
+  SECT.max_tolerated_error = 15;
+  SECT.P = 0.001;
+  SECT.I = 0;
+  SECT.D = 0;
+
+#undef SECT
+#define SECT cfg->didaq.servo.phased
+
+  SECT.enable = 1;
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+    SECT.phased_scaler_goals[i] = 700;
+  }
+  SECT.servo_thresh_frac = 0.6;
+  SECT.servo_thresh_offset = 0;
+  SECT.scaler_update_interval = 0.5;
+  SECT.servo_interval = 1;
+  SECT.P = 0.002;
+  SECT.I = 0;
+  SECT.D = 0;
+
+#undef SECT
+#define SECT cfg->didaq.trigger
+
+  SECT.soft.enabled = 1;
+  SECT.soft.use_exponential_distribution = 0;
+  SECT.soft.interval = 10;
+  SECT.soft.interval_jitter = 0;
+
+  SECT.pps.enabled = 0;
+  SECT.ext.enabled = 1;
+
+  SECT.coinc[0].enable = 1;
+  SECT.coinc[0].enable_readout = 1;
+  SECT.coinc[0].quad_mode = 0;
+  SECT.coinc[0].num_required = 2;
+  SECT.coinc[0].window = 5;
+  SECT.coinc[0].exclude_mask = 0;
+
+  SECT.coinc[1].enable = 1;
+  SECT.coinc[1].enable_readout = 1;
+  SECT.coinc[1].quad_mode = 0;
+  SECT.coinc[1].num_required = 2;
+  SECT.coinc[1].window = 5;
+  SECT.coinc[1].exclude_mask = 0;
+
+  SECT.phased.enable = 1;
+  SECT.phased.enable_readout = 1;
+  SECT.phased.require_consecutive = 0;
+  SECT.phased.divide_by_2 = 0;
+  SECT.phased.channel_exclude_mask = 0;
+  SECT.phased.beam_exclude_mask = 0;
+
+#undef SECT
+
+#else
+  // ... and now comes all radiant/flower specific
+
 #define SECT cfg->lt.gain
   SECT.auto_gain=1;
   SECT.target_rms=5;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
-    SECT.fixed_gain_codes[i] =5;
+    SECT.fixed_gain_codes[i] = 5;
   }
 
 #undef SECT
 #define SECT cfg->lt.device
+
   SECT.spi_enable_gpio = 0;
   SECT.spi_device = "/dev/spidev1.0" ;
   SECT.required = 1;
 
-
 #undef SECT
 #define SECT cfg->lt.trigger
-  SECT.coinc.vpp =1;
-  SECT.coinc.min_coincidence=2;
+
+  SECT.coinc.vpp = 1;
+  SECT.coinc.min_coincidence = 2;
   SECT.coinc.window = 5;
   SECT.coinc.enable_rf_coinc_trigger = 0;
   SECT.coinc.rf_coinc_channel_mask=0xf;
 
   SECT.phased.enable_rf_phased_trigger = 1;
-  SECT.phased.rf_phased_beam_mask=0xfff;
-  SECT.phased.rf_phased_threshold_offset=0x000; //should be unused
+  SECT.phased.rf_phased_beam_mask = 0xfff;
+  SECT.phased.rf_phased_threshold_offset = 0x000; //should be unused
 
-  SECT.enable_rf_trigger_sys_out =1;
-  SECT.enable_rf_trigger_sma_out =0;
+  SECT.enable_rf_trigger_sys_out = 1;
+  SECT.enable_rf_trigger_sma_out = 0;
 
-  SECT.enable_pps_trigger_sys_out =0;
-  SECT.enable_pps_trigger_sma_out =0;
+  SECT.enable_pps_trigger_sys_out = 0;
+  SECT.enable_pps_trigger_sma_out = 0;
   SECT.pps_trigger_delay = 0;
 
 #undef SECT
@@ -95,8 +268,10 @@ int init_acq_config(acq_config_t * cfg)
   {
     SECT.initial_phased_thresholds[i] = 600;
   }
+
 #undef SECT
 #define SECT cfg->lt.servo
+
   SECT.enable = 1;
   for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
   {
@@ -122,30 +297,32 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->lt.waveforms
+
   SECT.skip_runs = 11;
   SECT.length = 1024;
   SECT.preclear_force_trigger = 1;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_finish
-  SECT.enable=0;
-  SECT.nsecs_rf=100;
-  SECT.nforce=100;
+
+  SECT.enable = 0;
+  SECT.nsecs_rf = 100;
+  SECT.nforce = 100;
 
 #undef SECT
 #define SECT cfg->lt.waveforms.at_start
-  SECT.enable=0;
-  SECT.nsecs_rf=100;
-  SECT.nforce=100;
 
+  SECT.enable = 0;
+  SECT.nsecs_rf = 100;
+  SECT.nforce = 100;
 
 ////RADIANT
 #undef SECT
 #define SECT cfg->radiant.pps
+
   SECT.use_internal = 0;
   SECT.sync_out = 0;
   SECT.pps_holdoff =10;
-
 
 #undef SECT
 #define SECT cfg->radiant.device
@@ -157,9 +334,9 @@ int init_acq_config(acq_config_t * cfg)
   SECT.poll_gpio = 46 ;
   SECT.spi_enable_gpio = -61 ;
 
-  //radiant analog
 #undef SECT
 #define SECT cfg->radiant.analog
+
   SECT.apply_lab4_vbias = 1;
   SECT.lab4_vbias[0] = 1.5;
   SECT.lab4_vbias[1] = 1.5;
@@ -174,7 +351,6 @@ int init_acq_config(acq_config_t * cfg)
     SECT.trig_attenuation[i] = 0;
   }
 
-  //radiant pedestals
 #undef SECT
 #define SECT cfg->radiant.pedestals
 
@@ -187,22 +363,22 @@ int init_acq_config(acq_config_t * cfg)
   SECT.ntriggers_per_cycle = 1;
   SECT.sleep_per_cycle = 1e-3;
 
-  //radiant readout
 #undef SECT
 #define SECT cfg->radiant.readout
+
   SECT.readout_mask = 0xffffff;
   SECT.nbuffers_per_readout = 2;
   SECT.poll_ms = 10;
 
-  //radiant trigger
 #undef SECT
 #define SECT cfg->radiant.trigger
+
   SECT.clear_mode = 0;
   SECT.output_enabled =1;
 
   //Upward Surface
   SECT.RF[0].enabled = 1;
-  SECT.RF[0].mask =  0x092000; //upward pointing LPDAs
+  SECT.RF[0].mask = 0x092000; //upward pointing LPDAs
   SECT.RF[0].window = 50 ; // ?!??
   SECT.RF[0].num_coincidences = 2;
   SECT.RF[0].readout_delay=1014; //delay 19*(53.3ns)=1013.3ns
@@ -215,7 +391,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.RF[1].num_coincidences = 2;
   SECT.RF[1].readout_delay=587; //delay 11*(53.333ns)=586.666ns
   SECT.RF[1].readout_delay_mask=0b1011; //delay all power and helper strings. not surface
-
 
   //LT
   SECT.ext.enabled = 1;
@@ -230,8 +405,6 @@ int init_acq_config(acq_config_t * cfg)
   //PPS trigger
   SECT.pps.enabled = 0;
   SECT.pps.output_enabled = 0;
-
-  //SERVO
 
 #undef SECT
 #define SECT cfg->radiant.servo
@@ -256,7 +429,6 @@ int init_acq_config(acq_config_t * cfg)
   SECT.max_thresh_change = 0.01;
   SECT.max_sum_err = 10000;
 
-
 #undef SECT
 #define SECT cfg->radiant.thresholds
 
@@ -270,15 +442,17 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->radiant.scalers
+
   SECT.use_pps = 1;
   SECT.period = 1;
   for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
   {
     SECT.prescal_m1[i]=  0;
   }
-#undef SECT
 
+#undef SECT
 #define SECT cfg->radiant.bias_scan
+
   SECT.enable_bias_scan = 1;
   SECT.skip_runs = 13;
   SECT.min_val = 0;
@@ -291,28 +465,14 @@ int init_acq_config(acq_config_t * cfg)
 
 #undef SECT
 #define SECT cfg->radiant.timing_recording
+
   SECT.enable= 1;
   SECT.skip_runs = 4;
   SECT.n_recordings = 5;
   SECT.directory = "/data/timing/";
 
 #undef SECT
-#define SECT cfg->calib
-  SECT.enable_cal = 0;
-  SECT.turn_off_at_exit = 1;
-  SECT.i2c_bus = 2;
-  SECT.gpio = 49;
-  SECT.rev = "/REV";
-  SECT.channel= RNO_G_CAL_NO_OUTPUT;
-  SECT.type = RNO_G_CAL_NO_SIGNAL;
-  SECT.atten = 31.5;
-
-  SECT.sweep.enable = 0;
-  SECT.sweep.start_atten = 31.5;
-  SECT.sweep.stop_atten = 0;
-  SECT.sweep.atten_step = 0.5;
-  SECT.sweep.step_time = 100;
-#undef SECT
+#endif
 
   return 0;
 }
@@ -417,13 +577,10 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
     return -1;
   }
 
-  //OUTPUT
-
-
+  //output
   LOOKUP_STRING(output,base_dir);
   LOOKUP_STRING(output,runfile);
   LOOKUP_STRING(output,comment);
-
   LOOKUP_INT(output.seconds_per_run);
   LOOKUP_INT(output.max_events_per_file);
   LOOKUP_INT(output.max_daqstatuses_per_file);
@@ -435,7 +592,133 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(output.min_free_space_MB_runfile_partition);
   LOOKUP_INT(output.allow_rundir_overwrite);
 
+  //runtime
+  LOOKUP_STRING(runtime,status_shmem_file);
+  LOOKUP_INT(runtime.acq_buf_size);
+  LOOKUP_INT(runtime.mon_buf_size);
 
+  //calib
+  LOOKUP_INT(calib.enable_cal);
+  LOOKUP_INT(calib.turn_off_at_exit);
+  LOOKUP_INT(calib.i2c_bus);
+  LOOKUP_INT(calib.gpio);
+  LOOKUP_STRING(calib,rev);
+  LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs);
+  LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes);
+  LOOKUP_FLOAT(calib.atten);
+
+  LOOKUP_INT(calib.sweep.enable);
+  LOOKUP_FLOAT(calib.sweep.start_atten);
+  LOOKUP_FLOAT(calib.sweep.stop_atten);
+  LOOKUP_FLOAT(calib.sweep.atten_step);
+  LOOKUP_INT(calib.sweep.step_time);
+
+#ifdef ON_DIDAQ
+
+  //device
+  LOOKUP_STRING(didaq.device, spi_name);
+  LOOKUP_STRING(didaq.device, uart_name);
+  LOOKUP_STRING(didaq.device, trig_ready_gpio_label);
+  LOOKUP_STRING(didaq.device, spi_en_label);
+  LOOKUP_INT(didaq.device.enable_dbg);
+
+  //readout
+  LOOKUP_UINT(didaq.readout.num_samples);
+  cfg->didaq.readout.num_samples = didaq_sanitize_num_samples(cfg->didaq.readout.num_samples);
+  LOOKUP_UINT(didaq.readout.sample_offset);
+  cfg->didaq.readout.sample_offset = didaq_sanitize_sample_offset(cfg->didaq.readout.sample_offset);
+  LOOKUP_UINT(didaq.readout.reaodut_mask);
+  LOOKUP_INT(didaq.readout.poll_ms);
+  LOOKUP_FLOAT(didaq.readout.acq_timeout);
+
+  //gain
+  LOOKUP_INT(didaq.gain.auto_gain);
+  LOOKUP_FLOAT(didaq.gain.target_rms);
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    LOOKUP_INT_ELEM(didaq.gain.fixed_gain_codes,i);
+  }
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    LOOKUP_INT_ELEM(didaq.gain.full_scale_range_codes,i);
+  }
+
+  //thresholds
+  LOOKUP_INT(didaq.thresholds.coinc.load_from_threshold_file);
+  LOOKUP_FLOAT(didaq.thresholds.coinc.min);
+  LOOKUP_FLOAT(didaq.thresholds.coinc.max);
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    LOOKUP_FLOAT_ELEM(didaq.thresholds.coinc.initial,i);
+  }
+
+  LOOKUP_INT(didaq.thresholds.phased.load_from_threshold_file);
+  LOOKUP_FLOAT(didaq.thresholds.phased.min);
+  LOOKUP_FLOAT(didaq.thresholds.phased.max);
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+    LOOKUP_FLOAT_ELEM(didaq.thresholds.phased.initial,i);
+  }
+
+  //servo
+  LOOKUP_INT(didaq.servo.coinc.enable);
+  LOOKUP_INT(didaq.servo.coinc.subtract_gated);
+  LOOKUP_FLOAT(didaq.servo.coinc.scaler_update_interval);
+  LOOKUP_FLOAT(didaq.servo.coinc.servo_interval);
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    LOOKUP_INT_ELEM(didaq.servo.coinc.scaler_goals,i);
+  }
+  LOOKUP_FLOAT(didaq.servo.coinc.max_dthreshold);
+  LOOKUP_FLOAT(didaq.servo.coinc.max_tolerated_error);
+  LOOKUP_FLOAT(didaq.servo.coinc.P);
+  LOOKUP_FLOAT(didaq.servo.coinc.I);
+  LOOKUP_FLOAT(didaq.servo.coinc.D);
+
+  LOOKUP_INT(didaq.servo.phased.enable);
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+    LOOKUP_INT_ELEM(didaq.servo.phased.phased_scaler_goals,i);
+  }
+  LOOKUP_FLOAT(didaq.servo.phased.servo_thresh_frac);
+  LOOKUP_FLOAT(didaq.servo.phased.servo_thresh_offset);
+  LOOKUP_FLOAT(didaq.servo.phased.scaler_update_interval);
+  LOOKUP_FLOAT(didaq.servo.phased.servo_interval);
+  LOOKUP_FLOAT(didaq.servo.phased.P);
+  LOOKUP_FLOAT(didaq.servo.phased.I);
+  LOOKUP_FLOAT(didaq.servo.phased.D);
+
+  //trigger
+  LOOKUP_INT(didaq.trigger.soft.enabled);
+  LOOKUP_INT(didaq.trigger.soft.use_exponential_distribution);
+  LOOKUP_FLOAT(didaq.trigger.soft.interval);
+  LOOKUP_FLOAT(didaq.trigger.soft.interval_jitter);
+
+  LOOKUP_INT(didaq.trigger.pps.enabled);
+  LOOKUP_INT(didaq.trigger.ext.enabled);
+
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].enable, didaq.trigger.coinc0.enable);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].enable_readout, didaq.trigger.coinc0.enable_readout);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].quad_mode, didaq.trigger.coinc0.quad_mode);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].num_required, didaq.trigger.coinc0.num_required);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].window, didaq.trigger.coinc0.window);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[0].exclude_mask, didaq.trigger.coinc0.exclude_mask);
+
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].enable, didaq.trigger.coinc1.enable);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].enable_readout, didaq.trigger.coinc1.enable_readout);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].quad_mode, didaq.trigger.coinc1.quad_mode);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].num_required, didaq.trigger.coinc1.num_required);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].window, didaq.trigger.coinc1.window);
+  LOOKUP_INT_RENAME(didaq.trigger.coinc[1].exclude_mask, didaq.trigger.coinc1.exclude_mask);
+
+  LOOKUP_INT(didaq.trigger.phased.enable);
+  LOOKUP_INT(didaq.trigger.phased.enable_readout);
+  LOOKUP_INT(didaq.trigger.phased.require_consecutive);
+  LOOKUP_INT(didaq.trigger.phased.divide_by_2);
+  LOOKUP_INT(didaq.trigger.phased.channel_exclude_mask);
+  LOOKUP_INT(didaq.trigger.phased.beam_exclude_mask);
+
+#else
   //RADIANT
 
   //pps
@@ -565,11 +848,6 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_STRING(radiant.timing_recording, directory);
 
 
-  //runtime
-  LOOKUP_STRING(runtime,status_shmem_file);
-  LOOKUP_INT(runtime.acq_buf_size);
-  LOOKUP_INT(runtime.mon_buf_size);
-
   //LT
   //for backwards compatibility
   LOOKUP_INT_RENAME(lt.trigger.coinc.enable_rf_coinc_trigger, lt.trigger.coinc_enable);
@@ -639,20 +917,7 @@ int read_acq_config(FILE * f, acq_config_t * cfg)
   LOOKUP_INT(lt.waveforms.length);
   LOOKUP_INT(lt.waveforms.preclear_force_trigger);
 
-  LOOKUP_INT(calib.enable_cal);
-  LOOKUP_INT(calib.turn_off_at_exit);
-  LOOKUP_INT(calib.i2c_bus);
-  LOOKUP_INT(calib.gpio);
-  LOOKUP_STRING(calib,rev);
-  LOOKUP_ENUM(calib,channel, rno_g_calpulser_out_t, calpulser_outs);
-  LOOKUP_ENUM(calib,type, rno_g_calpulser_mode_t, calpulser_modes);
-  LOOKUP_FLOAT(calib.atten);
-
-  LOOKUP_INT(calib.sweep.enable);
-  LOOKUP_FLOAT(calib.sweep.start_atten);
-  LOOKUP_FLOAT(calib.sweep.stop_atten);
-  LOOKUP_FLOAT(calib.sweep.atten_step);
-  LOOKUP_INT(calib.sweep.step_time);
+#endif
 
   config_destroy(&config);
   return 0;
@@ -695,6 +960,119 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
   fprintf(f,"// If you don't know what you're doing now would be a good time to exit your text editor.\n");
   fprintf(f,"//////////////////////////////////////////////////////////////////////////////////////////////////////\n\n");
 
+
+#ifdef ON_DIDAQ
+
+  SECT(didaq,"DiDAQ configuration");
+
+    SECT(device,"DiDAQ device settings");
+      WRITE_STR(didaq.device, spi_name,"SPI device for the DiDAQ board");
+      WRITE_STR(didaq.device, uart_name,"UART device for the DiDAQ board");
+      WRITE_STR(didaq.device, trig_ready_gpio_label,"GPIO label for the trigger-ready line");
+      WRITE_STR(didaq.device, spi_en_label,"GPIO label for the SPI-enable line");
+      WRITE_INT(didaq.device, enable_dbg, "If 1, enable debug prints in libdidaq");
+    UNSECT();
+
+    SECT(readout,"Readout settings for the DiDAQ");
+      WRITE_UINT(didaq.readout,num_samples,"Number of samples to read out per waveform, must be a multiple of 4 and at most 4096 (if 0 defaults to 768 in libdidaq)");
+      WRITE_UINT(didaq.readout,sample_offset,"Sample offset for readout (must be a multiple of 4 and at most 1023)");
+      WRITE_HEX(didaq.readout,reaodut_mask,"Mask of channels to read out");
+      WRITE_INT(didaq.readout,poll_ms,"Timeout in ms for gpio poll (higher reduces CPU, but reduces soft trigger granularity");
+      WRITE_FLT(didaq.readout,acq_timeout,"Sleep (in seconds) at the end of each acquisition loop iteration, to give the mon thread a chance at the SPI bus (0 to disable)");
+    UNSECT();
+
+    SECT(gain,"Settings related to DiDAQ channel gain");
+      WRITE_INT(didaq.gain,auto_gain,"Automatically equalize channel gains");
+      WRITE_FLT(didaq.gain,target_rms,"Target RMS (in adc) for normalization");
+      WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (unused)", RNO_G_NUM_RADIANT_CHANNELS, "%d");
+      WRITE_ARR(didaq.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes", RNO_G_NUM_RADIANT_CHANNELS, "%hhu");
+      WRITE_ARR(didaq.gain,full_scale_range_codes,"If not using auto gain, give us the full scale range code for each ADC (0x1fff = 1000 mVpp, 0xA000 = 800 mVpp, 0x2000 = 500 mVpp)", DIDAQ_NUM_ADC, "0x%x");
+    UNSECT();
+
+    SECT(thresholds,"Threshold settings for the DiDAQ");
+      SECT(coinc,"Coincidence trigger threshold settings");
+        WRITE_INT(didaq.thresholds.coinc, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used");
+        WRITE_ARR(didaq.thresholds.coinc,initial,"Initial thresholds if not loaded from file", RNO_G_NUM_RADIANT_CHANNELS, "%g");
+        WRITE_FLT(didaq.thresholds.coinc, min, "Minimum allowed threshold");
+        WRITE_FLT(didaq.thresholds.coinc, max, "Maximum allowed threshold");
+      UNSECT();
+      SECT(phased,"Phased trigger threshold settings");
+        WRITE_INT(didaq.thresholds.phased, load_from_threshold_file, "1 to load from threshold file, otherwise initial values will be used");
+        WRITE_ARR(didaq.thresholds.phased,initial,"Initial thresholds if not loaded from file", RNO_G_NUM_DIDAQ_BEAMS, "%g");
+        WRITE_FLT(didaq.thresholds.phased, min, "Minimum allowed threshold");
+        WRITE_FLT(didaq.thresholds.phased, max, "Maximum allowed threshold");
+      UNSECT();
+    UNSECT();
+
+    SECT(servo, "Threshold servo configuration");
+      SECT(coinc,"Servo settings for the coincidence trigger");
+        WRITE_INT(didaq.servo.coinc, enable, "Enable servoing of DiDAQ coincidence thresholds");
+        WRITE_INT(didaq.servo.coinc, subtract_gated, "Subtract gated scalers");
+        WRITE_FLT(didaq.servo.coinc, scaler_update_interval, "Time interval (in seconds) that scalers are updated at");
+        WRITE_FLT(didaq.servo.coinc, servo_interval, "Time interval (in seconds) that thresholds are updated at");
+        WRITE_ARR(didaq.servo.coinc, scaler_goals,
+                   "The scaler goal for each channel", RNO_G_NUM_RADIANT_CHANNELS, "%d" );
+        WRITE_FLT(didaq.servo.coinc, max_dthreshold, "Maximum threshold change (in adc counts) per servo step, 0 for no limit");
+        WRITE_FLT(didaq.servo.coinc, max_tolerated_error, "Scaler error (in Hz) above which the threshold is stepped by at least 1 adc count, even if the PID step is smaller");
+        WRITE_FLT(didaq.servo.coinc,P,"servo PID loop P");
+        WRITE_FLT(didaq.servo.coinc,I,"servo PID loop I");
+        WRITE_FLT(didaq.servo.coinc,D,"servo PID loop D");
+      UNSECT();
+      SECT(phased,"Servo settings for the phased trigger");
+        WRITE_INT(didaq.servo.phased,enable,"Enable servoing");
+        WRITE_ARR(didaq.servo.phased,phased_scaler_goals,"1Hz Servo Scaler Goals For Phased Trigger (trigs/s/beam)",RNO_G_NUM_DIDAQ_BEAMS,"%u");
+        WRITE_FLT(didaq.servo.phased,servo_thresh_frac,"The servo threshold is related to the trigger threshold by a fraction and offset");
+        WRITE_FLT(didaq.servo.phased,servo_thresh_offset,"The servo threshold is related to the trigger threshold by a fraction and offset");
+        WRITE_FLT(didaq.servo.phased,scaler_update_interval,"How often we update the scalers");
+        WRITE_FLT(didaq.servo.phased,servo_interval,"How often we run the servo");
+        WRITE_FLT(didaq.servo.phased,P,"PID loop P term");
+        WRITE_FLT(didaq.servo.phased,I,"PID loop I term");
+        WRITE_FLT(didaq.servo.phased,D,"PID loop D term");
+      UNSECT();
+    UNSECT();
+
+    SECT(trigger,"Trigger configuration");
+      SECT(soft,"Software trigger configuration");
+        WRITE_INT(didaq.trigger.soft,enabled,"Enable soft trigger");
+        WRITE_INT(didaq.trigger.soft,use_exponential_distribution,"Use exponential distribution of inter-soft trigger timing");
+        WRITE_FLT(didaq.trigger.soft,interval,"Soft trigger interval");
+        WRITE_FLT(didaq.trigger.soft,interval_jitter,"Jitter (uniform) on soft trigger interval");
+      UNSECT();
+      SECT(pps,"PPS trigger configuration");
+        WRITE_INT(didaq.trigger.pps,enabled,"Enable PPS trigger");
+      UNSECT();
+      SECT(ext,"External trigger configuration");
+        WRITE_INT(didaq.trigger.ext,enabled,"Enable ext trigger");
+      UNSECT();
+      SECT(coinc0,"First coincidence trigger configuration (channels 0-11)");
+        WRITE_INT(didaq.trigger.coinc[0],enable,"Enable computation of this coincidence trigger");
+        WRITE_INT(didaq.trigger.coinc[0],enable_readout,"Readout on this trigger");
+        WRITE_INT(didaq.trigger.coinc[0],quad_mode,"Quad mode (not yet used)");
+        WRITE_INT(didaq.trigger.coinc[0],num_required,"Number of channels required for coincidence: the trigger fires when at least this many channels are above threshold (1-8)");
+        WRITE_INT(didaq.trigger.coinc[0],window,"Coincidence window (8-ns cycles, 0-15)");
+        WRITE_HEX(didaq.trigger.coinc[0],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
+      UNSECT();
+      SECT(coinc1,"Second coincidence trigger configuration (channels 12-23)");
+        WRITE_INT(didaq.trigger.coinc[1],enable,"Enable computation of this coincidence trigger");
+        WRITE_INT(didaq.trigger.coinc[1],enable_readout,"Readout on this trigger");
+        WRITE_INT(didaq.trigger.coinc[1],quad_mode,"Quad mode (not yet used)");
+        WRITE_INT(didaq.trigger.coinc[1],num_required,"Number of channels required for coincidence: the trigger fires when at least this many channels are above threshold (1-8)");
+        WRITE_INT(didaq.trigger.coinc[1],window,"Coincidence window (8-ns cycles, 0-15)");
+        WRITE_HEX(didaq.trigger.coinc[1],exclude_mask,"Channel exclude mask, bit 0 = first channel of this trigger (RNO-G numbering), 0 to include all");
+      UNSECT();
+      SECT(phased,"Phased trigger configuration");
+        WRITE_INT(didaq.trigger.phased,enable,"Enable computation of the phased trigger");
+        WRITE_INT(didaq.trigger.phased,enable_readout,"Readout on the phased trigger");
+        WRITE_INT(didaq.trigger.phased,require_consecutive,"Require consecutive windows above threshold");
+        WRITE_INT(didaq.trigger.phased,divide_by_2,"Divide by 2");
+        WRITE_HEX(didaq.trigger.phased,channel_exclude_mask,"Channel exclude mask over the 4 phased-array channels (RNO-G numbering)");
+        WRITE_HEX(didaq.trigger.phased,beam_exclude_mask,"Beam exclude mask");
+      UNSECT();
+    UNSECT();
+
+  UNSECT();
+
+#else
 
 
  SECT(radiant,"RADIANT configuration");
@@ -873,7 +1251,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     SECT(gain,"Settings related to HMCAD1511 gain");
       WRITE_INT(lt.gain,auto_gain,"Automatically use HMCAD1511 gain to equalize channels");
       WRITE_FLT(lt.gain,target_rms,"Target RMS (in adc) for normalization");
-      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%u");
+      WRITE_ARR(lt.gain,fixed_gain_codes,"If not using auto gain, give us the gain codes (see datasheet)", RNO_G_NUM_LT_CHANNELS, "%hhu");
     UNSECT();
     SECT(waveforms,"Settings related to FLOWER waveform taking (experimental). Currently these are stored in compressed json, but will probably be binary eventually.");
       WRITE_INT(lt.waveforms,skip_runs, "If >1, will only record waveforms when run % skip_runs == 0");
@@ -903,6 +1281,7 @@ int dump_acq_config(FILE *f, const acq_config_t * cfg)
     WRITE_INT(runtime,mon_buf_size,"monitoring circular buffer size (temporarily stores daqstatus between recording and writing to disk)");
   UNSECT();
 
+#endif
 
   SECT(output,"Output settings");
     WRITE_STR(output,base_dir,"Base directory for writing out data");
