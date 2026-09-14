@@ -33,11 +33,11 @@ set -uo pipefail
 # either "path" or "Label=path" (see FIELDS in --help).
 # =============================================================================
 declare -A PRESETS=(
-    [default]="Run=runid,Duration,Events,Cal=calib.enable_cal,Phased,Coinc0,Coinc1"
-    [times]="Run=runid,Start,End,Duration,Events"
+    [default]="Run=runid,Duration,Events,Rate[Hz]=rate,Cal=calib.enable_cal,Phased,Coinc0,Coinc1"
+    [times]="Run=runid,Start,End,Duration,Events,Rate[Hz]=rate"
     [cal]="Run=runid,Duration,Events,Cal=calib.enable_cal,calib.channel,calib.atten,sweep"
     [sweep]="Run=runid,Duration,Cal=calib.enable_cal,On=calib.sweep.enable,calib.sweep.start_atten,calib.sweep.stop_atten,calib.sweep.atten_step,calib.sweep.step_time"
-    [info]="Run=runid,STATION,Start,End,Duration,Events,Hash=RNO-G-ICE-SOFTWARE-GIT-HASH"
+    [info]="Run=runid,STATION,Start,End,Duration,Events,Rate[Hz]=rate,Hash=RNO-G-ICE-SOFTWARE-GIT-HASH"
 )
 PRESET_ORDER="default times cal sweep info"
 
@@ -45,6 +45,7 @@ MODE_FIELDS=""          # -f
 PRESET="default"        # -p
 FORMAT="table"          # -o
 LIST_FIELDS=0           # -L
+SHOW_LEGEND=0          # -l
 SHOW_CAL=0              # -c: append channel/atten/sweep columns
 CAL_FIELDS="calib.channel,calib.atten,sweep"
 declare -a WHERE=()     # -w
@@ -64,6 +65,8 @@ Options:
                           match).  EXPR is  FIELD=VALUE  (exact),
                           FIELD!=VALUE (differs) or FIELD~REGEX (ERE match).
   -o, --format FMT        table (default) | list | csv
+  -l, --legend            print a legend for the trigger and derived columns
+                          below the table; on its own it just prints the legend
   -L, --list-fields       print every available field of the first run and exit
   -h, --help              this help
 
@@ -75,6 +78,7 @@ FIELDS
                   duration  acquisition time, ACQ-START-TIME -> RUN-STOP-TIME
                   duration_wall  full run wall time, RUN-START-TIME -> RUN-END-TIME
                   nev       events written (also spelled "events")
+                  rate      mean trigger rate in Hz, events / duration
                   phased    phased-array trigger summary ("off", "on,noRO", ...)
                   coinc0    first coincidence trigger  ("off", "3ch w5", ...)
                   coinc1    second coincidence trigger
@@ -282,6 +286,10 @@ field_value() {
                   [[ -n "$s" && -n "$e" ]] && printf '%d' $(( ${e%.*} - ${s%.*} )) ;;
         duration_wall) s=$(raw_value "RUN-START-TIME"); e=$(raw_value "RUN-END-TIME")
                   [[ -n "$s" && -n "$e" ]] && printf '%d' $(( ${e%.*} - ${s%.*} )) ;;
+        # Mean trigger rate over the acquisition time (all triggers, as written).
+        rate)     v=$(field_value nev "$run_name"); s=$(field_value duration "$run_name")
+                  [[ -n "$v" && -n "$s" ]] && (( s > 0 )) && awk -v n="$v" -v t="$s" 'BEGIN {
+                      r = n / t; fmt = (r >= 0.01) ? "%.2f" : "%.4f"; printf fmt, r }' ;;
         phased)   phased_summary ;;
         coinc0)   coinc_summary 0 ;;
         coinc1)   coinc_summary 1 ;;
@@ -313,6 +321,47 @@ field_display() {
     esac
 }
 
+# ---------------------------------------------------------------------------
+# print_legend -> explanation of the encoded trigger / derived columns (-l)
+# ---------------------------------------------------------------------------
+print_legend() {
+    cat <<'END_LEGEND'
+LEGEND
+  Phased, Coinc0 and Coinc1 condense the trigger settings of the run's acq.cfg
+  into one column each. Which config paths are read depends on the hardware
+  generation: a DIDAQ station has didaq.trigger.*, an older station has
+  radiant.trigger.RF0/RF1 (coincidence) and lt.trigger.phased.* (FLOWER).
+    -      neither variant present in the config
+    off    trigger disabled (enable/enabled = 0)
+
+  Phased -- didaq.trigger.phased
+    on            enable=1
+    ,noRO         enable_readout=0: trigger is computed but does not read out
+    ,cons         require_consecutive=1: consecutive windows above threshold
+    ,/2           divide_by_2=1
+    ,xbMASK       beam_exclude_mask, beams left out (shown when nonzero)
+  Phased -- lt.trigger.phased (FLOWER)
+    on            enable_rf_phased_trigger=1
+    ,beamsMASK    rf_phased_beam_mask, beams used (shown when not 0xfff)
+
+  Coinc0/1 -- didaq.trigger.coinc0/coinc1 (coinc0: ch 0-11, coinc1: ch 12-23)
+    Nch wW        N = num_required channels above threshold within
+                  W = window, in 8-ns cycles (0-15)
+    ,noRO         enable_readout=0, as above
+    ,xMASK        exclude_mask, channels left out (shown when nonzero)
+  Coinc0/1 -- radiant.trigger.RF0/RF1
+    Nch wWns      N = num_coincidences channels within W nanoseconds
+     mMASK        mask of channels going into the trigger (shown when not 0xffffff)
+
+  Derived columns
+    Duration      acquisition time, ACQ-START-TIME -> RUN-STOP-TIME
+    Rate[Hz]      events written / Duration, i.e. the readout rate over all
+                  enabled triggers, forced and software triggers included
+    Cal           calib.enable_cal, calpulser on/off
+    sweep         calib.sweep as "start->stop/step @step_time", or "off"
+END_LEGEND
+}
+
 # --- argument parsing -------------------------------------------------------
 run_args=()
 while [[ $# -gt 0 ]]; do
@@ -322,6 +371,7 @@ while [[ $# -gt 0 ]]; do
         -w|--where)   WHERE+=("${2:-}"); shift 2 ;;
         -o|--format)  FORMAT="${2:-}";  shift 2 ;;
         -c|--cal)     SHOW_CAL=1; shift ;;
+        -l|--legend)  SHOW_LEGEND=1; shift ;;
         -L|--list-fields) LIST_FIELDS=1; shift ;;
         -h|--help)    usage; exit 0 ;;
         --)           shift; run_args+=("$@"); break ;;
@@ -350,6 +400,7 @@ if [[ ${#run_args[@]} -eq 0 && ! -t 0 ]]; then
     done
 fi
 if [[ ${#run_args[@]} -eq 0 ]]; then
+    (( SHOW_LEGEND )) && { print_legend; exit 0; }
     echo "ERROR: no run directories given." >&2; usage >&2; exit 2
 fi
 
@@ -521,6 +572,10 @@ done
 
 if [[ "$FORMAT" == "table" ]]; then
     printf '%s' "$tsv" | render_table
+fi
+
+if (( SHOW_LEGEND )); then
+    if [[ "$FORMAT" == "csv" ]]; then print_legend >&2; else echo; print_legend; fi
 fi
 
 if [[ "$FORMAT" != "csv" ]]; then
