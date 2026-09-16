@@ -76,7 +76,7 @@
     },
     "25": {
       "DEEP": { "calib": { "atten": 15 } },
-      "SWEEP": { "calib": { "sweep": { "start_atten": 31.5, "stop_atten": 11 } } }
+      "SWEEP": { "calib": { "sweep": { "start_atten": 31.5, "stop_atten": 16 } } }
     },
     "34": {
       "DEEP": { "calib": { "atten": 15 } },

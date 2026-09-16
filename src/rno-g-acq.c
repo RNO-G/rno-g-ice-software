@@ -23,7 +23,7 @@
  *    There are a few rwlocks:
  *
  *      cfg_lock: Locks the global acq configuration
-   *       * readers hold this when using the config for something, but should release sometimes
+ *         * readers hold this when using the config for something, but should release sometimes
  *         * will be held as a write lock when th econfig is being updated (from a signal telling us to reread)
  *
  *      radiant_lock:
@@ -56,8 +56,20 @@
 
 #include <systemd/sd-daemon.h>
 
+#ifdef ON_DIDAQ
+
+#include "didaq.h"
+#include "rno-g-didaq.h"
+
+#else
+
 #include "radiant.h"
 #include "flower.h"
+
+/* RADIANT threshold DAC: 24-bit code (2^24-1) over a 2.5V full-scale range */
+#define RADIANT_THRESHOLD_COUNTS_PER_VOLT (16777215/2.5)
+#endif
+
 #include "rno-g.h"
 #include "rno-g-cal.h"
 #include "ice-config.h"
@@ -89,19 +101,10 @@ typedef struct mon_buffer_item
  *
  **/
 static acq_config_t cfg;
-char * cfgpath = NULL;
+static char * cfgpath = NULL;
 
 /*read-write lock for the config */
 static pthread_rwlock_t cfg_lock;
-
-/*read-write lock for cofiguring the radiant */
-static pthread_rwlock_t radiant_lock;
-
-/*read-write lock for cofiguring the flower */
-static pthread_rwlock_t flower_lock;
-
-/**read-write lock for the daq status */
-static pthread_rwlock_t ds_lock;
 
 static pthread_t the_acq_thread;
 static pthread_t the_mon_thread;
@@ -119,7 +122,6 @@ static int station_number = -1;
 /** The output directories */
 static char * output_dir = NULL;
 
-
 //temporary buffer (TODO: replace all asprintf with this...)
 static int bigbuflen = 0;
 static char * bigbuf = 0;
@@ -128,34 +130,25 @@ static char * bigbuf = 0;
 static volatile int quit = 0;
 static volatile int cfg_reread = 0;
 
-
-/** radiant handle*/
-static radiant_dev_t * radiant = 0;
-static uint32_t radiant_trig_chan = 0;
-
-/** flower handle */
-static flower_dev_t * flower = 0;
-
-uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
-float flower_rms[RNO_G_NUM_LT_CHANNELS];
-
-uint8_t *flower_waveforms_data;
-uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
-int flower_waveforms_len;
-
-/** radiant pedestals*/
-static rno_g_pedestal_t * pedestals = 0;
-
-//File descriptor for pedestal shared mem file
-static int pedestal_fd;
-
-
-/** Shared daq status */
+/** Shared DAQ status struct.
+ *
+ *  main() mmaps it onto cfg.runtime.status_shmem_file (if configured, else
+ *  a private calloc'd buffer) and seeds it with the initial radiant/flower
+ *  thresholds. From then on mon_thread owns it exclusively: its servo
+ *  helpers (radiant_flower_servo/didaq_servo) update the thresholds from
+ *  live scalers, it's snapshotted into mon_buffer for periodic daqstatus
+ *  readout, and msync()'d so external readers (e.g. another process mmap'ing
+ *  or rsync'ing status_shmem_file) see current values promptly. wri_thread
+ *  only reads the mon_buffer snapshot (to write it to disk); it does not
+ *  touch ds.
+ */
 static rno_g_daqstatus_t * ds = 0;
-
 
 //File descriptor for daqstatus shared mem file
 static int shared_ds_fd;
+
+//Size the daqstatus shared mem file had when we opened it (cached from setup_run_and_daqstatus)
+static size_t shared_ds_file_size;
 
 /** calib handle */
 static rno_g_cal_dev_t * calpulser = 0;
@@ -177,21 +170,83 @@ static double output_partition_free = 0;
 
 ///// PROTOTYPES  /////
 
-static int radiant_configure();
-static int flower_configure();
-static int flower_update_pps_offset();
 static int calpulser_configure();
 static int teardown();
 static int please_stop();
-//static void fail(const char *);
 static int add_to_file_list(const char * path);
 static void feed_watchdog(time_t * now) ;
+static void start_threads();
+static float clamp(float val, float min, float max);
+static void servo_record_value(float * value, float * last_value, float * error, float * last_error,
+                                float * sum_error, float new_value, float goal, float max_sum_err);
+static double servo_pid_step(double P, double I, double D, float error, float sum_error, float last_error);
 
-struct timespec precise_start_time;
-struct timespec precise_acq_time;
-struct timespec precise_stop_time;
+static struct timespec precise_start_time;
+static struct timespec precise_acq_time;
+static struct timespec precise_stop_time;
+
+
+#ifdef ON_DIDAQ
+
+static didaq_dev_t * didaq = 0;
+
+/* Largest coincidence multiplicity the hardware can express: didaq_trigger_setup_t's
+ * num_required is 3 bits holding a "more than N" threshold, so N=7 means 8 channels. */
+#define DIDAQ_MAX_COINC_NUM_REQUIRED 8
+
+static int didaq_configure();
+static int didaq_initial_setup();
+
+/* Mutex guarding all access to the didaq SPI bus/handle. A plain mutex (not a
+ * rwlock like radiant_lock/flower_lock) because every operation on didaq --
+ * event readout, scaler reads, threshold writes, trigger reconfiguration --
+ * touches the same physical SPI bus and the same unprotected didaq_dev_t
+ * scheduling state, so there is no "read-only, safe to share" case to give a
+ * rwlock's shared mode any value; every access needs to be exclusive. */
+static pthread_mutex_t didaq_lock;
+
+//gain codes and measured RMS from the last auto-gain equalization, one per channel (mirrors
+//flower_codes/flower_rms); written to disk at each run start by write_gain_codes_didaq()
+static uint16_t didaq_full_scale_codes[DIDAQ_NUM_ADC];
+static uint8_t didaq_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+static float didaq_gain_rms[RNO_G_NUM_RADIANT_CHANNELS];
+
+#else
 
 static uint32_t delay_clock_estimate = 10000000;
+
+///// Radiant & Flower specific definitions /////
+
+/*read-write lock for cofiguring the radiant */
+static pthread_rwlock_t radiant_lock;
+
+/*read-write lock for cofiguring the flower */
+static pthread_rwlock_t flower_lock;
+
+/** radiant pedestals*/
+static rno_g_pedestal_t * pedestals = 0;
+
+//File descriptor for pedestal shared mem file
+static int pedestal_fd;
+
+/** radiant handle*/
+static radiant_dev_t * radiant = 0;
+static uint32_t radiant_trig_chan = 0;
+
+/** flower handle */
+static flower_dev_t * flower = 0;
+
+static uint8_t flower_codes[RNO_G_NUM_LT_CHANNELS];
+static float flower_rms[RNO_G_NUM_LT_CHANNELS];
+
+static uint8_t *flower_waveforms_data;
+static uint8_t *flower_waveforms[RNO_G_NUM_LT_CHANNELS];
+static int flower_waveforms_len;
+
+static int radiant_configure();
+static int flower_configure();
+static int flower_update_pps_offset();
+#endif
 
 ///// Implementations /////
 
@@ -210,7 +265,6 @@ static uint32_t delay_clock_estimate = 10000000;
 */
 static void read_config()
 {
-  static int config_counter;
   int first_time = !config_counter;
 
   //Acquire a
@@ -256,7 +310,7 @@ static void read_config()
   }
 
   //write the updated config (can't do this first time since output_dir hasn't been made
-  //by initial_setup yet)
+  //yet at startup)
   if (!first_time)
   {
     char * ofname;
@@ -275,10 +329,19 @@ static void read_config()
   //release the write lock
   pthread_rwlock_unlock(&cfg_lock);
 
-
   //apply new configuration to radiant/flower if they have changed
   if (!first_time)
   {
+
+#ifdef ON_DIDAQ
+
+    if (memcmp(&old_cfg.didaq, &cfg.didaq, sizeof(cfg.didaq)))
+    {
+      didaq_configure();
+    }
+
+#else
+
     if (memcmp(&old_cfg.radiant, &cfg.radiant, sizeof(cfg.radiant)))
     {
       radiant_configure();
@@ -289,6 +352,8 @@ static void read_config()
       flower_configure();
     }
 
+#endif
+
     if (memcpy(&old_cfg.calib, &cfg.calib, sizeof(cfg.calib)))
     {
       calpulser_configure();
@@ -297,8 +362,9 @@ static void read_config()
 
 }
 
-int add_to_file_list(const char *path)
+static int add_to_file_list(const char *path)
 {
+  if (!file_list) return -1;
   flock(file_list_fd, LOCK_EX);
   fprintf(file_list,"%s\n", path);
   fflush(file_list);
@@ -307,7 +373,7 @@ int add_to_file_list(const char *path)
 }
 
 //Feeds the systemd watchdog
-void feed_watchdog(time_t * now)
+static void feed_watchdog(time_t * now)
 {
   time_t when;
   if (!now) time(&when) ;
@@ -317,14 +383,539 @@ void feed_watchdog(time_t * now)
 }
 
 
+#ifdef ON_DIDAQ
+
+static int open_and_setup_didaq()
+{
+
+  // normally already done by read_acq_config, but not if we fell back to the defaults
+  cfg.didaq.readout.num_samples = didaq_sanitize_num_samples(cfg.didaq.readout.num_samples);
+  cfg.didaq.readout.sample_offset = didaq_sanitize_sample_offset(cfg.didaq.readout.sample_offset);
+
+  didaq_setup_t setup = {
+    .spi_device = cfg.didaq.device.spi_name,
+    .uart_device = cfg.didaq.device.uart_name,
+    .spi_en_gpio_label = cfg.didaq.device.spi_en_label,
+    .trig_ready_gpio_label = cfg.didaq.device.trig_ready_gpio_label,
+    .poll_mutex = &didaq_lock,
+    .default_len = cfg.didaq.readout.num_samples,
+    .default_start = cfg.didaq.readout.sample_offset,
+    .dbg = cfg.didaq.device.enable_dbg,
+  };
+
+  didaq = didaq_open(&setup);
+
+  if (!didaq)
+  {
+    fprintf(stderr, "COULD NOT OPEN DIDAQ. Giving up.\n");
+    return 1;
+  }
+
+  pthread_mutex_init(&didaq_lock, NULL);
+
+  feed_watchdog(0);
+  if (didaq_initial_setup())
+    return 1;
+
+  // No mutex needed, still in single thread.
+  // This reads scalars from the dev and sets clock_estimate
+  rno_g_daqstatus_t ds0 = {0};
+  didaq_read_daqstatus(didaq, &ds0, station_number);
+
+  feed_watchdog(0);
+  return 0;
+}
+
+static int didaq_initial_setup() {
+  // Runs once at startup (single thread, no need for a lock?)
+  if (!didaq) return -1;
+
+  pthread_mutex_lock(&didaq_lock);
+  //do the auto gain if asked to (mirrors flower_initial_setup()'s auto-gain block)
+  if (cfg.didaq.gain.auto_gain)
+  {
+    //disable triggers momentarily so they don't fire spuriously during equalization
+    didaq_trigger_setup_t disabled = {0};
+    didaq_configure_trigger(didaq, &disabled);
+    didaq_auto_gain(didaq, 0x3f, cfg.didaq.gain.target_rms, didaq_gain_rms, didaq_full_scale_codes);
+  }
+  else
+  {
+    didaq_set_fs_gain_codes(didaq, 0x3f, cfg.didaq.gain.full_scale_range_codes);
+    memcpy(didaq_full_scale_codes, cfg.didaq.gain.full_scale_range_codes, sizeof(didaq_full_scale_codes));
+  }
+
+  didaq_reset_acq(didaq);
+
+  pthread_mutex_unlock(&didaq_lock);
+
+  return didaq_configure();
+}
+
+static int didaq_configure()
+{
+
+  pthread_mutex_lock(&didaq_lock);
+  pthread_rwlock_rdlock(&cfg_lock);
+
+  //seed thresholds from config, unless we already have valid ones from the shmem file. This runs
+  //on every (re)configure -- not just the one at startup via didaq_initial_setup() -- so that a
+  //live config reread (SIGUSR1) with load_from_threshold_file turned off actually takes effect,
+  //instead of ds's thresholds silently staying whatever they were before the reread.
+  int need_to_copy_didaq_coin_thresholds_from_cfg = !(
+    cfg.didaq.thresholds.coinc.load_from_threshold_file &&
+    shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_didaq_coin_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      ds->didaq_coin_thresholds[i] = cfg.didaq.thresholds.coinc.initial[i];
+    }
+  }
+
+  int need_to_copy_didaq_phased_thresholds_from_cfg = !(
+    cfg.didaq.thresholds.phased.load_from_threshold_file &&
+    shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_didaq_phased_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+    {
+      ds->didaq_phased_trigger_thresholds[i] = cfg.didaq.thresholds.phased.initial[i];
+      ds->didaq_phased_servo_thresholds[i] = clamp(
+        cfg.didaq.thresholds.phased.initial[i] * cfg.didaq.servo.phased.servo_thresh_frac +
+        cfg.didaq.servo.phased.servo_thresh_offset, 0, 65535);
+    }
+  }
+
+  didaq_write_thresholds(didaq, ds, station_number, 1, 1);
+
+  // The exclude masks have the same layout as the hardware fields (12 bits per half of the board
+  // (coinc triggers), and 4 for the phased array) but their bits name RNO-G channels. Shift each
+  // up to an absolute 24-bit mask, permute into DiDAQ numbering, shift back. The round trip stays inside the group
+  // because no channel map moves a channel across one (see test/rno-g-test-didaq-chanmap.c).
+  const rno_g_didaq_chanmap_t * chanmap = rno_g_didaq_chanmap(station_number);
+
+  // The phased-array channels start at 0, so this mask is already absolute.
+  uint32_t phased_exclude = rno_g_didaq_mask_to_didaq(
+    cfg.didaq.trigger.phased.channel_exclude_mask & 0xf, chanmap);
+
+  didaq_trigger_setup_t trig = {
+    .enable_ext = cfg.didaq.trigger.ext.enabled,
+    .enable_pps = cfg.didaq.trigger.pps.enabled,
+    .phased = {
+      .enable = cfg.didaq.trigger.phased.enable,
+      .enable_readout = cfg.didaq.trigger.phased.enable_readout,
+      .require_consecutive_windows = cfg.didaq.trigger.phased.require_consecutive,
+      .divide_by_2 = cfg.didaq.trigger.phased.divide_by_2,
+      .chan_exclude_mask = phased_exclude & 0xf,
+      .beam_exclude_mask = cfg.didaq.trigger.phased.beam_exclude_mask
+    }
+  };
+
+  for (int i = 0; i < DIDAQ_NUM_COINC; i++)
+  {
+    trig.coinc[i].enable = cfg.didaq.trigger.coinc[i].enable;
+    trig.coinc[i].quad_mode = cfg.didaq.trigger.coinc[i].quad_mode;
+    trig.coinc[i].enable_readout = cfg.didaq.trigger.coinc[i].enable_readout;
+    // The config counts channels ("at least N"), but the hardware field is a "more than N"
+    // threshold, so it is one less. Out-of-range values would silently wrap in the 3-bit
+    // field (9 -> 8 -> 0, i.e. the loosest setting), so reject them instead.
+    int num_required = cfg.didaq.trigger.coinc[i].num_required;
+    if (num_required < 1 || num_required > DIDAQ_MAX_COINC_NUM_REQUIRED)
+    {
+      fprintf(stderr, "cfg.didaq.trigger.coinc[%d].num_required is %d, must be 1-%d\n",
+              i, num_required, DIDAQ_MAX_COINC_NUM_REQUIRED);
+      pthread_rwlock_unlock(&cfg_lock);
+      pthread_mutex_unlock(&didaq_lock);
+      return 1;
+    }
+    trig.coinc[i].num_required = num_required - 1;
+    trig.coinc[i].coinc_window = cfg.didaq.trigger.coinc[i].window;
+
+    uint32_t coinc_exclude = rno_g_didaq_mask_to_didaq(
+      ((uint32_t) cfg.didaq.trigger.coinc[i].exclude_mask & 0xfff) << (12 * i), chanmap);
+    trig.coinc[i].channel_exclude_mask = (coinc_exclude >> (12 * i)) & 0xfff;
+  }
+
+  int ret = didaq_configure_trigger(didaq, &trig);
+
+  pthread_rwlock_unlock(&cfg_lock);
+  pthread_mutex_unlock(&didaq_lock);
+
+  return ret;
+}
+
+/** Write out the gain codes/RMS from the last auto-gain equalization (mirrors
+ *  write_gain_codes_flower()). Called once at the start of each run, so the
+ *  codes computed once at daemon startup (didaq_initial_setup()) get logged
+ *  into every run's aux directory for provenance.
+ */
+static int write_gain_codes_didaq(char * buf)
+{
+  if (!didaq) return -1;
+  static int gain_codes_counter = 0;
+  time_t now;
+  time(&now);
+
+  sprintf(buf, "%s/aux/didaq_gain_codes.%d.txt", output_dir, gain_codes_counter++);
+  FILE * of = fopen(buf,"w");
+  if (!of) return 1;
+  fprintf(of,"# DIDAQ gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
+  for (int i = 0; i < DIDAQ_NUM_ADC; i++)
+  {
+    fprintf(of, "%u%s", didaq_full_scale_codes[i], i < DIDAQ_NUM_ADC -1 ? " " : "\n");
+  }
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    fprintf(of, "%u%s", didaq_gain_codes[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");
+  }
+  for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+  {
+    fprintf(of, "%.3f%s", didaq_gain_rms[i], i < RNO_G_NUM_RADIANT_CHANNELS -1 ? " " : "\n");
+  }
+  fclose(of);
+  add_to_file_list(buf);
+  return 0;
+}
+
+/** Per-beam / Per-channel state for the didaq servo, mirroring states for flower */
+typedef struct didaq_phased_servo_state
+{
+  float value[RNO_G_NUM_DIDAQ_BEAMS];
+  float last_value[RNO_G_NUM_DIDAQ_BEAMS];
+  float error[RNO_G_NUM_DIDAQ_BEAMS];
+  float last_error[RNO_G_NUM_DIDAQ_BEAMS];
+  float sum_error[RNO_G_NUM_DIDAQ_BEAMS];
+} didaq_phased_servo_state_t;
+
+typedef struct didaq_coinc_servo_state
+{
+  float value[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
+  float error[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
+  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
+} didaq_coinc_servo_state_t;
+
+/** Update each channel's servo error state from the latest coincidence-singles
+ *  scalers, mirroring FLOWER's update_flower_coinc_servo_state() -- read the
+ *  current rate directly (no rolling average) and optionally subtract the
+ *  gated variant. Unlike FLOWER, there's no per-channel "fast" (100Hz)
+ *  scaler to blend in: DIDAQ's only 100mHz-rate coincidence scalers
+ *  (coinc_trig_100mHz/_gated) are per coincidence-group output (for logging), not
+ *  decomposable per input channel.
+ */
+static void update_didaq_coinc_servo_state(didaq_coinc_servo_state_t * st, const rno_g_daqstatus_t * ds)
+{
+  int sub = cfg.didaq.servo.coinc.subtract_gated;
+
+  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
+  {
+    float val = ds->didaq_scalers.coinc_singles_1Hz[chan]
+      - sub * ds->didaq_scalers.coinc_singles_1Hz_gated[chan];
+
+    uint16_t goal = cfg.didaq.servo.coinc.scaler_goals[chan];
+
+#ifdef SERVO_DEBUG
+    if (chan == 2 || chan == 16)
+    {
+      printf("Channel: %d, Current count: %f (goal: %d), Error: %f\n",
+        chan, val, goal, st->error[chan]);
+    }
+#endif
+
+    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
+                        &st->sum_error[chan], val, goal, 0);
+  }
+}
+
+/** Update the phased/beam servo error state from the latest beam scalers.
+ *  beam_servo_1Hz updates every second and has no gated counterpart, so it
+ *  plays the role of FLOWER's "fast" scaler group; beam_trig_100mHz(_gated)
+ *  only updates every 10s (hence the *0.1 to get back to a Hz-comparable
+ *  rate) but does have a gated counterpart, so it plays the role of FLOWER's
+ *  "slow" (optionally gate-subtracted) group.
+ */
+static void update_didaq_phased_servo_state(didaq_phased_servo_state_t * st, const rno_g_daqstatus_t * ds)
+{
+
+  for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+  {
+
+#ifdef SERVO_DEBUG
+    if (i == 0 || i == 6)
+    {
+      printf("Beam: %d, Current count: %d, Error: %f (%f)\n",
+        i, ds->didaq_scalers.beam_servo_1Hz[i], st->error[i], st->last_error[i]);
+    }
+#endif
+
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+      &st->sum_error[i], ds->didaq_scalers.beam_servo_1Hz[i],
+      cfg.didaq.servo.phased.phased_scaler_goals[i], 0);
+
+#ifdef SERVO_DEBUG
+    if (i == 0 || i == 6)
+    {
+      printf("Beam: %d, Current count: %d, Error: %f (%f)\n",
+        i, ds->didaq_scalers.beam_servo_1Hz[i], st->error[i], st->last_error[i]);
+    }
+#endif
+
+  }
+}
+
+/** Servo/scaler-monitoring logic for the DIDAQ board, the ON_DIDAQ counterpart
+ *  of radiant_flower_servo(). DIDAQ has two independent servo loops (unlike
+ *  RADIANT+FLOWER's one-per-board split): the per-channel coincidence
+ *  threshold servo (RNO_G_NUM_RADIANT_CHANNELS channels, one DAC threshold
+ *  per channel, no separate trig/servo split; each channel feeds exactly one
+ *  of the RNO_G_NUM_DIDAQ_COINC coincidence triggers -- channels 0-11 feed
+ *  coinc[0], 12-23 feed coinc[1]) and the per-beam phased-array threshold
+ *  servo (RNO_G_NUM_DIDAQ_BEAMS beams, with a separate trig/servo threshold
+ *  pair like FLOWER's phased trigger). Both loops' scalers come off a single
+ *  didaq_read_scalers() SPI transaction, so that's only issued once per call
+ *  when either loop is due for an update.
+ */
+static void didaq_servo(double nowf)
+{
+  static int last_cfg_counter = -1;
+  static didaq_phased_servo_state_t phased_state = {0};
+  static didaq_coinc_servo_state_t coinc_state = {0};
+
+  // Simple float placeholders for the SERVO thesholds
+  // In principle we could use ds->daq_phased_servo_thresholds
+  // and ds->didaq_coin_thresholds directly? Though they are ints...
+  static float didaq_coinc_float_thresh[RNO_G_NUM_RADIANT_CHANNELS];
+  static float didaq_phased_float_thresh[RNO_G_NUM_DIDAQ_BEAMS];
+
+  static float min_coinc_thresh = 0;
+  static float max_coinc_thresh = 0;
+  static float min_phased_thresh = 0;
+  static float max_phased_thresh = 0;
+
+  // Maximum threshold change per servo step (0 means no limit)
+  static float max_coinc_dthresh = 0;
+
+  static uint32_t coinc_active_chan = 0;
+  static uint16_t phased_exclude_beam = 0;
+
+  static double last_scalers_coinc = 0;
+  static double last_scalers_phased = 0;
+  static double last_servo_coinc = 0;
+  static double last_servo_phased = 0;
+
+  int coinc_active = cfg.didaq.trigger.coinc[0].enable || cfg.didaq.trigger.coinc[1].enable;
+  int phased_active = cfg.didaq.trigger.phased.enable;
+
+  if (config_counter > last_cfg_counter)
+  {
+    last_cfg_counter = config_counter;
+    memset(&coinc_state, 0, sizeof(coinc_state));
+    memset(&phased_state, 0, sizeof(phased_state));
+
+    min_coinc_thresh = cfg.didaq.thresholds.coinc.min;
+    max_coinc_thresh = cfg.didaq.thresholds.coinc.max;
+
+    min_phased_thresh = cfg.didaq.thresholds.phased.min;
+    max_phased_thresh = cfg.didaq.thresholds.phased.max;
+
+    max_coinc_dthresh = fabs(cfg.didaq.servo.coinc.max_dthreshold);
+
+    // Already RNO-G numbering, like ds, so no permutation here.
+    coinc_active_chan = 0;
+    if (cfg.didaq.trigger.coinc[0].enable)
+      coinc_active_chan |= (~(uint32_t) cfg.didaq.trigger.coinc[0].exclude_mask) & 0xfff;
+    if (cfg.didaq.trigger.coinc[1].enable)
+      coinc_active_chan |= ((~(uint32_t) cfg.didaq.trigger.coinc[1].exclude_mask) & 0xfff) << 12;
+
+    phased_exclude_beam = cfg.didaq.trigger.phased.beam_exclude_mask;
+
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+      didaq_coinc_float_thresh[i] = ds->didaq_coin_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_DIDAQ_BEAMS; i++)
+      didaq_phased_float_thresh[i] = ds->didaq_phased_servo_thresholds[i];
+  }
+
+  float diff_scalers_coinc = nowf - last_scalers_coinc;
+  float diff_scalers_phased = nowf - last_scalers_phased;
+
+  int need_coinc_scalers = coinc_active && cfg.didaq.servo.coinc.scaler_update_interval
+    && cfg.didaq.servo.coinc.scaler_update_interval < diff_scalers_coinc;
+  int need_phased_scalers = phased_active && cfg.didaq.servo.phased.scaler_update_interval
+    && cfg.didaq.servo.phased.scaler_update_interval < diff_scalers_phased;
+
+  if (need_coinc_scalers || need_phased_scalers)
+  {
+    pthread_mutex_lock(&didaq_lock);
+    rno_g_daqstatus_t ds0 = {0};
+    // didaq_read_daqstatus() issues the didaq_read_scalers() itself and fills in every field of
+    // ds0.didaq_scalers -- already permuted into RNO-G channel numbering, which a raw
+    // didaq_scalers_t copy on top of it would silently undo.
+    int ok = didaq_read_daqstatus(didaq, &ds0, station_number);
+
+    pthread_mutex_unlock(&didaq_lock);
+
+    if (ok)
+    {
+      fprintf(stderr, "Problem reading didaq scalers/daqstatus\n");
+    }
+    else
+    {
+      memcpy(ds, &ds0, sizeof(ds0));
+
+      if (need_coinc_scalers)
+      {
+        update_didaq_coinc_servo_state(&coinc_state, ds);
+        last_scalers_coinc = nowf;
+      }
+
+      if (need_phased_scalers)
+      {
+        update_didaq_phased_servo_state(&phased_state, ds);
+        last_scalers_phased = nowf;
+      }
+    }
+
+  }
+
+  float diff_servo_coinc = nowf - last_servo_coinc;
+  float diff_servo_phased = nowf - last_servo_phased;
+
+  int coinc_changed = 0;
+  int phased_changed = 0;
+
+  if (coinc_active && cfg.didaq.servo.coinc.enable && cfg.didaq.servo.coinc.servo_interval
+      && cfg.didaq.servo.coinc.scaler_update_interval < diff_servo_coinc)
+  {
+    for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
+    {
+      if ((coinc_active_chan & (1u << ch)) == 0) continue;
+
+      double dthreshold = servo_pid_step(cfg.didaq.servo.coinc.P, cfg.didaq.servo.coinc.I,
+        cfg.didaq.servo.coinc.D, coinc_state.error[ch], coinc_state.sum_error[ch],
+        coinc_state.last_error[ch]);
+
+      // Don't let a sub-count PID step stall the servo while we are still far off
+      if (fabs(dthreshold) < 1
+          && fabs(coinc_state.error[ch]) > cfg.didaq.servo.coinc.max_tolerated_error) {
+        dthreshold = dthreshold < 0 ? -1 : 1;
+      }
+
+      // Hard limit on the step size, applied last so it also caps the nudge above
+      if (max_coinc_dthresh && fabs(dthreshold) > max_coinc_dthresh) {
+        dthreshold = dthreshold < 0 ? -max_coinc_dthresh : max_coinc_dthresh;
+      }
+
+#ifdef SERVO_DEBUG
+      if (ch == 2 || ch == 16)
+      {
+        printf("Channel: %d, Current count: %d, Current threshold: %d , delta: %f\n",
+          ch, ds->didaq_scalers.coinc_singles_1Hz[ch], ds->didaq_coin_thresholds[ch], dthreshold);
+      }
+#endif
+
+      didaq_coinc_float_thresh[ch] = clamp(didaq_coinc_float_thresh[ch] + dthreshold,
+        min_coinc_thresh, max_coinc_thresh);
+      ds->didaq_coin_thresholds[ch] = didaq_coinc_float_thresh[ch];
+
+#ifdef SERVO_DEBUG
+      if (ch == 2 || ch == 16)
+      {
+        printf("Channel: %d, Current count: %d, Current threshold: %d\n",
+          ch, ds->didaq_scalers.coinc_singles_1Hz[ch], ds->didaq_coin_thresholds[ch]);
+      }
+#endif
+
+
+    }
+    coinc_changed = 1;
+    last_servo_coinc = nowf;
+  }
+
+  if (phased_active && cfg.didaq.servo.phased.enable && cfg.didaq.servo.phased.servo_interval
+      && cfg.didaq.servo.phased.scaler_update_interval < diff_servo_phased)
+  {
+    for (int beam = 0; beam < RNO_G_NUM_DIDAQ_BEAMS; beam++)
+    {
+      if (phased_exclude_beam & (1u << beam)) continue;
+
+      double d_servo_threshold = servo_pid_step(cfg.didaq.servo.phased.P, cfg.didaq.servo.phased.I,
+        cfg.didaq.servo.phased.D, phased_state.error[beam], phased_state.sum_error[beam],
+        phased_state.last_error[beam]);
+
+      didaq_phased_float_thresh[beam] = clamp(didaq_phased_float_thresh[beam] + d_servo_threshold,
+        min_phased_thresh, max_phased_thresh);
+      ds->didaq_phased_servo_thresholds[beam] = didaq_phased_float_thresh[beam];
+
+#ifdef SERVO_DEBUG
+      if (beam == 0 || beam == 6) {
+        printf("Beam: %d, Current count: %d, Current threshold: %d (%f), delta: %f\n",
+          beam, ds->didaq_scalers.beam_servo_1Hz[beam], ds->didaq_phased_servo_thresholds[beam], didaq_phased_float_thresh[beam], d_servo_threshold);
+      }
+#endif
+
+      ds->didaq_phased_trigger_thresholds[beam] = clamp(
+          (didaq_phased_float_thresh[beam] - cfg.didaq.servo.phased.servo_thresh_offset) /
+          cfg.didaq.servo.phased.servo_thresh_frac,
+          min_phased_thresh, max_phased_thresh);
+    }
+    phased_changed = 1;
+    last_servo_phased = nowf;
+  }
+
+  if (coinc_changed || phased_changed)
+  {
+    pthread_mutex_lock(&didaq_lock);
+    didaq_write_thresholds(didaq, ds, station_number, phased_changed, coinc_changed);
+    pthread_mutex_unlock(&didaq_lock);
+  }
+}
+
+static struct drand48_data sw_rand;
+static double calc_next_sw_trig(float now)
+{
+  if (!cfg.didaq.trigger.soft.enabled) return 0;
+
+  double interval = cfg.didaq.trigger.soft.interval;
+  double u;
+  if (cfg.didaq.trigger.soft.interval_jitter)
+  {
+    drand48_r(&sw_rand,&u);
+    interval += 2*cfg.didaq.trigger.soft.interval_jitter*(u-0.5);
+  }
+
+  if (cfg.didaq.trigger.soft.use_exponential_distribution)
+  {
+    drand48_r(&sw_rand,&u);
+    return  now-log(u)*interval;
+  }
+  else return now+interval;
+}
+
+#else
 /** This configures the radiant. It holds the radiant write lock (and acquires the config read lock)*/
-int radiant_configure()
+static int radiant_configure()
 {
 
   pthread_rwlock_wrlock(&radiant_lock);
   pthread_rwlock_rdlock(&cfg_lock);
 
-
+  //set thresholds, seeding them from the config if we don't already have valid ones from the
+  //shmem file. This runs on every (re)configure -- not just the one at startup via
+  //radiant_initial_setup() -- so that a live config reread (SIGUSR1) with
+  //load_from_threshold_file turned off actually takes effect, instead of ds's thresholds
+  //silently staying whatever they were before the reread.
+  int need_to_copy_radiant_thresholds_from_cfg = !(
+    cfg.radiant.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_radiant_thresholds_from_cfg)
+  {
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    }
+  }
+  radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
 
   radiant_pps_config_t pps_cfg = {.pps_holdoff = cfg.radiant.pps.pps_holdoff,
                                   .enable_sync_out= cfg.radiant.pps.sync_out,
@@ -411,6 +1002,988 @@ int radiant_configure()
   return 0;
 }
 
+
+static int write_gain_codes_flower(char * buf)
+{
+  if (!flower) return -1;
+  static int gain_codes_counter = 0;
+  time_t now;
+  time(&now);
+
+  sprintf(buf, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++);
+  FILE * of = fopen(buf,"w");
+  if (!of) return 1;
+  fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+  {
+    fprintf(of, "%u%s", flower_codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
+  }
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+  {
+    fprintf(of, "%.3f%s", flower_rms[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
+  }
+  fclose(of);
+  add_to_file_list(buf);
+  return 0;
+}
+
+
+/** this configures the flower trigger. It holds the flower write lock (and acquires the config read lock)*/
+static int flower_configure()
+{
+  if (!flower) return -1;
+
+  pthread_rwlock_wrlock(&flower_lock);
+  pthread_rwlock_rdlock(&cfg_lock);
+
+  //if we don't already have valid thresholds loaded from the shmem file, seed them from the
+  //config. This runs on every (re)configure -- not just the one at startup via
+  //flower_initial_setup() -- so that a live config reread (SIGUSR1) with load_from_threshold_file
+  //turned off actually takes effect, instead of ds's thresholds silently staying whatever they
+  //were before the reread.
+  int need_to_copy_lt_thresholds_from_cfg = !(
+    cfg.lt.thresholds.load_from_threshold_file && shared_ds_file_size == sizeof(rno_g_daqstatus_t));
+  if (need_to_copy_lt_thresholds_from_cfg)
+  {
+    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
+    {
+      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
+      ds->lt_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 255);
+    }
+
+    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
+    {
+      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
+      ds->lt_phased_servo_thresholds[i] =
+        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac +
+          cfg.lt.servo.servo_thresh_offset, 0, 4095);
+    }
+  }
+
+  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
+  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff);
+
+  rno_g_lt_trigger_config_t ltcfg;
+  rno_g_lt_phased_trigger_config_t ltcfg_phased;
+
+  ltcfg.window = cfg.lt.trigger.coinc.window;
+  ltcfg.vpp_mode = cfg.lt.trigger.coinc.vpp;
+  ltcfg.num_coinc =cfg.lt.trigger.coinc.enable_rf_coinc_trigger ?  cfg.lt.trigger.coinc.min_coincidence-1 : 4;
+  ltcfg.channel_mask=0xf; //cfg.lt.trigger.coinc.rf_coinc_channel_mask; not implemented. forced to 0xf
+  ltcfg_phased.beam_mask=cfg.lt.trigger.phased.rf_phased_beam_mask;
+  ltcfg_phased.phased_threshold_offset=cfg.lt.trigger.phased.rf_phased_threshold_offset;
+  //might want to add an xorr between enables unless someone really wanted to use both
+
+  int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased);
+
+  flower_trigger_enables_t trig_enables = {
+    .enable_coinc=cfg.lt.trigger.coinc.enable_rf_coinc_trigger,
+    .enable_phased=cfg.lt.trigger.phased.enable_rf_phased_trigger,
+    .enable_pps = 0,
+    .enable_ext = 0
+  };
+
+  flower_trigout_enables_t trigout_enables = {
+    .enable_rf_sysout=cfg.lt.trigger.enable_rf_trigger_sys_out,
+    .enable_rf_auxout=cfg.lt.trigger.enable_rf_trigger_sma_out,
+    .enable_pps_sysout=cfg.lt.trigger.enable_pps_trigger_sys_out,
+    .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
+  };
+
+  flower_enable_force_trigger_preclear(flower, cfg.lt.waveforms.preclear_force_trigger);
+
+  if (!cfg.lt.gain.auto_gain)
+  {
+    flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes);
+    memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
+  }
+
+  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+  {
+    flower_update_pps_offset();
+  }
+
+  flower_set_trigger_enables(flower,trig_enables);
+  flower_set_trigout_enables(flower,trigout_enables);
+
+
+  pthread_rwlock_unlock(&cfg_lock);
+  pthread_rwlock_unlock(&flower_lock);
+
+  return ret;
+}
+
+
+static int flower_initial_setup()
+{
+  if (!flower) return -1;
+
+  //do the auto gain if asked to
+  if (cfg.lt.gain.auto_gain)
+  {
+    float target = cfg.lt.gain.target_rms;
+    //disable the coincident trigger momentarily
+    flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0, .enable_phased=0};
+    flower_set_trigger_enables(flower,trig_enables);
+    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, flower_rms);
+  }
+
+  if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable) && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
+  {
+    flower_waveforms_len = cfg.lt.waveforms.length;
+    flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, flower_waveforms_len);
+    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+    {
+      flower_waveforms[i] = flower_waveforms_data + i * flower_waveforms_len;
+    }
+  }
+
+  //thresholds are seeded/pushed inside flower_configure() itself now (so a live config reread
+  //re-applies them too, not just this startup call)
+  flower_configure();
+
+  return 0;
+}
+
+
+//right now this can only run in the main thread before and after data taking!!!
+static int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
+{
+
+  if (!force || !cfg.lt.waveforms.preclear_force_trigger) flower_buffer_clear(flower);
+  if (force) flower_force_trigger(flower);
+  int avail = 0;
+  struct timespec now;
+  while (!avail)
+  {
+    clock_gettime(CLOCK_REALTIME, &now);
+    if (deadline && timespec_difference(&now, deadline) > 0) {
+      return -1;
+    }
+
+    flower_buffer_check(flower, &avail);
+
+    if (!avail)
+    {
+      usleep(50000); // 50 ms
+    }
+
+    // maybe feed watchdog
+    if (last_watchdog < now.tv_sec - 5)
+    {
+      feed_watchdog(0);
+    }
+  }
+
+  flower_waveform_metadata_t meta = {0};
+  flower_read_waveforms(flower, flower_waveforms_len, flower_waveforms);
+  flower_read_waveform_metadata(flower ,&meta);
+
+  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": %s,\n", iev > 0 ? "," : "", force ? "true" : "false");
+  gzprintf(of,"\t\t\t\"metadata\": { \"event_counter\": %u, \"trigger_counter\": %u, \"trigger_type\": \"%s\", \"pps_flag\": %s, \"timestamp\": %"PRIu64 ", \"recent_pps_timestamp\": %"PRIu64 "},\n",
+      meta.event_counter, meta.trigger_counter, flower_trigger_type_as_string(meta.trigger_type), meta.pps_flag ? "true" : "false",  meta.timestamp, meta.recent_pps_timestamp);
+
+  for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
+  {
+    gzprintf(of,"\t\t\t\"ch%d\": [",i);
+    for (int j = 0; j < flower_waveforms_len; j++)
+    {
+      gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
+      if (j < flower_waveforms_len-1)
+        gzprintf(of,",");
+    }
+    if (i < RNO_G_NUM_LT_CHANNELS - 1)
+      gzprintf(of,"],\n");
+    else
+      gzprintf(of,"]\n");
+  }
+  gzprintf(of,"\t\t}");
+
+  return 0;
+}
+
+//right now this can only run in the main thread before and after data taking!!!
+static int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
+{
+
+  gzFile of = gzopen(outfile,"w");
+  gzprintf(of,"{\n\t\"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
+
+  int nev = 0;
+  //force first
+  for (int iev = 0; iev < nforce; iev++)
+  {
+    flower_take_waveform(of, 1, nev++, NULL);
+  }
+
+  if (nsecs_rf > 0)
+  {
+    struct timespec rf_start;
+    clock_gettime(CLOCK_REALTIME, &rf_start);
+    struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec};
+
+    while (!flower_take_waveform(of, 0, nev, &deadline)) nev++;
+  }
+
+  gzprintf(of,"\t]\n}");
+  gzclose(of);
+  return 0;
+}
+
+
+static void record_timimg()
+{
+  feed_watchdog(0); //don't get killed by watchdog
+  printf("Performing timing measurements. This should just take ~ a minute.\n");
+
+  char command[200];
+  snprintf(command, sizeof(command), "%s -n %d --data_dir %s",
+      "python3 /home/rno-g/stationrc/record_timings.py",
+      cfg.radiant.timing_recording.n_recordings,
+      cfg.radiant.timing_recording.directory);
+
+  system(command);
+  sleep(1);  // Probably not necessary but does not harm
+}
+
+
+static const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz";
+static int did_bias_scan = 0;
+
+static int do_bias_scan()
+{
+  printf("Performing bias scan. This will take a while (20-30 min).\n");
+  //write to a temporary file, then we'll move ite
+  rno_g_file_handle_t hbias;
+  if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
+  {
+    fprintf(stderr,"Trouble opening %s for writing\n. Skipping bias scan.", bias_scan_tmpfile);
+    return 1;
+  }
+
+  //apply attenuation
+  if (cfg.radiant.bias_scan.apply_attenuation)
+  {
+    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+    {
+      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4);
+    }
+  }
+
+ //make sure we apply the lab4 vbias in this case, otherwise it will be lost!
+  cfg.radiant.analog.apply_lab4_vbias = 1;
+
+  rno_g_pedestal_t ped;
+  ped.station = station_number;
+  ped.run = run_number;
+
+  for (int val = cfg.radiant.bias_scan.min_val;
+      val <= cfg.radiant.bias_scan.max_val;
+      val+= cfg.radiant.bias_scan.step_val)
+  {
+    radiant_set_dc_bias(radiant, val, val);
+    usleep(1e6*cfg.radiant.bias_scan.sleep_time);
+
+    feed_watchdog(0); //don't get killed by watchdog
+    radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped);
+
+    rno_g_pedestal_write(hbias, &ped);
+  }
+
+  rno_g_close_handle(&hbias);
+  did_bias_scan =1;
+
+  //TODO: there's no way we can restore, is there?
+  if (cfg.radiant.bias_scan.apply_attenuation)
+  {
+    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+    {
+      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0);
+    }
+  }
+
+  return 0;
+}
+
+
+/* Initial radiant config, including potential pedestal taking and even bias scans!
+ *
+ * this happens before threads start while holding config lock.
+ *
+ *
+ * */
+static int radiant_initial_setup()
+{
+  if (!radiant) return -1;
+  //just in case
+  radiant_labs_stop(radiant);
+  radiant_sync(radiant); //try to reset counters
+
+  radiant_set_internal_triggers_per_cycle(radiant,
+    cfg.radiant.pedestals.ntriggers_per_cycle, cfg.radiant.pedestals.sleep_per_cycle);
+
+  //bias scan first, if we do it
+  if (cfg.radiant.bias_scan.enable_bias_scan
+    && ((cfg.radiant.bias_scan.skip_runs < 2) || ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
+  {
+    do_bias_scan();
+  }
+  int wait_for_analog_settle=0;
+  if (cfg.radiant.analog.apply_lab4_vbias)
+  {
+
+    int ibias_left = cfg.radiant.analog.lab4_vbias[0] / 3.3 * 4095;
+    int ibias_right = cfg.radiant.analog.lab4_vbias[1] / 3.3 * 4095;
+    radiant_set_dc_bias(radiant,ibias_left,ibias_right);
+    wait_for_analog_settle = 1;
+  }
+
+  if (cfg.radiant.analog.apply_diode_vbias)
+  {
+    wait_for_analog_settle = 1;
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      radiant_set_td_bias(radiant, i, (int) (cfg.radiant.analog.diode_vbias[i]*2000));
+    }
+  }
+
+  if (wait_for_analog_settle)
+  {
+    usleep(cfg.radiant.analog.settle_time*1e6);
+  }
+
+  int have_peds = 0;
+  if (cfg.radiant.pedestals.pedestal_file)
+  {
+    pedestal_fd = open(cfg.radiant.pedestals.pedestal_file, O_CREAT | O_RDWR, 0755);
+
+    if (pedestal_fd == -1)
+    {
+      fprintf(stderr,"Could not open %s\n", cfg.radiant.pedestals.pedestal_file);
+    }
+    else
+    {
+      //measure size
+      size_t fsize = lseek(pedestal_fd, 0 , SEEK_END);
+      //rewind
+      lseek(pedestal_fd, 0, SEEK_SET);
+
+      //truncate to right size if not already right
+      if (fsize!= sizeof(rno_g_pedestal_t))
+      {
+        ftruncate(pedestal_fd, sizeof(rno_g_pedestal_t));
+      }
+
+      pedestals = mmap(0, sizeof(rno_g_pedestal_t), PROT_READ | PROT_WRITE, MAP_SHARED, pedestal_fd, 0);
+
+      //valid to read, maybe!
+      if (pedestals == MAP_FAILED)
+      {
+        //ruhroh.
+        fprintf(stderr, "Could not mmap pedestals. Will not be cached\n");
+        munmap(pedestals, sizeof(rno_g_pedestal_t));
+        close(pedestal_fd);
+        pedestals = 0;
+      }
+
+      else if(fsize != sizeof(rno_g_pedestal_t))
+      {
+        memset(pedestals,0, sizeof(rno_g_pedestal_t));
+      }
+      else
+      {
+        have_peds = 1;
+      }
+    }
+  }
+
+  if (cfg.radiant.pedestals.compute_at_start)
+  {
+
+    if (cfg.radiant.pedestals.apply_attenuation)
+    {
+      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+      {
+        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.pedestals.attenuation,0,31.75)*4);
+      }
+    }
+
+    //in case we didn't get mmaped
+    if (!pedestals)
+    {
+      pedestals = calloc(1, sizeof(rno_g_pedestal_t));
+    }
+
+    have_peds = !radiant_compute_pedestals(radiant, 0xffffff,
+                                            cfg.radiant.pedestals.ntriggers_per_computation,
+                                            pedestals);
+
+    pedestals->station = station_number;
+
+    //if we have a pedestal file, let's flush it
+    if (cfg.radiant.pedestals.pedestal_file)
+    {
+      msync(pedestals, sizeof(rno_g_pedestal_t), MS_SYNC);
+    }
+
+    //TODO: there's no way we can restore, is there?
+    if (cfg.radiant.pedestals.apply_attenuation)
+    {
+      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+      {
+        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0);
+      }
+    }
+
+  }
+
+  if (cfg.radiant.pedestals.pedestal_subtract && !have_peds)
+  {
+
+    fprintf(stderr, "!!! Can't subtract pedestals due to not having a good source. Either enable radiant.pedestals.compute_at_start or arrange to point radiant.pedestals.pedestal_file to valid pedestals.\n");
+  }
+  else if (cfg.radiant.pedestals.pedestal_subtract)
+  {
+    radiant_set_pedestals(radiant, pedestals);
+
+  }
+
+  if (cfg.radiant.analog.apply_attenuations)
+  {
+    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
+    {
+      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG,
+        clamp(cfg.radiant.analog.digi_attenuation[ichan], 0, 31.75) * 4);
+      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG,
+        clamp(cfg.radiant.analog.trig_attenuation[ichan], 0, 31.75) * 4);
+    }
+  }
+
+  //thresholds are seeded/pushed inside radiant_configure() itself now (so a live config reread
+  //re-applies them too, not just this startup call)
+
+  //set up DMA correctly
+  radiant_reset_fifo_counters(radiant);
+  radiant_set_nbuffers_per_readout(radiant, cfg.radiant.readout.nbuffers_per_readout);
+  radiant_dma_setup_event(radiant, cfg.radiant.readout.readout_mask);
+
+  //then do the rest of the configuration
+  radiant_configure();
+
+  return 0;
+}
+
+
+typedef struct flower_coinc_servo_state
+{
+  float value[RNO_G_NUM_LT_CHANNELS];
+  float last_value[RNO_G_NUM_LT_CHANNELS];
+  float error[RNO_G_NUM_LT_CHANNELS];
+  float last_error[RNO_G_NUM_LT_CHANNELS];
+  float sum_error[RNO_G_NUM_LT_CHANNELS];
+} flower_coinc_servo_state_t;
+
+typedef struct flower_phased_servo_state
+{
+  float value[RNO_G_NUM_LT_BEAMS];
+  float last_value[RNO_G_NUM_LT_BEAMS];
+  float error[RNO_G_NUM_LT_BEAMS];
+  float last_error[RNO_G_NUM_LT_BEAMS];
+  float sum_error[RNO_G_NUM_LT_BEAMS];
+} flower_phased_servo_state_t;
+
+/** RADIANT's scalers need adjusting for prescaling/period before they're a
+ *  plain per-second rate.
+ */
+static float radiant_raw_coinc_scaler(const rno_g_daqstatus_t * ds, int chan)
+{
+  return ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1);
+}
+
+/** Per-channel multi-period state for RADIANT's coincidence-trigger threshold
+ *  servo: each channel has its own trigger threshold, serviced independently
+ *  off that channel's own singles-rate scaler, averaged over a
+ *  multi-timescale rolling window (needed because RADIANT's raw scaler
+ *  counts are noisy and require prescaler/period correction -- see
+ *  radiant_raw_coinc_scaler() above). DIDAQ/FLOWER don't need this: their
+ *  scalers are already-computed per-second rates, so they use direct-read
+ *  servo state instead (didaq_coinc_servo_state_t / flower_coinc_servo_state_t).
+ */
+typedef struct radiant_coinc_servo_state
+{
+  int max_periods;
+  int nperiods_populated;
+  float period_weights[NUM_SERVO_PERIODS];
+  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
+  float * scaler_v_mem;
+  float value[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
+  float error[RNO_G_NUM_RADIANT_CHANNELS];
+  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
+  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
+} radiant_coinc_servo_state_t;
+
+/** File-scope (not local to radiant_flower_servo()) so that mon_thread() can
+ *  free scaler_v_mem after the acquisition loop exits.
+ */
+static radiant_coinc_servo_state_t radiant_coinc_servo_state = {0};
+
+static void setup_radiant_coinc_servo_state(
+  radiant_coinc_servo_state_t * state, const rno_g_radiant_servo_config_t * servo_cfg)
+{
+  int max_periods = 0;
+  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
+  {
+    if (servo_cfg->nscaler_periods_per_servo_period[i] > max_periods)
+    {
+      max_periods = servo_cfg->nscaler_periods_per_servo_period[i];
+    }
+  }
+
+  if (state->max_periods < max_periods)
+  {
+    if (state->scaler_v_mem)
+    {
+      free(state->scaler_v_mem);
+      memset(state, 0, sizeof(*state));
+    }
+    state->scaler_v_mem = malloc(sizeof(float) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
+    state->max_periods = max_periods;
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      state->scaler_v[i] = state->scaler_v_mem + max_periods * i;
+    }
+  }
+
+  memcpy(state->nscaler_periods_per_servo_period, servo_cfg->nscaler_periods_per_servo_period,
+    sizeof(int) * NUM_SERVO_PERIODS);
+  memcpy(state->period_weights, servo_cfg->period_weights, sizeof(float) * NUM_SERVO_PERIODS);
+}
+
+/** Roll the latest per-channel scalers (via radiant_raw_coinc_scaler()) into
+ *  the multi-timescale average and update each channel's servo error state.
+ */
+static void update_radiant_coinc_servo_state(radiant_coinc_servo_state_t * st, const rno_g_daqstatus_t * ds,
+  const rno_g_radiant_servo_config_t * servo_cfg)
+{
+  int idx = (st->nperiods_populated++) % st->max_periods;
+  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
+
+  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
+  {
+    st->scaler_v[chan][idx] = radiant_raw_coinc_scaler(ds, chan);
+
+    float new_value = 0;
+    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
+    {
+      if (!st->period_weights[j]) continue;
+      int nthis = 0;
+      float sumthis = 0;
+      for (int i = 0; i < max_idxs; i++)
+      {
+        if (i < st->nscaler_periods_per_servo_period[j])
+        {
+          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
+          nthis++;
+        }
+      }
+      new_value += st->period_weights[j]*sumthis/nthis;
+    }
+
+    if (servo_cfg->use_log)
+    {
+      new_value = log10(servo_cfg->log_offset + new_value);
+    }
+
+    servo_record_value(&st->value[chan], &st->last_value[chan], &st->error[chan], &st->last_error[chan],
+                        &st->sum_error[chan], new_value, servo_cfg->scaler_goals[chan], servo_cfg->max_sum_err);
+  }
+}
+
+
+static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds)
+{
+
+  float sw = cfg.lt.servo.slow_scaler_weight;
+  float fw = cfg.lt.servo.fast_scaler_weight;
+
+  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
+  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
+  const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
+
+  int sub = cfg.lt.servo.subtract_gated;
+  static float fast_factor = 0;
+  if (!fast_factor)
+  {
+
+    int fw_ver;
+    flower_get_fwversion_int(flower, &fw_ver);
+
+    if (fw_ver < 6) fast_factor = 1000;
+    else fast_factor = 100;
+  }
+
+  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+  {
+
+    float val =  fw * fast_factor*fast->servo_per_chan[i]+ sw *
+      (slow->servo_per_chan[i] - sub * slow_gated->servo_per_chan[i]);
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+                        &st->sum_error[i], val, cfg.lt.servo.coinc_scaler_goals[i], 0);
+  }
+}
+
+
+static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, const rno_g_daqstatus_t * ds)
+{
+
+  float sw = cfg.lt.servo.slow_scaler_weight;
+  float fw = cfg.lt.servo.fast_scaler_weight;
+
+  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
+  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
+  const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
+
+  int sub = cfg.lt.servo.subtract_gated;
+  static float fast_factor = 0;
+  if (!fast_factor)
+  {
+
+    uint8_t station, major, minor;
+    flower_get_fwversion(flower, &station, &major, &minor,0,0,0);
+
+    if (!major && minor < 6) fast_factor = 1000;
+    else fast_factor = 100;
+  }
+
+  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+  {
+
+    float val =  fw * fast_factor*fast->servo_per_beam[i] + sw *
+      (slow->servo_per_beam[i] - sub * slow_gated->servo_per_beam[i]);
+    servo_record_value(&st->value[i], &st->last_value[i], &st->error[i], &st->last_error[i],
+                        &st->sum_error[i], val, cfg.lt.servo.phased_scaler_goals[i], 0);
+  }
+}
+
+
+/** Servo/scaler-monitoring logic for the RADIANT + FLOWER boards, split out of
+ *  mon_thread() for readability. Called once per mon_thread loop iteration (with
+ *  the cfg read lock already held); keeps its own persistent state (servo
+ *  history, computed thresholds, last-update times) across calls via statics.
+ */
+static void radiant_flower_servo(double nowf)
+{
+  // The `static` locals below have static storage duration: each is allocated once,
+  // for the lifetime of the program (not per-call like a normal local), and keeps
+  // its value between calls. This is only safe because radiant_flower_servo()
+  // is only ever called from mon_thread (a single thread). radiant_coinc_servo_state
+  // is declared at file scope instead (see above its typedef) so mon_thread() can
+  // free its scaler_v_mem after the loop exits.
+  static int last_cfg_counter = -1;
+  static flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
+  static flower_phased_servo_state_t flwr_phased_servo_state = {0};
+
+  static float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS];
+  static float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS];
+
+  static uint32_t min_rad_thresh = 0;
+  static uint32_t max_rad_thresh = 0;
+  static uint32_t max_rad_change = 0;
+
+  static double last_scalers_radiant = 0;
+  static double last_scalers_lt = 0;
+  static double last_servo_radiant = 0;
+  static double last_servo_lt = 0;
+
+  float diff_scalers_radiant = nowf - last_scalers_radiant;
+  float diff_scalers_lt = nowf - last_scalers_lt;
+  float diff_servo_radiant = nowf - last_servo_radiant;
+  float diff_servo_lt = nowf - last_servo_lt;
+
+  //re set up the RADIANT
+  if (config_counter > last_cfg_counter)
+  {
+    last_cfg_counter = config_counter;
+    setup_radiant_coinc_servo_state(&radiant_coinc_servo_state, &cfg.radiant.servo);
+    memset(&flwr_coinc_servo_state, 0, sizeof(flower_coinc_servo_state_t));
+    memset(&flwr_phased_servo_state, 0, sizeof(flower_phased_servo_state_t));
+
+    // We allow re-reading the cfg, so those are not const.
+    min_rad_thresh = cfg.radiant.thresholds.min * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    max_rad_thresh = cfg.radiant.thresholds.max * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+    max_rad_change = cfg.radiant.servo.max_thresh_change * RADIANT_THRESHOLD_COUNTS_PER_VOLT;
+
+    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
+      flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
+    for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
+      flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
+  }
+
+  int update_radiant = (cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)
+    && cfg.radiant.servo.scaler_update_interval
+    && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant;
+
+  //do we need radiant scalers?
+  if (update_radiant)
+  {
+    while (1)
+    {
+      //read twice and make sure equal
+      static rno_g_daqstatus_t ds0 = {0};
+      memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
+      static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS] = {0};
+      int ok = radiant_read_daqstatus(radiant, &ds0) +
+        radiant_get_scalers(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
+
+      if (ok) fprintf(stderr,"Problem reading daqstatus\n");
+
+      if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
+      {
+          memcpy(ds, &ds0, sizeof(ds0));
+          break;
+      }
+
+      printf("WARNING: Unequal sequential DAQStatus, trying again\n");
+    }
+
+    //update the running averages for the radiant
+    update_radiant_coinc_servo_state(&radiant_coinc_servo_state, ds, &cfg.radiant.servo);
+    last_scalers_radiant = nowf;
+  }
+
+  // do we need to servo radiant?
+  if (update_radiant && cfg.radiant.servo.enable)
+  {
+    for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
+    {
+      //only servo channels that are part of the trigger?
+      if ( 0 == (radiant_trig_chan & (1 << ch))) continue;
+
+      double dthreshold = servo_pid_step(cfg.radiant.servo.P, cfg.radiant.servo.I, cfg.radiant.servo.D,
+        radiant_coinc_servo_state.error[ch], radiant_coinc_servo_state.sum_error[ch],
+        radiant_coinc_servo_state.last_error[ch]);
+
+      if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
+      {
+        dthreshold = (dthreshold < 0)  ? -max_rad_change : max_rad_change;
+      }
+
+      ds->radiant_thresholds[ch] = clamp(ds->radiant_thresholds[ch] - dthreshold,
+        min_rad_thresh, max_rad_thresh);
+    }
+
+    //set the thresholds
+    radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
+    last_servo_radiant = nowf;
+  }
+
+  int update_flower = (cfg.lt.trigger.coinc.enable_rf_coinc_trigger ||
+    cfg.lt.trigger.phased.enable_rf_phased_trigger)
+    && cfg.lt.servo.scaler_update_interval
+    && cfg.lt.servo.scaler_update_interval < diff_scalers_lt
+    && flower;
+
+  // do we need LT scalers?
+  if (update_flower)
+  {
+    flower_fill_daqstatus(flower, ds);
+
+    update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds);
+    update_flower_phased_servo_state(&flwr_phased_servo_state, ds);
+
+    //if cycle counter is in the right realm, use it...
+    if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6)
+    {
+      delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
+      //if we have the pps trigger out and it's not 0, let's update our estimate
+      if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
+          && cfg.lt.trigger.pps_trigger_delay)
+      {
+        flower_update_pps_offset();
+      }
+    }
+    last_scalers_lt = nowf;
+  }
+
+  // do we need to servo LT?
+
+  if (update_flower && cfg.lt.servo.enable)
+  {
+    if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
+    {
+      for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++)
+      {
+        if(!(cfg.lt.trigger.coinc.rf_coinc_channel_mask&(1<<ch))) continue;//ignore turned off beams
+        double d_servo_threshold = servo_pid_step(cfg.lt.servo.P, cfg.lt.servo.I, cfg.lt.servo.D,
+                                  flwr_coinc_servo_state.error[ch], flwr_coinc_servo_state.sum_error[ch], flwr_coinc_servo_state.last_error[ch]);
+
+
+        flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold, 4, 120);
+        ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch];
+        ds->lt_trigger_thresholds[ch] = clamp(
+          (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac,
+          4, 120);
+      }
+      flower_set_coinc_thresholds(flower, ds->lt_trigger_thresholds, ds->lt_servo_thresholds, cfg.lt.trigger.coinc.rf_coinc_channel_mask);
+    }
+
+    if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
+    {
+      for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
+      {
+        if(!(cfg.lt.trigger.phased.rf_phased_beam_mask&(1<<beam))) continue;//ignore turned off beams
+        double d_servo_threshold = servo_pid_step(cfg.lt.servo.phased_P, cfg.lt.servo.I, cfg.lt.servo.D,
+                                flwr_phased_servo_state.error[beam], flwr_phased_servo_state.sum_error[beam], flwr_phased_servo_state.last_error[beam]);
+
+
+        flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold, 4, 4095);
+        ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam];
+        ds->lt_phased_trigger_thresholds[beam] = clamp(
+        (flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac,
+        1, 4095);
+      }
+      flower_set_phased_thresholds(flower,
+        ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, cfg.lt.trigger.phased.rf_phased_beam_mask);
+    }
+
+    last_servo_lt = nowf;
+  }
+}
+
+
+/**
+ * Open and configure the radiant and flower boards.
+ *
+ *  - initialize the radiant lock and, record the timing before the radiant
+ *    (with a python script which initalizes the radiant by itself)
+ *  - open the radiant, retrying (and dropping kernel caches) a few times
+ *    in case kernel fragmentation is preventing the open, and giving up
+ *    after too many failed attempts
+ *  - initialize the flower lock and open the flower (fatal only if the
+ *    flower is marked as required in the config), and warn if its
+ *    firmware reports a station number that doesn't match ours
+ *  - run each board's initial setup routine, feeding the watchdog between
+ *    steps since this can take a while (take bias scan if condition is met)
+ *
+ * Returns 0 on success, 1 on failure (radiant could not be opened after
+ * repeated attempts, the flower could not be opened but is required, or
+ * either board's initial setup failed).
+ */
+static int open_and_setup_radiant_and_flower()
+{
+  //initialize the radiant lock
+  pthread_rwlock_init(&radiant_lock, NULL);
+
+  // When it is time to do a bias scan record the timing before setting up the radiant
+  if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
+      ((run_number % cfg.radiant.timing_recording.skip_runs) == 0)))
+  {
+    record_timimg();
+  }
+
+  int nattempts = 0;
+  //open the radiant
+  do
+  {
+    radiant  = radiant_open(
+      cfg.radiant.device.spi_device,
+      cfg.radiant.device.uart_device,
+      cfg.radiant.device.poll_gpio,
+      cfg.radiant.device.spi_enable_gpio);
+
+    if (!radiant)
+    {
+      fprintf(stderr, "COULD NOT OPEN RADIANT. Attemping to drop caches in case kernel fragmentation is the issue.");
+      if (nattempts++ > 3)
+      {
+        fprintf(stderr, "Giving up...\n");
+        return 1;
+      }
+      sleep(1);
+      system("/rno-g/bin/bbb-drop-caches");
+    }
+
+    if (radiant && nattempts > 0)
+    {
+      fprintf(stderr,"Ok, we could open it! Yay!\n");
+    }
+  } while (!radiant);
+
+  //open the flower before doing radiant_initial_setup so we fail faster
+  pthread_rwlock_init(&flower_lock, NULL);
+
+  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio);
+  if (!flower && cfg.lt.device.required)
+  {
+    fprintf(stderr, "COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
+    sleep(20);
+    return 1;
+  }
+
+  uint8_t fwstation, fwmajor, fwminor;
+  flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, 0, 0, 0);
+  if ((1000*fwmajor + fwminor) >= 14 && fwstation != station_number)
+  {
+    //complain but don't quit since it's not necessarily fatal (ie lab testing)
+    fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
+  }
+
+  feed_watchdog(0);
+
+  //intitial configure of the radiant, bail if can't open
+  if (radiant_initial_setup())
+    return 1;
+  feed_watchdog(0);
+
+  //and the flower, bail if can't open  and required
+  if (flower_initial_setup() && cfg.lt.device.required)
+    return 1;
+  feed_watchdog(0);
+
+  return 0;
+}
+
+// you should be holding a flower lock while calling this
+static int flower_update_pps_offset()
+{
+  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
+
+  // clamp to a second
+  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
+
+  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
+  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
+  return flower_set_delayed_pps_delay(flower,delay_cycles);
+}
+
+static struct drand48_data sw_rand;
+static double calc_next_sw_trig(float now)
+{
+  if (!cfg.radiant.trigger.soft.enabled) return 0;
+
+  double interval = cfg.radiant.trigger.soft.interval;
+  double  u;
+  if (cfg.radiant.trigger.soft.interval_jitter)
+  {
+    drand48_r(&sw_rand,&u);
+    interval += 2*cfg.radiant.trigger.soft.interval_jitter*(u-0.5);
+  }
+
+  if (cfg.radiant.trigger.soft.use_exponential_distribution)
+  {
+    drand48_r(&sw_rand,&u);
+    return  now-log(u)*interval;
+  }
+  else return now+interval;
+}
+
+#endif
+
+
 static void set_calpulser_atten(float atten)
 {
     if (atten < 0) atten = 0;
@@ -419,7 +1992,7 @@ static void set_calpulser_atten(float atten)
     rno_g_cal_set_atten(calpulser,(uint8_t) atten);
 }
 
-int calpulser_configure()
+static int calpulser_configure()
 {
   pthread_rwlock_rdlock(&cfg_lock);
   if (cfg.calib.enable_cal && !calpulser)
@@ -481,89 +2054,6 @@ int calpulser_configure()
 }
 
 
-int write_gain_codes(char * buf)
-{
-  if (!flower) return -1;
-  static int gain_codes_counter = 0;
-  time_t now;
-  time(&now);
-
-  sprintf(buf, "%s/aux/flower_gain_codes.%d.txt", output_dir, gain_codes_counter++);
-  FILE * of = fopen(buf,"w");
-  if (!of) return 1;
-  fprintf(of,"# Flower gain codes, station=%d, run=%d,  time=%lu\n", station_number, run_number, now);
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
-  {
-    fprintf(of, "%u%s", flower_codes[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
-  }
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
-  {
-    fprintf(of, "%.3f%s", flower_rms[i], i < RNO_G_NUM_LT_CHANNELS -1 ? " " : "\n");
-  }
-  fclose(of);
-  add_to_file_list(buf);
-  return 0;
-}
-
-
-/** this configures the flower trigger. It holds the flower write lock (and acquires the config read lock)*/
-int flower_configure()
-{
-  if (!flower) return -1;
-
-  pthread_rwlock_wrlock(&flower_lock);
-  pthread_rwlock_rdlock(&cfg_lock);
-  rno_g_lt_trigger_config_t ltcfg;
-  rno_g_lt_phased_trigger_config_t ltcfg_phased;
-
-  ltcfg.window = cfg.lt.trigger.coinc.window;
-  ltcfg.vpp_mode = cfg.lt.trigger.coinc.vpp;
-  ltcfg.num_coinc =cfg.lt.trigger.coinc.enable_rf_coinc_trigger ?  cfg.lt.trigger.coinc.min_coincidence-1 : 4;
-  ltcfg.channel_mask=0xf; //cfg.lt.trigger.coinc.rf_coinc_channel_mask; not implemented. forced to 0xf
-  ltcfg_phased.beam_mask=cfg.lt.trigger.phased.rf_phased_beam_mask;
-  ltcfg_phased.phased_threshold_offset=cfg.lt.trigger.phased.rf_phased_threshold_offset;
-  //might want to add an xorr between enables unless someone really wanted to use both
-
-  int ret = flower_configure_trigger(flower, ltcfg, ltcfg_phased);
-
-  flower_trigger_enables_t trig_enables = {
-    .enable_coinc=cfg.lt.trigger.coinc.enable_rf_coinc_trigger,
-    .enable_phased=cfg.lt.trigger.phased.enable_rf_phased_trigger,
-    .enable_pps = 0,
-    .enable_ext = 0
-  };
-
-  flower_trigout_enables_t trigout_enables = {
-    .enable_rf_sysout=cfg.lt.trigger.enable_rf_trigger_sys_out,
-    .enable_rf_auxout=cfg.lt.trigger.enable_rf_trigger_sma_out,
-    .enable_pps_sysout=cfg.lt.trigger.enable_pps_trigger_sys_out,
-    .enable_pps_auxout=cfg.lt.trigger.enable_pps_trigger_sma_out
-  };
-
-  flower_enable_force_trigger_preclear(flower, cfg.lt.waveforms.preclear_force_trigger);
-
-  if (!cfg.lt.gain.auto_gain)
-  {
-    flower_set_gains(flower, cfg.lt.gain.fixed_gain_codes);
-    memcpy(flower_codes, cfg.lt.gain.fixed_gain_codes, sizeof(flower_codes));
-  }
-
-  if (cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
-  {
-    flower_update_pps_offset();
-  }
-
-  flower_set_trigger_enables(flower,trig_enables);
-  flower_set_trigout_enables(flower,trigout_enables);
-
-
-  pthread_rwlock_unlock(&cfg_lock);
-  pthread_rwlock_unlock(&flower_lock);
-
-  return ret;
-}
-
-
 static float clamp(float val, float min, float max)
 {
   if (val > max) return max;
@@ -572,375 +2062,31 @@ static float clamp(float val, float min, float max)
 }
 
 
-
-int flower_initial_setup()
+/** Update a single servo channel's error-tracking state given its latest raw value.
+ *  This bookkeeping (value/last_value/error/last_error/sum_error, with optional
+ *  clamping of the accumulated error) is the same regardless of how the raw value
+ *  or goal were computed, so any digitizer's servo loop can share it. Pass 0 for
+ *  max_sum_err to disable clamping.
+ */
+static void servo_record_value(float * value, float * last_value, float * error, float * last_error,
+                                float * sum_error, float new_value, float goal, float max_sum_err)
 {
-  if (!flower) return -1;
-
-  //do the auto gain if asked to
-  if (cfg.lt.gain.auto_gain)
+  *last_value = *value;
+  *value = new_value;
+  *last_error = *error;
+  *error = new_value - goal;
+  *sum_error += *error;
+  if (max_sum_err && fabs(*sum_error) > max_sum_err)
   {
-    float target = cfg.lt.gain.target_rms;
-    //disable the coincident trigger momentarily
-    flower_trigger_enables_t trig_enables = {.enable_coinc=0, .enable_pps = 0, .enable_ext = 0, .enable_phased=0};
-    flower_set_trigger_enables(flower,trig_enables);
-    flower_equalize(flower, target, flower_codes, FLOWER_EQUALIZE_VERBOSE, flower_rms);
+    *sum_error = *sum_error < 0 ? -max_sum_err : max_sum_err;
   }
-
-  if (cfg.lt.waveforms.length > 0 && (cfg.lt.waveforms.at_start.enable || cfg.lt.waveforms.at_finish.enable) && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
-  {
-    flower_waveforms_len = cfg.lt.waveforms.length;
-    flower_waveforms_data = calloc(RNO_G_NUM_LT_CHANNELS, flower_waveforms_len);
-    for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
-    {
-      flower_waveforms[i] = flower_waveforms_data + i * flower_waveforms_len;
-    }
-  }
-
-  flower_set_coinc_thresholds(flower,  ds->lt_trigger_thresholds, ds->lt_servo_thresholds, 0xf);
-  flower_set_phased_thresholds(flower,  ds->lt_phased_trigger_thresholds, ds->lt_phased_servo_thresholds, 0x1ff);
-
-  //then the rest of the configuration;
-  flower_configure();
-
-  return 0;
 }
 
-
-//right now this can only run in the main thread before and after data taking!!!
-int flower_take_waveform(gzFile of, int force, int iev, struct timespec * deadline)
+/** Standard PID step, given the gains and a channel's current error state. */
+static double servo_pid_step(double P, double I, double D, float error, float sum_error, float last_error)
 {
-
-  if (!force || !cfg.lt.waveforms.preclear_force_trigger) flower_buffer_clear(flower);
-  if (force) flower_force_trigger(flower);
-  int avail = 0;
-  struct timespec now;
-  while (!avail)
-  {
-    clock_gettime(CLOCK_REALTIME, &now);
-    if (deadline && timespec_difference(&now, deadline) > 0) {
-      return -1;
-    }
-
-    flower_buffer_check(flower, &avail);
-
-    if (!avail)
-    {
-      usleep(50000); // 50 ms
-    }
-
-    // maybe feed watchdog
-    if (last_watchdog < now.tv_sec - 5)
-    {
-      feed_watchdog(0);
-    }
-  }
-
-  flower_waveform_metadata_t meta = {0};
-  flower_read_waveforms(flower, flower_waveforms_len, flower_waveforms);
-  flower_read_waveform_metadata(flower ,&meta);
-
-  gzprintf(of,"%s\n\t\t{\n\t\t\t\"force\": %s,\n", iev > 0 ? "," : "", force ? "true" : "false");
-  gzprintf(of,"\t\t\t\"metadata\": { \"event_counter\": %u, \"trigger_counter\": %u, \"trigger_type\": \"%s\", \"pps_flag\": %s, \"timestamp\": %"PRIu64 ", \"recent_pps_timestamp\": %"PRIu64 "},\n",
-      meta.event_counter, meta.trigger_counter, flower_trigger_type_as_string(meta.trigger_type), meta.pps_flag ? "true" : "false",  meta.timestamp, meta.recent_pps_timestamp);
-
-  for (int i = 0 ; i < RNO_G_NUM_LT_CHANNELS; i++)
-  {
-    gzprintf(of,"\t\t\t\"ch%d\": [",i);
-    for (int j = 0; j < flower_waveforms_len; j++)
-    {
-      gzprintf(of,"%d",((int)flower_waveforms[i][j])-128);
-      if (j < flower_waveforms_len-1)
-        gzprintf(of,",");
-    }
-    if (i < RNO_G_NUM_LT_CHANNELS - 1)
-      gzprintf(of,"],\n");
-    else
-      gzprintf(of,"]\n");
-  }
-  gzprintf(of,"\t\t}");
-
-  return 0;
+  return P * error + I * sum_error + D * (error - last_error);
 }
-
-//right now this can only run in the main thread before and after data taking!!!
-int flower_take_waveforms(int nforce, int nsecs_rf, const char *outfile)
-{
-
-  gzFile of = gzopen(outfile,"w");
-  gzprintf(of,"{\n\t\"hostname\" : \"rno-g-%03d\", \"run\": %d,\n\t\"events\" : [", station_number, run_number);
-
-  int nev = 0;
-  //force first
-  for (int iev = 0; iev < nforce; iev++)
-  {
-    flower_take_waveform(of, 1, nev++, NULL);
-  }
-
-  if (nsecs_rf > 0)
-  {
-    struct timespec rf_start;
-    clock_gettime(CLOCK_REALTIME, &rf_start);
-    struct timespec deadline = {.tv_sec = rf_start.tv_sec + nsecs_rf, .tv_nsec = rf_start.tv_nsec};
-
-    while (!flower_take_waveform(of, 0, nev, &deadline)) nev++;
-  }
-
-  gzprintf(of,"\t]\n}");
-  gzclose(of);
-  return 0;
-}
-
-
-static void record_timimg()
-{
-  feed_watchdog(0); //don't get killed by watchdog
-  printf("Performing timing measurements. This should just take ~ a minute.\n");
-
-  char command[200];
-  snprintf(command, sizeof(command), "%s -n %d --data_dir %s",
-      "python3 /home/rno-g/stationrc/record_timings.py",
-      cfg.radiant.timing_recording.n_recordings,
-      cfg.radiant.timing_recording.directory);
-
-  system(command);
-  sleep(1);  // Probably not necessary but does not harm
-}
-
-
-const char * bias_scan_tmpfile = "/tmp/bias_scan.dat.gz";
-static int did_bias_scan = 0;
-
-static int do_bias_scan()
-{
-  printf("Performing bias scan. This will take a while (20-30 min).\n");
-  //write to a temporary file, then we'll move ite
-  rno_g_file_handle_t hbias;
-  if (rno_g_init_handle(&hbias,bias_scan_tmpfile, "w"))
-  {
-    fprintf(stderr,"Trouble opening %s for writing\n. Skipping bias scan.", bias_scan_tmpfile);
-    return 1;
-  }
-
-
-  //apply attenuation
-  if (cfg.radiant.bias_scan.apply_attenuation)
-  {
-     for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-     {
-       radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.bias_scan.attenuation,0,31.75)*4);
-     }
-  }
-
-
- //make sure we apply the lab4 vbias in this case, otherwise it will be lost!
-  cfg.radiant.analog.apply_lab4_vbias = 1;
-
-  rno_g_pedestal_t ped;
-  ped.station = station_number;
-  ped.run = run_number;
-
-  for (int val = cfg.radiant.bias_scan.min_val;
-      val <= cfg.radiant.bias_scan.max_val;
-      val+= cfg.radiant.bias_scan.step_val)
-  {
-    radiant_set_dc_bias(radiant, val, val);
-    usleep(1e6*cfg.radiant.bias_scan.sleep_time);
-
-    feed_watchdog(0); //don't get killed by watchdog
-    radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped);
-
-    rno_g_pedestal_write(hbias, &ped);
-  }
-
-  rno_g_close_handle(&hbias);
-  did_bias_scan =1;
-
-  //TODO: there's no way we can restore, is there?
-  if (cfg.radiant.bias_scan.apply_attenuation)
-  {
-    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-    {
-      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0);
-    }
-  }
-
-  return 0;
-}
-
-
-/* Initial radiant config, including potential pedestal taking and even bias scans!
- *
- * this happens before threads start while holding config lock.
- *
- *
- * */
-int radiant_initial_setup()
-{
-  if (!radiant) return -1;
-  //just in case
-  radiant_labs_stop(radiant);
-  radiant_sync(radiant); //try to reset counters
-
-  radiant_set_internal_triggers_per_cycle(radiant, cfg.radiant.pedestals.ntriggers_per_cycle, cfg.radiant.pedestals.sleep_per_cycle);
-
-  //bias scan first, if we do it
-  if (cfg.radiant.bias_scan.enable_bias_scan && ((cfg.radiant.bias_scan.skip_runs < 2) || ((run_number % cfg.radiant.bias_scan.skip_runs) == 0)))
-  {
-    do_bias_scan();
-  }
-  int wait_for_analog_settle=0;
-  if (cfg.radiant.analog.apply_lab4_vbias)
-  {
-
-    int ibias_left = cfg.radiant.analog.lab4_vbias[0] / 3.3 * 4095;
-    int ibias_right = cfg.radiant.analog.lab4_vbias[1] / 3.3 * 4095;
-    radiant_set_dc_bias(radiant,ibias_left,ibias_right);
-    wait_for_analog_settle = 1;
-  }
-
-  if (cfg.radiant.analog.apply_diode_vbias)
-  {
-    wait_for_analog_settle = 1;
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      radiant_set_td_bias(radiant, i, (int) (cfg.radiant.analog.diode_vbias[i]*2000));
-    }
-  }
-
-  if (wait_for_analog_settle)
-  {
-    usleep(cfg.radiant.analog.settle_time*1e6);
-  }
-
-  int have_peds = 0;
-  if (cfg.radiant.pedestals.pedestal_file)
-  {
-
-    pedestal_fd = open(cfg.radiant.pedestals.pedestal_file, O_CREAT | O_RDWR, 0755);
-
-    if (pedestal_fd == -1)
-    {
-      fprintf(stderr,"Could not open %s\n", cfg.radiant.pedestals.pedestal_file);
-    }
-    else
-    {
-      //measure size
-      size_t fsize = lseek(pedestal_fd, 0 , SEEK_END);
-      //rewind
-      lseek(pedestal_fd,0,SEEK_SET);
-
-      //truncate to right size if not already right
-      if (fsize!= sizeof(rno_g_pedestal_t))
-      {
-        ftruncate(pedestal_fd, sizeof(rno_g_pedestal_t));
-      }
-
-
-      pedestals = mmap(0, sizeof(rno_g_pedestal_t), PROT_READ | PROT_WRITE, MAP_SHARED, pedestal_fd, 0);
-
-      //valid to read, maybe!
-      if (pedestals ==MAP_FAILED)
-      {
-        //ruhroh.
-        fprintf(stderr, "Could not mmap pedestals. Will not be cached\n");
-        munmap(pedestals, sizeof(rno_g_pedestal_t));
-        close(pedestal_fd);
-        pedestals = 0;
-      }
-
-      else if(fsize != sizeof(rno_g_pedestal_t))
-      {
-        memset(pedestals,0, sizeof(rno_g_pedestal_t));
-      }
-      else
-      {
-        have_peds = 1;
-      }
-    }
-  }
-
-
-
-
-  if (cfg.radiant.pedestals.compute_at_start)
-  {
-
-    if (cfg.radiant.pedestals.apply_attenuation)
-    {
-      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-      {
-        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.pedestals.attenuation,0,31.75)*4);
-      }
-    }
-
-    //in case we didn't get mmaped
-    if (!pedestals)
-    {
-      pedestals = calloc(sizeof(rno_g_pedestal_t), 1);
-    }
-
-    have_peds = !radiant_compute_pedestals(radiant, 0xffffff,
-                                            cfg.radiant.pedestals.ntriggers_per_computation,
-                                            pedestals);
-
-    pedestals->station = station_number;
-
-    //if we have a pedestal file, let's flush it
-    if (cfg.radiant.pedestals.pedestal_file)
-    {
-      msync(pedestals, sizeof(rno_g_pedestal_t), MS_SYNC);
-    }
-
-    //TODO: there's no way we can restore, is there?
-    if (cfg.radiant.pedestals.apply_attenuation)
-    {
-      for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-      {
-        radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, 0);
-      }
-    }
-
-  }
-
-
-  if (cfg.radiant.pedestals.pedestal_subtract && !have_peds)
-  {
-
-    fprintf(stderr,"!!! Can't subtract pedestals due to not having a good source. Either enable radiant.pedestals.compute_at_start or arrange to point radiant.pedestals.pedestal_file to valid pedestals.\n");
-  }
-  else if (cfg.radiant.pedestals.pedestal_subtract)
-  {
-    radiant_set_pedestals(radiant, pedestals);
-
-  }
-
-  if (cfg.radiant.analog.apply_attenuations)
-  {
-    for (int ichan = 0; ichan < RNO_G_NUM_RADIANT_CHANNELS; ichan++)
-    {
-      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_SIG, clamp(cfg.radiant.analog.digi_attenuation[ichan],0,31.75)*4);
-      radiant_set_attenuator(radiant, ichan, RADIANT_ATTEN_TRIG, clamp(cfg.radiant.analog.trig_attenuation[ichan],0,31.75)*4);
-    }
-  }
-
-
-
-
-  //set thresholds
-  radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
-
-  //set up DMA correctly
-  radiant_reset_fifo_counters(radiant);
-  radiant_set_nbuffers_per_readout(radiant, cfg.radiant.readout.nbuffers_per_readout);
-  radiant_dma_setup_event(radiant, cfg.radiant.readout.readout_mask);
-
-  //then do the rest of the configuration
-  radiant_configure();
-
-  return 0;
-}
-
 
 
 /** The acquisition thread
@@ -950,16 +2096,18 @@ int radiant_initial_setup()
  * but it may need to temporarily pause. For this reason it acquires a read lock on the radiant_config lock.
  *
  **/
-void * acq_thread(void* v)
+static void * acq_thread(void* v)
 {
   (void) v;
   while(!quit)
   {
     //acquire read lock on radiant, flower, and cfg
-    pthread_rwlock_rdlock(&radiant_lock);
-    pthread_rwlock_rdlock(&flower_lock);
+
     pthread_rwlock_rdlock(&cfg_lock);
 
+#ifndef ON_DIDAQ
+    pthread_rwlock_rdlock(&radiant_lock);
+    pthread_rwlock_rdlock(&flower_lock);
     // wait for the RADIANT to trigger
     //TODO handle clear flag, though we don't really want one
     if (radiant_poll_trigger_ready(radiant, cfg.radiant.readout.poll_ms))
@@ -968,248 +2116,44 @@ void * acq_thread(void* v)
       acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
       radiant_read_event(radiant, &mem->hd, &mem->wf);
       if (flower) flower_fill_header(flower, &mem->hd);
+
+#else
+    // wait for the DIDAQ to trigger
+    // don't need to lock on poll ; gpio doesn't use SPI, if using polling,
+    // we passed poll_mutex (new feature!) in config which holds the lock only
+    // during the SPI active time
+    // this has the inverse logic doesn't it. doh.
+    if (!didaq_poll_trigger_ready(didaq, cfg.didaq.readout.poll_ms))
+    {
+      // Get a buffer , and fill it
+      acq_buffer_item_t * mem = ice_buf_getmem(acq_buffer);
+      pthread_mutex_lock(&didaq_lock);
+      didaq_read_event(didaq, &mem->hd, &mem->wf, station_number);
+      pthread_mutex_unlock(&didaq_lock);
+
+#endif
+
       mem->hd.run_number = run_number;
       mem->wf.run_number = run_number;
       mem->hd.station_number = station_number;
-      mem->wf.station= station_number;
+      mem->wf.station = station_number;
       ice_buf_commit(acq_buffer);
     }
 
     //release the read locks
     pthread_rwlock_unlock(&cfg_lock);
+#ifndef ON_DIDAQ
     pthread_rwlock_unlock(&flower_lock);
     pthread_rwlock_unlock(&radiant_lock);
+#else
+    usleep(cfg.didaq.readout.acq_timeout * 1e6);  // To give the mon_thread a chance!
+#endif
+
   }
 
   return 0;
 }
 
-
-typedef struct flower_coinc_servo_state
-{
-  float value[RNO_G_NUM_LT_CHANNELS];
-  float last_value[RNO_G_NUM_LT_CHANNELS];
-  float error[RNO_G_NUM_LT_CHANNELS];
-  float last_error[RNO_G_NUM_LT_CHANNELS];
-  float sum_error[RNO_G_NUM_LT_CHANNELS];
-} flower_coinc_servo_state_t;
-
-typedef struct flower_phased_servo_state
-{
-  float value[RNO_G_NUM_LT_BEAMS];
-  float last_value[RNO_G_NUM_LT_BEAMS];
-  float error[RNO_G_NUM_LT_BEAMS];
-  float last_error[RNO_G_NUM_LT_BEAMS];
-  float sum_error[RNO_G_NUM_LT_BEAMS];
-} flower_phased_servo_state_t;
-
-typedef struct radiant_servo_state
-{
-  int max_periods;
-  int nperiods_populated;
-  float period_weights[NUM_SERVO_PERIODS];
-  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-  float * scaler_v[RNO_G_NUM_RADIANT_CHANNELS];
-  float * scaler_v_mem;
-  float value[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_value[RNO_G_NUM_RADIANT_CHANNELS];
-  float error[RNO_G_NUM_RADIANT_CHANNELS];
-  float last_error[RNO_G_NUM_RADIANT_CHANNELS];
-  float sum_error[RNO_G_NUM_RADIANT_CHANNELS];
-  int nsum;
-
-} radiant_servo_state_t;
-
-static void update_radiant_servo_state(radiant_servo_state_t * st, const rno_g_daqstatus_t * ds)
-{
-
-  int idx = (st->nperiods_populated++) % st->max_periods;
-  int max_idxs = st->nperiods_populated < st->max_periods ? st->nperiods_populated : st->max_periods;
-
-  for (int chan = 0; chan < RNO_G_NUM_RADIANT_CHANNELS; chan++)
-  {
-    //calculate adjusted scaler
-    float adjusted_scaler = ds->radiant_scalers[chan] * (1 + ds->radiant_prescalers[chan]) / (ds->radiant_scaler_period?:1);
-
-    //put in rolling window
-    st->scaler_v[chan][idx] = adjusted_scaler;
-
-    st->last_value[chan] = st->value[chan];
-    st->value[chan] = 0;
-    for (int j = 0; j < NUM_SERVO_PERIODS; j++)
-    {
-      if (!st->period_weights[j]) continue;
-      int nthis = 0;
-      float sumthis = 0;
-      for (int i = 0; i < max_idxs; i++)
-      {
-        if (i < st->nscaler_periods_per_servo_period[j])
-        {
-          sumthis += st->scaler_v[chan][(st->nperiods_populated-1-i) % st->max_periods ];
-          nthis++;
-        }
-      }
-      st->value[chan] += st->period_weights[j]*sumthis/nthis;
-    }
-
-    if (cfg.radiant.servo.use_log)
-    {
-      st->value[chan] = log10(cfg.radiant.servo.log_offset + st->value[chan]);
-    }
-
-    st->last_error[chan] = st->error[chan];
-    st->error[chan] = (st->value[chan] - cfg.radiant.servo.scaler_goals[chan]);
-    st->sum_error[chan] += st->error[chan];
-    if (fabs(st->sum_error[chan]) > cfg.radiant.servo.max_sum_err)
-    {
-      st->sum_error[chan] = st->sum_error[chan] < 0 ? -cfg.radiant.servo.max_sum_err: cfg.radiant.servo.max_sum_err;
-    }
-
-  }
-  st->nsum++;
-
-  return;
-}
-
-static void setup_flower_coinc_servo_state(flower_coinc_servo_state_t * st)
-{
-  memset(st, 0, sizeof(flower_coinc_servo_state_t));
-}
-
-static void setup_flower_phased_servo_state(flower_phased_servo_state_t * st)
-{
-  memset(st, 0, sizeof(flower_phased_servo_state_t));
-}
-
-
-static void update_flower_coinc_servo_state(flower_coinc_servo_state_t *st, const rno_g_daqstatus_t * ds)
-{
-
-  float sw = cfg.lt.servo.slow_scaler_weight;
-  float fw = cfg.lt.servo.fast_scaler_weight;
-
-
-  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
-  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
-  const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
-
-  int sub = cfg.lt.servo.subtract_gated;
-  static float fast_factor = 0;
-  if (!fast_factor)
-  {
-
-    int fw_ver;
-    flower_get_fwversion_int(flower, &fw_ver);
-
-    if (fw_ver < 6) fast_factor = 1000;
-    else fast_factor = 100;
-  }
-
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++)
-  {
-
-    float val =  fw * fast_factor*fast->servo_per_chan[i]+ sw *(slow->servo_per_chan[i]-sub*slow_gated->servo_per_chan[i]);
-    st->last_value[i] = st->value[i];
-    st->value[i] = val;
-    st->last_error[i] = st->error[i];
-    st->error[i] = (val-cfg.lt.servo.coinc_scaler_goals[i]);
-    st->sum_error[i] += st->error[i];
-  }
-}
-
-
-static void update_flower_phased_servo_state(flower_phased_servo_state_t *st, const rno_g_daqstatus_t * ds)
-{
-
-  float sw = cfg.lt.servo.slow_scaler_weight;
-  float fw = cfg.lt.servo.fast_scaler_weight;
-
-
-  const rno_g_lt_scaler_group_t * fast = &ds->lt_scalers.s_100Hz;
-  const rno_g_lt_scaler_group_t * slow = &ds->lt_scalers.s_1Hz;
-  const rno_g_lt_scaler_group_t * slow_gated = &ds->lt_scalers.s_1Hz_gated;
-
-  int sub = cfg.lt.servo.subtract_gated;
-  static float fast_factor = 0;
-  if (!fast_factor)
-  {
-
-    uint8_t station, major, minor;
-    flower_get_fwversion(flower, &station,&major,&minor,0,0,0);
-
-    if (!major && minor < 6) fast_factor = 1000;
-    else fast_factor = 100;
-  }
-
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++)
-  {
-
-    float val =  fw * fast_factor*fast->servo_per_beam[i] + sw *(slow->servo_per_beam[i]-sub*slow_gated->servo_per_beam[i]);
-    st->last_value[i] = st->value[i];
-    st->value[i] = val;
-    st->last_error[i] = st->error[i];
-    st->error[i] = (val-cfg.lt.servo.phased_scaler_goals[i]);
-    st->sum_error[i] += st->error[i];
-  }
-}
-
-
-
-static void setup_radiant_servo_state(radiant_servo_state_t * state)
-{
-  int max_periods = 0;
-  for (int i = 0; i < NUM_SERVO_PERIODS; i++)
-  {
-    if (cfg.radiant.servo.nscaler_periods_per_servo_period[i] > max_periods)
-    {
-      max_periods = cfg.radiant.servo.nscaler_periods_per_servo_period[i];
-    }
-  }
-
-
-  if (state->max_periods < max_periods)
-  {
-
-    if (state->scaler_v_mem)
-    {
-      free(state->scaler_v_mem);
-      memset(state,0, sizeof(*state));
-    }
-    state->scaler_v_mem = malloc(sizeof(int) * max_periods * RNO_G_NUM_RADIANT_CHANNELS);
-    state->max_periods = max_periods;
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      state->scaler_v[i]  = state->scaler_v_mem + max_periods * i;
-    }
-  }
-
-
-  memcpy(state->nscaler_periods_per_servo_period, cfg.radiant.servo.nscaler_periods_per_servo_period, sizeof(int) * NUM_SERVO_PERIODS);
-  memcpy(state->period_weights, cfg.radiant.servo.period_weights, sizeof(float) * NUM_SERVO_PERIODS);
-
-
-}
-
-static struct drand48_data sw_rand;
-double calc_next_sw_trig(float now)
-{
-  if (!cfg.radiant.trigger.soft.enabled) return 0;
-
-  double interval = cfg.radiant.trigger.soft.interval;
-  double  u;
-  if (cfg.radiant.trigger.soft.interval_jitter)
-  {
-    drand48_r(&sw_rand,&u);
-    interval += 2*cfg.radiant.trigger.soft.interval_jitter*(u-0.5);
-  }
-
-  if (cfg.radiant.trigger.soft.use_exponential_distribution)
-  {
-    drand48_r(&sw_rand,&u);
-    return  now-log(u)*interval;
-  }
-  else return now+interval;
-}
 
 
 /** This is the monitor thread
@@ -1224,7 +2168,6 @@ static void * mon_thread(void* v)
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-
   //initial configuration of the calpulser
   calpulser_configure();
 
@@ -1237,70 +2180,43 @@ static void * mon_thread(void* v)
     sweep_time = start.tv_sec + 1e-9*start.tv_nsec;
   }
 
-  //last monitor time
-  double last_scalers_radiant = 0;
-  double last_scalers_lt = 0;
-
-  //last srevo time
-  double last_servo_radiant = 0;
-  double last_servo_lt = 0;
-
   //last output time
   double last_daqstatus_out = 0;
-  static int last_cfg_counter = -1;
 
   double next_sw_trig = -1;
-  radiant_servo_state_t rad_servo_state = {0};
-  flower_coinc_servo_state_t flwr_coinc_servo_state = {0};
-  flower_phased_servo_state_t flwr_phased_servo_state = {0};
 
-  float flower_coinc_float_thresh[RNO_G_NUM_LT_CHANNELS];
-  for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
-
-  float flower_phased_float_thresh[RNO_G_NUM_LT_BEAMS];
-  for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
-
-  uint32_t min_rad_thresh = 0;
-  uint32_t max_rad_thresh = 0;
-  uint32_t max_rad_change = 0;
   while(!quit)
   {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     double nowf = now.tv_sec + 1e-9 * now.tv_nsec;
 
-    //figure out how long it's been since we got statuses and sent a sw trig
-    float diff_scalers_radiant = nowf - last_scalers_radiant;
-    float diff_scalers_lt = nowf - last_scalers_lt;
-    float diff_servo_radiant = nowf - last_servo_radiant;
-    float diff_servo_lt = nowf - last_servo_lt;
+    //figure out how long it's been since we wrote a daqstatus or swept the calpulser
     float diff_last_daqstatus_out = nowf - last_daqstatus_out;
     float diff_sweep = nowf - sweep_time;
 
-
-    //re set up the RADIANT
-    if (config_counter > last_cfg_counter)
-    {
-      last_cfg_counter = config_counter;
-      setup_radiant_servo_state(&rad_servo_state);
-      setup_flower_coinc_servo_state(&flwr_coinc_servo_state);
-      setup_flower_phased_servo_state(&flwr_phased_servo_state);
-
-      min_rad_thresh = cfg.radiant.thresholds.min * 16777215/2.5;
-      max_rad_thresh = cfg.radiant.thresholds.max * 16777215/2.5;
-      max_rad_change = cfg.radiant.servo.max_thresh_change * 16777215/2.5;
-      for (int i = 0; i < RNO_G_NUM_LT_CHANNELS; i++) flower_coinc_float_thresh[i] = ds->lt_servo_thresholds[i];
-      for (int i = 0; i < RNO_G_NUM_LT_BEAMS; i++) flower_phased_float_thresh[i] = ds->lt_phased_servo_thresholds[i];
-
-    }
-
     //Hold the config read lock to avoid values getting take from underneath us
     pthread_rwlock_rdlock(&cfg_lock);
+
 
     if (next_sw_trig < 0)
     {
       next_sw_trig = calc_next_sw_trig(nowf);
     }
+
+
+#ifdef ON_DIDAQ
+    //do we need to send a soft trigger?
+    if (cfg.didaq.trigger.soft.enabled && nowf > next_sw_trig)
+    {
+      pthread_mutex_lock(&didaq_lock);
+      didaq_force_trigger(didaq);
+      pthread_mutex_unlock(&didaq_lock);
+      next_sw_trig = calc_next_sw_trig(nowf);
+    }
+
+    didaq_servo(nowf);
+#else
     //do we need to send a soft trigger?
     if (cfg.radiant.trigger.soft.enabled && nowf > next_sw_trig)
     {
@@ -1308,130 +2224,10 @@ static void * mon_thread(void* v)
       next_sw_trig = calc_next_sw_trig(nowf);
     }
 
-
-    //do we need radiant scalers?
-    if ((cfg.radiant.trigger.RF[0].enabled || cfg.radiant.trigger.RF[1].enabled)&&cfg.radiant.servo.scaler_update_interval && cfg.radiant.servo.scaler_update_interval < diff_scalers_radiant)
-    {
-      while (1)
-      {
-        //read twice and make sure equal
-        static rno_g_daqstatus_t ds0 = {0};
-        memcpy(&ds0, ds, sizeof(ds0)); // copy the flower stuff so it doesn't get overwritten
-        static uint16_t scaler_check[RNO_G_NUM_RADIANT_CHANNELS]= {0};
-        int ok = radiant_read_daqstatus(radiant, &ds0)+ radiant_get_scalers(radiant,0,RNO_G_NUM_RADIANT_CHANNELS-1, scaler_check);
-
-        if (ok) fprintf(stderr,"Problem reading daqstatus\n");
-
-        if (!memcmp(ds0.radiant_scalers, scaler_check, sizeof(ds0.radiant_scalers)))
-        {
-            memcpy(ds, &ds0, sizeof(ds0));
-            break;
-        }
-
-        printf("WARNING: Unequal sequential DAQStatus, trying again\n");
-      }
-
-      //update the running averages for the radiant
-      update_radiant_servo_state(&rad_servo_state, ds);
-      last_scalers_radiant = nowf;
-    }
-
-    // do we need to servo radiant?
-    if ((cfg.radiant.trigger.RF[0].enabled||cfg.radiant.trigger.RF[1].enabled) && cfg.radiant.servo.enable && cfg.radiant.servo.servo_interval
-        && cfg.radiant.servo.scaler_update_interval < diff_servo_radiant)
-    {
-      for (int ch = 0; ch < RNO_G_NUM_RADIANT_CHANNELS; ch++)
-      {
-        //only servo channels that are part of the trigger?
-        if ( 0 == (radiant_trig_chan & (1 << ch))) continue;
-
-        double dthreshold = cfg.radiant.servo.P * rad_servo_state.error[ch] +
-                             cfg.radiant.servo.I * rad_servo_state.sum_error[ch] +
-                             cfg.radiant.servo.D * (rad_servo_state.error[ch] - rad_servo_state.last_error[ch]);
-
-        if (max_rad_thresh && fabs(dthreshold) > max_rad_change)
-        {
-          dthreshold = (dthreshold < 0)  ? -max_rad_change : max_rad_change;
-        }
-
-        ds->radiant_thresholds[ch] -= dthreshold;
-        if (ds->radiant_thresholds[ch] < min_rad_thresh)  ds->radiant_thresholds[ch] = min_rad_thresh;
-        if (ds->radiant_thresholds[ch] > max_rad_thresh)  ds->radiant_thresholds[ch] = max_rad_thresh;
-      }
-
-      //set the thresholds
-      radiant_set_trigger_thresholds(radiant, 0, RNO_G_NUM_RADIANT_CHANNELS-1, ds->radiant_thresholds);
-      last_servo_radiant = nowf;
-    }
-
-
-    // do we need LT scalers?
-    if ((cfg.lt.trigger.coinc.enable_rf_coinc_trigger||cfg.lt.trigger.phased.enable_rf_phased_trigger)&&cfg.lt.servo.scaler_update_interval && cfg.lt.servo.scaler_update_interval < diff_scalers_lt && flower)
-    {
-      flower_fill_daqstatus(flower, ds);
-
-      update_flower_coinc_servo_state(&flwr_coinc_servo_state, ds);
-      update_flower_phased_servo_state(&flwr_phased_servo_state, ds);
-
-      //if cycle counter is in the right realm, use it...
-      if (ds->lt_scalers.cycle_counter > 100e6 && ds->lt_scalers.cycle_counter < 136e6)
-      {
-        delay_clock_estimate =  ds->lt_scalers.cycle_counter/ 11.8;  //118 MHz clock vs. 10 MHz clock
-        //if we have the pps trigger out and it's not 0, let's update our estimate
-        if ((cfg.lt.trigger.enable_pps_trigger_sys_out || cfg.lt.trigger.enable_pps_trigger_sma_out)
-            && cfg.lt.trigger.pps_trigger_delay)
-        {
-          flower_update_pps_offset();
-        }
-      }
-      last_scalers_lt = nowf;
-    }
-
-    // do we need to servo LT?
-
-    if (cfg.lt.servo.enable && cfg.lt.servo.servo_interval
-        && cfg.lt.servo.scaler_update_interval < diff_servo_lt && flower)
-    {
-      if(cfg.lt.trigger.coinc.enable_rf_coinc_trigger)
-      {
-        for (int ch = 0; ch < RNO_G_NUM_LT_CHANNELS; ch++)
-        {
-           if(!(cfg.lt.trigger.coinc.rf_coinc_channel_mask&(1<<ch))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.P * flwr_coinc_servo_state.error[ch] +
-                                    cfg.lt.servo.I * flwr_coinc_servo_state.sum_error[ch] +
-                                    cfg.lt.servo.D * (flwr_coinc_servo_state.error[ch] - flwr_coinc_servo_state.last_error[ch]);
-
-
-           flower_coinc_float_thresh[ch] = clamp(flower_coinc_float_thresh[ch] + d_servo_threshold,4,120);
-           ds->lt_servo_thresholds[ch] = flower_coinc_float_thresh[ch];
-           ds->lt_trigger_thresholds[ch] = clamp( (flower_coinc_float_thresh[ch] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.servo_thresh_frac, 4, 120);
-        }
-        flower_set_coinc_thresholds(flower,ds->lt_trigger_thresholds,ds->lt_servo_thresholds,cfg.lt.trigger.coinc.rf_coinc_channel_mask);
-      }
-      if(cfg.lt.trigger.phased.enable_rf_phased_trigger)
-      {
-        for (int beam = 0; beam < RNO_G_NUM_LT_BEAMS; beam++)
-        {
-           if(!(cfg.lt.trigger.phased.rf_phased_beam_mask&(1<<beam))) continue;//ignore turned off beams
-           double d_servo_threshold = cfg.lt.servo.phased_P * flwr_phased_servo_state.error[beam] +
-                                    cfg.lt.servo.I * flwr_phased_servo_state.sum_error[beam] +
-                                    cfg.lt.servo.D * (flwr_phased_servo_state.error[beam] - flwr_phased_servo_state.last_error[beam]);
-
-
-         flower_phased_float_thresh[beam] = clamp(flower_phased_float_thresh[beam] + d_servo_threshold, 4, 4095);
-         ds->lt_phased_servo_thresholds[beam] = flower_phased_float_thresh[beam];
-         ds->lt_phased_trigger_thresholds[beam] = clamp((flower_phased_float_thresh[beam] - cfg.lt.servo.servo_thresh_offset) / cfg.lt.servo.phased_servo_thresh_frac, 1, 4095);
-        }
-        flower_set_phased_thresholds(flower,ds->lt_phased_trigger_thresholds,ds->lt_phased_servo_thresholds,cfg.lt.trigger.phased.rf_phased_beam_mask);
-      }
-
-      last_servo_lt = nowf;
-    }
+    radiant_flower_servo(nowf);
+#endif
 
     //do we need to write out the DAQ status?
-
-    //do we need to write out the DAQ status?
-
     if (cfg.output.daqstatus_interval && cfg.output.daqstatus_interval < diff_last_daqstatus_out)
     {
       //make sure the station is set correctly
@@ -1448,25 +2244,38 @@ static void * mon_thread(void* v)
       }
 
       mon_buffer_item_t * mem = ice_buf_getmem(mon_buffer);
-      memcpy(&mem->ds,ds, sizeof(rno_g_daqstatus_t));
+      memcpy(&mem->ds, ds, sizeof(rno_g_daqstatus_t));
       ice_buf_commit(mon_buffer);
+      if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC);
       last_daqstatus_out = nowf;
     }
 
-
     //do we need to change the calpulser attenuation?
+    //the last step past stop_atten means the sweep is done, so we end the run
+    //(stop_atten itself still gets a full step_time before we get here)
     if (cfg.calib.sweep.enable && diff_sweep  > cfg.calib.sweep.step_time)
     {
+      int sweep_done = 0;
       if (cfg.calib.sweep.stop_atten < cfg.calib.sweep.start_atten)
       {
         sweep_atten -= fabs(cfg.calib.sweep.atten_step);
-        if (sweep_atten < cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten;
+        if (sweep_atten < cfg.calib.sweep.stop_atten) sweep_done = 1;
       }
       else
       {
         sweep_atten += fabs(cfg.calib.sweep.atten_step);
-        if (sweep_atten > cfg.calib.sweep.stop_atten) sweep_atten = cfg.calib.sweep.start_atten;
+        if (sweep_atten > cfg.calib.sweep.stop_atten) sweep_done = 1;
       }
+
+      if (sweep_done)
+      {
+        printf("Calpulser sweep finished (%g to %g dB), stopping run\n",
+               cfg.calib.sweep.start_atten, cfg.calib.sweep.stop_atten);
+        pthread_rwlock_unlock(&cfg_lock);  //the unlock below is skipped by the break
+        please_stop();
+        break;
+      }
+
       set_calpulser_atten(sweep_atten);
       sweep_time = nowf;
     }
@@ -1474,16 +2283,19 @@ static void * mon_thread(void* v)
     //release cfg lock
     pthread_rwlock_unlock(&cfg_lock);
 
-    float sleep_amt = 0.1; //maximum sleep amount
+    float sleep_amt = 0.05; //maximum sleep amount
 
     //sleep less if we need to send a soft trigger sooner
-    if ( cfg.radiant.trigger.soft.enabled  && next_sw_trig - nowf < sleep_amt) sleep_amt = (next_sw_trig - nowf)*3./4;
-
-    usleep(sleep_amt *1e6);
+    if ((cfg.radiant.trigger.soft.enabled || cfg.didaq.trigger.soft.enabled) && next_sw_trig - nowf < sleep_amt) {
+      sleep_amt = (next_sw_trig - nowf) * 3./4;
+    }
+    usleep(sleep_amt * 1e6);
   }
 
   //mostly to suppress warnings
-  if (rad_servo_state.scaler_v_mem) free(rad_servo_state.scaler_v_mem);
+#ifndef ON_DIDAQ
+  if (radiant_coinc_servo_state.scaler_v_mem) free(radiant_coinc_servo_state.scaler_v_mem);
+#endif
 
   return 0;
 }
@@ -1517,11 +2329,11 @@ static int make_dirs_for_output(const char * prefix)
   return 0;
 }
 
-const char * tmp_suffix = ".tmp";
-const int tmp_suffix_len = 4;
+static const char * tmp_suffix = ".tmp";
+static const int tmp_suffix_len = 4;
 
 
-int do_close(rno_g_file_handle_t h, char *path)
+static int do_close(rno_g_file_handle_t h, char *path)
 {
   int ret = rno_g_close_handle(&h);
   int pathlen = strlen(path);
@@ -1555,7 +2367,6 @@ static void * wri_thread(void* v)
 
   int wf_file_N = 0;
   int ds_file_N = 0;
-
 
   acq_buffer_item_t acq_item;
   mon_buffer_item_t mon_item;
@@ -1591,6 +2402,26 @@ static void * wri_thread(void* v)
     fprintf(runinfo, "FREE-SPACE-MB-OUTPUT-PARTITION = %f\n", output_partition_free);
     fprintf(runinfo, "FREE-SPACE-MB-RUNFILE-PARTITION = %f\n", runfile_partition_free);
 
+#ifdef ON_DIDAQ
+    //write down didaq info to runinfo
+
+    fprintf(runinfo, "LIBDIDAQ-REV = %02u.%02u.%02u\n", DIDAQ_VERSION_REV, DIDAQ_VERSION_MAJOR, DIDAQ_VERSION_MINOR);
+
+    //cached by didaq_open(), so no lock or SPI traffic needed here
+    fprintf(runinfo, "DIDAQ-REVISION = 0x%x\n", didaq_get_revision(didaq));
+    fprintf(runinfo, "DIDAQ-BOARD-ID = 0x%x\n", didaq_get_board_id(didaq));
+
+    uint16_t sample_rate = didaq_get_sample_rate(didaq);
+    fprintf(runinfo, "DIDAQ-SAMPLERATE = %u\n", sample_rate);
+
+    const rno_g_didaq_chanmap_t * chanmap = rno_g_didaq_chanmap(station_number);
+    fprintf(runinfo, "DIDAQ-CHANNEL-MAPPING = ");
+    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
+    {
+      fprintf(runinfo, "%d ", chanmap->to_rno_g[i]);
+    }
+    fprintf(runinfo, "\n");
+#else
     //write down radiant info to runinfo
     uint8_t fwstation, fwmajor, fwminor, fwrev, fwyear, fwmon, fwday;
     radiant_get_fw_version(radiant, DEST_FPGA,  &fwmajor, &fwminor, &fwrev, &fwyear, &fwmon, &fwday);
@@ -1601,9 +2432,8 @@ static void * wri_thread(void* v)
     fprintf(runinfo, "RADIANT-BM-FWVER = %02u.%02u.%02u\n", fwmajor, fwminor, fwrev);
     fprintf(runinfo, "RADIANT-BM-FWDATE = 20%02u-%02u.%02u\n", fwyear, fwmon, fwday);
 
-    uint16_t sample_rate= radiant_get_sample_rate(radiant);
+    uint16_t sample_rate = radiant_get_sample_rate(radiant);
     fprintf(runinfo, "RADIANT-SAMPLERATE = %u\n", sample_rate);
-
 
     uint16_t flower_fwyear;
     if (flower)
@@ -1617,6 +2447,7 @@ static void * wri_thread(void* v)
       fprintf(runinfo, "FLOWER-FWVER = 0.0.0\n");
       fprintf(runinfo, "FLOWER-FWDATE = 0000-00.00\n");
     }
+#endif
     fflush(runinfo);
   }
   else
@@ -1629,8 +2460,12 @@ static void * wri_thread(void* v)
   FILE * fcomment = fopen(bigbuf,"w");
   if (fcomment)
   {
-    fprintf(fcomment, cfg.output.comment);
+    fprintf(fcomment, "%s",cfg.output.comment);
+
+#ifndef ON_DIDAQ
     if (!flower) fprintf(fcomment, " !!FLOWER NOT DETECTED!!");
+#endif
+
     fclose(fcomment);
     add_to_file_list(bigbuf);
   }
@@ -1638,10 +2473,6 @@ static void * wri_thread(void* v)
   {
     fprintf(stderr,"Yikes, couldn't write to %s\n", bigbuf);
   }
-
-  //write gain codes
-  write_gain_codes(bigbuf);
-
 
   //now let's dump the configuration file to the cfg dir
   sprintf(bigbuf,"%s/cfg/acq.cfg", output_dir);
@@ -1659,6 +2490,18 @@ static void * wri_thread(void* v)
 
   //now we can release the cfg lock, for a bit
   pthread_rwlock_unlock(&cfg_lock);
+
+#ifdef ON_DIDAQ
+
+  //write gain codes
+  write_gain_codes_didaq(bigbuf);
+
+#else
+
+  //write gain codes
+
+
+  write_gain_codes_flower(bigbuf);
 
   //if we have pedestals, write them out
   if (pedestals)
@@ -1679,8 +2522,7 @@ static void * wri_thread(void* v)
       add_to_file_list(bigbuf);
     }
   }
-
-
+#endif
 
   while (1)
   {
@@ -1779,11 +2621,10 @@ static void * wri_thread(void* v)
           (cfg.output.max_kB_per_file > 0  &&  ds_file_size >= cfg.output.max_kB_per_file) ||
           (cfg.output.max_daqstatuses_per_file > 0 && ds_file_N >= cfg.output.max_daqstatuses_per_file) ||
           (cfg.output.max_seconds_per_file > 0 && now - ds_file_time >= cfg.output.max_seconds_per_file ) )
-
         {
 
-
           if (ds_file_name) do_close(ds_handle, ds_file_name);
+
           snprintf(bigbuf,bigbuflen,"%s/daqstatus/%05d.ds.dat.gz%s", output_dir, ds_i, tmp_suffix );
           ds_handle.type = RNO_G_GZIP;
           ds_handle.handle.gz = gzopen(bigbuf,"w");
@@ -1793,18 +2634,13 @@ static void * wri_thread(void* v)
           ds_file_time = now;
         }
 
-        memcpy(ds, &mon_item.ds, sizeof(rno_g_daqstatus_t));
-
-        if (shared_ds_fd) msync(ds, sizeof(rno_g_daqstatus_t), MS_ASYNC);
-
-
-        ds_file_size+= rno_g_daqstatus_write(ds_handle, &mon_item.ds);
+        ds_file_size += rno_g_daqstatus_write(ds_handle, &mon_item.ds);
         ds_file_N++;
         ds_i++;
       }
     }
 
-    if ((int) ice_buf_occupancy(acq_buffer) < cfg.runtime.acq_buf_size /3)
+    if ((int) ice_buf_occupancy(acq_buffer) < cfg.runtime.acq_buf_size / 3)
     {
       usleep(25000);
     }
@@ -1835,14 +2671,32 @@ static void signal_handler(int signal,  siginfo_t * sinfo, void * v)
 
 }
 
-
-//void fail(const char * why)
-//{
-//  fprintf(stderr,"FAIL!: %s\n", why);
-//  please_stop();
-//}
-
-static int initial_setup()
+/**
+ * Perform the earliest DAQ startup steps, before any hardware is touched:
+ *
+ *  - initialize the config lock and load the config
+ *  - block (while periodically feeding the watchdog) until both the
+ *    runfile partition and the output partition have at least the
+ *    configured minimum amount of free space
+ *  - record the precise start time
+ *  - determine the station number from /STATION_ID (defaulting to 0 if
+ *    it can't be read)
+ *  - determine the run number and output directory from the runfile,
+ *    incrementing the run number as needed to avoid clobbering an
+ *    existing run directory (unless overwriting is explicitly allowed)
+ *  - make sure the calibration pulser is off, in case of an unclean exit
+ *  - open (or, if unavailable, allocate) the shared daqstatus struct and
+ *    initialize the radiant/flower trigger thresholds, unless they were
+ *    already loaded from a pre-existing shared status file
+ *
+ * On return, *frun_out holds the open runfile handle (or NULL if no
+ * runfile existed yet) so the caller can later rewrite it with the next
+ * run number.
+ *
+ * Returns 0 on success, 1 on failure (a negative run number was found in
+ * the runfile).
+ */
+static int setup_run_and_daqstatus(FILE ** frun_out)
 {
   /** Initialize config lock and try to read the config */
   pthread_rwlock_init(&cfg_lock,NULL);
@@ -1852,9 +2706,13 @@ static int initial_setup()
   runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
   output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
 
-  while (cfg.output.min_free_space_MB_runfile_partition && runfile_partition_free  < cfg.output.min_free_space_MB_runfile_partition)
+  while ( (cfg.output.min_free_space_MB_runfile_partition &&
+           runfile_partition_free < cfg.output.min_free_space_MB_runfile_partition) ||
+          (cfg.output.min_free_space_MB_output_partition &&
+           output_partition_free < cfg.output.min_free_space_MB_output_partition) )
   {
-    fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition);
+    fprintf(stderr,"Insufficient free space on runfile partition (%f MB free,  %d) and/or output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n",
+            runfile_partition_free, cfg.output.min_free_space_MB_runfile_partition, output_partition_free, cfg.output.min_free_space_MB_output_partition);
 
     //avoid getting killed by watchdog
     for (int i = 0; i < 15; i++)
@@ -1863,18 +2721,6 @@ static int initial_setup()
       feed_watchdog(0);
     }
     runfile_partition_free = get_free_MB_by_path(cfg.output.runfile);
-  }
-
-  while ( cfg.output.min_free_space_MB_output_partition && output_partition_free  < cfg.output.min_free_space_MB_output_partition)
-  {
-    fprintf(stderr,"Insufficient free space on output partition (%f MB free,  %d). Waiting ~300 seconds before trying again\n", output_partition_free, cfg.output.min_free_space_MB_output_partition);
-
-    //avoid getting killed by watchdog
-    for (int i = 0; i < 15; i++)
-    {
-      sleep(20);
-      feed_watchdog(0);
-    }
     output_partition_free = get_free_MB_by_path(cfg.output.base_dir);
   }
 
@@ -1883,8 +2729,12 @@ static int initial_setup()
   // Read the station number
   const char * station_number_file = "/STATION_ID";
   FILE *fstation = fopen(station_number_file,"r");
-  fscanf(fstation, "%d\n", &station_number);
-  fclose(fstation);
+  if (fstation)
+  {
+    fscanf(fstation, "%d\n", &station_number);
+    fclose(fstation);
+  }
+
   if (station_number < 0)
   {
     fprintf(stderr,"Could not get a station number... using 0\n");
@@ -1931,9 +2781,7 @@ static int initial_setup()
   //make sure calpulser is turned off (in case we didn't exit cleanly!) since we don't want it on during pedestal taking and such
   rno_g_cal_disable_no_handle(cfg.calib.gpio);
 
-  int need_to_copy_radiant_thresholds = 1;
-  int need_to_copy_lt_thresholds = 1;
-  //open the shared status file, if it's there.
+  //open the shared status file, if it's there. (always, even if we are not loading the thresholds)
   //need to do this before opening the radiant/flower since we need to laod thresholds, potentially
   if (cfg.runtime.status_shmem_file && *cfg.runtime.status_shmem_file)
   {
@@ -1946,126 +2794,51 @@ static int initial_setup()
     }
     else
     {
-      size_t file_size = lseek(shared_ds_fd,0,SEEK_END);
-      lseek(shared_ds_fd,0,SEEK_SET);
-      if (file_size != sizeof(rno_g_daqstatus_t))
+      shared_ds_file_size = lseek(shared_ds_fd, 0, SEEK_END);
+      lseek(shared_ds_fd, 0, SEEK_SET);
+
+      if (shared_ds_file_size != sizeof(rno_g_daqstatus_t))
       {
         ftruncate(shared_ds_fd, sizeof(rno_g_daqstatus_t));
       }
 
       ds = mmap(0, sizeof(rno_g_daqstatus_t), PROT_READ | PROT_WRITE, MAP_SHARED, shared_ds_fd,0);
-
-      if (cfg.radiant.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t))
-        need_to_copy_radiant_thresholds = 0;
-
-      if (cfg.lt.thresholds.load_from_threshold_file && file_size == sizeof(rno_g_daqstatus_t))
-        need_to_copy_lt_thresholds = 0;
     }
   }
 
   if (!shared_ds_fd)
   {
-    ds = calloc(sizeof(rno_g_daqstatus_t),1);
+    ds = calloc(1,sizeof(rno_g_daqstatus_t));
   }
 
-  if (need_to_copy_radiant_thresholds)
-  {
-    for (int i = 0; i < RNO_G_NUM_RADIANT_CHANNELS; i++)
-    {
-      ds->radiant_thresholds[i] = cfg.radiant.thresholds.initial[i] * 16777215/2.5;
-    }
-  }
 
-  if (need_to_copy_lt_thresholds)
-  {
-    for (int i = 0;  i <  RNO_G_NUM_LT_CHANNELS; i++)
-    {
-      ds->lt_trigger_thresholds[i] = cfg.lt.thresholds.initial_coinc_thresholds[i];
-      ds->lt_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_coinc_thresholds[i] * cfg.lt.servo.servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 255);
-    }
+  *frun_out = frun;
+  return 0;
+}
 
-    for (int i = 0;  i <  RNO_G_NUM_LT_BEAMS; i++)
-    {
-      ds->lt_phased_trigger_thresholds[i] = cfg.lt.thresholds.initial_phased_thresholds[i];
-      ds->lt_phased_servo_thresholds[i] =
-        clamp(cfg.lt.thresholds.initial_phased_thresholds[i] * cfg.lt.servo.phased_servo_thresh_frac + cfg.lt.servo.servo_thresh_offset, 0, 4095);
-    }
 
-  }
-  pthread_rwlock_init(&ds_lock, NULL);
-
-  //initialize the radiant lock
-  pthread_rwlock_init(&radiant_lock, NULL);
-
-  // When it is time to do a bias scan record the timing before setting up the radiant
-  if (cfg.radiant.timing_recording.enable && ((cfg.radiant.timing_recording.skip_runs < 2) ||
-      ((run_number % cfg.radiant.timing_recording.skip_runs) == 0)))
-  {
-    record_timimg();
-  }
-
-  int nattempts = 0;
-  //open the radiant
-  do
-  {
-    radiant  = radiant_open(
-      cfg.radiant.device.spi_device,
-      cfg.radiant.device.uart_device,
-      cfg.radiant.device.poll_gpio,
-      cfg.radiant.device.spi_enable_gpio);
-
-    if (!radiant)
-    {
-      fprintf(stderr, "COULD NOT OPEN RADIANT. Attempting to drop caches in case kernel fragmentation is the issue.\n");
-      if (nattempts++ > 3)
-      {
-        fprintf(stderr, "Giving up...\n");
-        return 1;
-      }
-      sleep(1);
-      // Drop the VM page cache via passwordless sudo (see sudoers/rno-g-drop-caches).
-      // Paths are absolute to match the sudoers rule exactly under the minimal PATH.
-      system("/usr/bin/sudo /usr/sbin/sysctl -w vm.drop_caches=3");
-    }
-
-    if (radiant && nattempts > 0)
-    {
-      fprintf(stderr,"Ok, we could open it! Yay!\n");
-    }
-  } while (!radiant);
-
-  //open the flower before doing radiant_initial_setup so we fail faster
-  pthread_rwlock_init(&flower_lock, NULL);
-
-  flower = flower_open(cfg.lt.device.spi_device, cfg.lt.device.spi_enable_gpio);
-  if (!flower && cfg.lt.device.required)
-  {
-    fprintf(stderr, "COULD NOT OPEN FLOWER. Waiting 20 seconds before quitting");
-    sleep(20);
-    return 1;
-  }
-
-  uint8_t fwstation, fwmajor, fwminor;
-  flower_get_fwversion(flower, &fwstation, &fwmajor, &fwminor, 0, 0, 0);
-  if ((1000*fwmajor + fwminor) >= 14 && fwstation != station_number)
-  {
-    //complain but don't quit since it's not necessarily fatal (ie lab testing)
-    fprintf(stderr,"Station number and station specific FLOWER firmware mismatch!\n");
-  }
-
-  feed_watchdog(0);
-
-  //intitial configure of the radiant, bail if can't open
-  if (radiant_initial_setup())
-    return 1;
-  feed_watchdog(0);
-
-  //and the flower, bail if can't open  and required
-  if (flower_initial_setup() && cfg.lt.device.required)
-    return 1;
-  feed_watchdog(0);
-
+/**
+ * Advance the runfile to the next run number and set up the output
+ * directory for the current run.
+ *
+ *  - if a runfile was open (frun non-NULL), atomically overwrite it with
+ *    run_number+1: write to a temporary file, then rename it over the
+ *    real runfile, so a future invocation picks up where this run left
+ *    off even if we crash partway through
+ *  - allocate the scratch buffer (bigbuf) used throughout the program for
+ *    building output file paths
+ *  - create the output directory tree for this run
+ *  - open the per-run file list, used to track every output file written
+ *    during this run, and record the file list itself in it
+ *
+ * frun is closed (or, on the error path, left for the caller to ignore)
+ * by this function; it must not be used by the caller afterward.
+ *
+ * Returns 0 on success, 1 on failure (temporary run file couldn't be
+ * opened/written/renamed, or the scratch buffer couldn't be allocated).
+ */
+static int setup_output_dir_and_runfile(FILE * frun)
+{
   //update the run file
   if (frun)
   {
@@ -2073,17 +2846,21 @@ static int initial_setup()
 
     char * tmp_run_file = 0;
     asprintf(&tmp_run_file, "%s.tmp", cfg.output.runfile);
-    frun = fopen(tmp_run_file,"w");
+    frun = fopen(tmp_run_file, "w");
     if (!frun)
     {
-      fprintf(stderr,"Could not open temporary run file: %s\n", tmp_run_file);
+      fprintf(stderr, "Could not open temporary run file: %s\n", tmp_run_file);
       return 1;
     }
-    if ( 0 > fprintf(frun,"%d\n", run_number+1) || 0 != fclose(frun))
+    if (0 > fprintf(frun, "%d\n", run_number + 1))
     {
-      fprintf(stderr,"Problem writing temporary run file %s\n", tmp_run_file);
+      fprintf(stderr, "Problem writing temporary run file %s\n", tmp_run_file);
+      fclose(frun);
       return 1;
     }
+
+    fclose(frun);
+
     if (rename(tmp_run_file, cfg.output.runfile))
     {
       fprintf(stderr,"Problem moving %s to %s\n", tmp_run_file, cfg.output.runfile);
@@ -2104,21 +2881,31 @@ static int initial_setup()
   //let's make the output directories here now
   make_dirs_for_output(output_dir);
 
-
   //open the file list
-  sprintf(bigbuf,"%s/aux/acq-file-list.txt", output_dir);
+  sprintf(bigbuf, "%s/aux/acq-file-list.txt", output_dir);
   file_list = fopen(bigbuf, "w");
-  file_list_fd = fileno(file_list);
+  file_list_fd = file_list ? fileno(file_list) : -1;
   add_to_file_list(bigbuf);
 
-  //HACK, take initial flower data if we need to
-  if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
-  {
-    snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
-    add_to_file_list(bigbuf);
-    flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
-  }
+  return 0;
+}
 
+/**
+ * Install signal handlers, initialize the acq/mon ring buffers, and
+ * start the acq, mon, and wri (write) threads.
+ *
+ *  - install a shared sigaction (signal_handler) for SIGINT, SIGTERM, and
+ *    SIGUSR1
+ *  - initialize the acq and mon ring buffers from the configured sizes
+ *  - record the precise acq start time, then start the acq and mon
+ *    threads
+ *  - take a read lock on the config lock and hold it (it is released once
+ *    the write thread has finished writing out the config) before
+ *    starting the write thread, so the write thread is guaranteed to see
+ *    a consistent config while the acq/mon threads are already running
+ */
+static void start_threads()
+{
   //set up signal handlers
   sigset_t empty;
   sigemptyset(&empty);
@@ -2144,14 +2931,10 @@ static int initial_setup()
   pthread_rwlock_rdlock(&cfg_lock);
 
   pthread_create(&the_wri_thread, NULL, wri_thread, NULL);
-
-  return 0;
 }
 
 
-
-
-int please_stop()
+static int please_stop()
 {
   printf("Stopping...\n");
   quit = 1;
@@ -2160,13 +2943,42 @@ int please_stop()
 }
 
 
-
 int main(int nargs, char ** args)
 {
   if (nargs > 1) cfgpath = args[1];
 
-  if (initial_setup())
+  FILE * frun = NULL;
+  if (setup_run_and_daqstatus(&frun))
     return 1;
+
+#ifdef ON_DIDAQ
+
+  if (open_and_setup_didaq())
+    return 1;
+
+#else
+
+  if (open_and_setup_radiant_and_flower())
+    return 1;
+
+  #endif
+
+  // I think the reason we are only doing this now is to not create empty run directories
+  // while we have problems with the hardware and the run would restart...
+  if (setup_output_dir_and_runfile(frun))
+    return 1;
+
+#ifndef ON_DIDAQ
+  //HACK, take initial flower data if we need to
+  if (flower && cfg.lt.waveforms.at_start.enable && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
+  {
+    snprintf(bigbuf,bigbuflen,"%s/aux/flower_start.json.gz", output_dir);
+    add_to_file_list(bigbuf);
+    flower_take_waveforms(cfg.lt.waveforms.at_start.nforce, cfg.lt.waveforms.at_start.nsecs_rf, bigbuf);
+  }
+#endif
+
+  start_threads();
 
   struct timespec start_time;
   clock_gettime(CLOCK_MONOTONIC_COARSE,&start_time);
@@ -2185,15 +2997,20 @@ int main(int nargs, char ** args)
 
     if (cfg.output.min_free_space_MB_output_partition > 0)
     {
+      // Stop while available memory drops while running. Already performing test in
+      // setup_run_and_daqstatus to stop run from actually starting (and run folder being created ...)
       double MBfree = get_free_MB_by_path(cfg.output.base_dir);
       if (MBfree < cfg.output.min_free_space_MB_output_partition)
       {
-        fprintf(stderr,"Output partition free space is just %f MB, smaller than minimum %d MB\n", MBfree, cfg.output.min_free_space_MB_output_partition);
+        fprintf(stderr,
+          "Output partition free space is just %f MB, smaller than minimum %d MB\n",
+          MBfree, cfg.output.min_free_space_MB_output_partition);
         please_stop();
         continue;
       }
     }
 
+    // Stop at the end of the run
     clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
     if (now.tv_sec - start_time.tv_sec > cfg.output.seconds_per_run)
     {
@@ -2206,11 +3023,13 @@ int main(int nargs, char ** args)
   return teardown();
 }
 
-int teardown()
+static int teardown()
 {
   pthread_join(the_acq_thread,0);
   pthread_join(the_mon_thread,0);
   pthread_join(the_wri_thread,0);
+
+#ifndef ON_DIDAQ
 
   //HACK, take final flower data if we need to
   if (flower && cfg.lt.waveforms.at_finish.enable  && ((run_number % cfg.lt.waveforms.skip_runs) == 0))
@@ -2220,12 +3039,14 @@ int teardown()
     flower_take_waveforms(cfg.lt.waveforms.at_finish.nforce, cfg.lt.waveforms.at_finish.nsecs_rf, bigbuf);
   }
 
-
   //disable the trigger OVLD
   radiant_trigger_enable(radiant,0,0);
   radiant_labs_stop(radiant);
   radiant_close(radiant);
   if (flower) flower_close(flower);
+
+#endif
+
   fclose(file_list);
   struct timespec end_time;
   clock_gettime(CLOCK_REALTIME, &end_time);
@@ -2235,7 +3056,6 @@ int teardown()
     fprintf(runinfo,"RUN-END-TIME = %ld.%09ld\n", end_time.tv_sec, end_time.tv_nsec);
     fclose(runinfo);
   }
-
 
   //turn off the calpulser on teardown, if it's on?
   if (calpulser)
@@ -2249,23 +3069,9 @@ int teardown()
 
   if (shared_ds_fd)
   {
-    munmap(ds,sizeof(rno_g_daqstatus_t));
+    munmap(ds, sizeof(rno_g_daqstatus_t));
     close(shared_ds_fd);
   }
 
   return 0;
-}
-
-// you should be holding a flower lock while calling this
-int flower_update_pps_offset()
-{
-  float wanted_delay = cfg.lt.trigger.pps_trigger_delay;
-
-
-  // clamp to a second
-  if (fabs(wanted_delay) >= 1e6) wanted_delay =   (wanted_delay*1e-6 - ((int) (wanted_delay*1e-6)))*1e6;
-
-  int delay_cycles = round(wanted_delay * delay_clock_estimate/1e6);
-  if (delay_cycles < 0) delay_cycles += delay_clock_estimate;
-  return flower_set_delayed_pps_delay(flower,delay_cycles);
 }

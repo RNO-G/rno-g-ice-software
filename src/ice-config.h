@@ -3,10 +3,66 @@
 
 #include "rno-g.h"
 
+#ifdef ON_DIDAQ
+#include "didaq.h"
+#else
+/* acq_config_t always carries its didaq section, even where libdidaq isn't
+ * available, so that neither ice-config.c nor rno-g-acq.c has to #ifdef every
+ * reference to it (only the code that talks to the hardware is guarded). Only
+ * the array sizes matter here -- nothing ever reads these fields. */
+#define DIDAQ_NUM_ADC 6
+#endif
+
 /** Configuration structs */
 
 #define NUM_SERVO_PERIODS 3
 #define NUM_SERVO_PERIODS_STR "3"
+
+/* The DiDAQ addresses its sample memory in 4-sample words, so both
+ * didaq.readout.num_samples and .sample_offset (which are in samples) must be
+ * multiples of 4. The readout start address is a 10-bit word address, capping
+ * the offset at 1023; the length is capped by the event buffer we read into
+ * (which is the same 4096 as libdidaq's DIDAQ_MAX_LEN). */
+#define DIDAQ_SAMPLE_ALIGN 4
+#define DIDAQ_SAMPLE_OFFSET_MAX 1023
+#define DIDAQ_NUM_SAMPLES_MAX RNO_G_MAX_DIDAQ_NSAMPLES
+
+#define RNO_G_THRESHOLD_RANGE_FIELDS(n) \
+  int load_from_threshold_file;         \
+  float initial[n];                     \
+  float max;                            \
+  float min;
+
+
+typedef struct rno_g_take_waveforms
+{
+  int enable;
+  int nsecs_rf;
+  int nforce;
+} rno_g_take_waveforms_t;
+
+/** RADIANT's per-channel coincidence-trigger threshold servo config. Unlike
+ *  DIDAQ/FLOWER, RADIANT's raw scaler counts need smoothing over a
+ *  multi-timescale rolling window (see nscaler_periods_per_servo_period /
+ *  period_weights below), hence the extra fields relative to DIDAQ's
+ *  (much simpler) acq_config_t.didaq.servo.coinc.
+ */
+typedef struct rno_g_radiant_servo_config
+{
+  int enable;
+  int use_log;
+  float log_offset;
+  float scaler_update_interval;
+  float servo_interval;
+  int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
+  float period_weights[NUM_SERVO_PERIODS];
+  float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
+  float max_thresh_change;
+  float max_sum_err;
+  float P;
+  float I;
+  float D;
+} rno_g_radiant_servo_config_t;
 
 
 /** The acquisition config
@@ -16,6 +72,118 @@
 typedef struct acq_config
 {
 
+  //didaq-specific things
+  struct
+  {
+
+    struct
+    {
+      const char * spi_name;
+      const char * uart_name;
+      const char * trig_ready_gpio_label;
+      const char * spi_en_label;
+      int enable_dbg;
+    } device;
+
+    struct
+    {
+      uint32_t num_samples;
+      uint32_t sample_offset;
+      uint32_t reaodut_mask;
+      int poll_ms;
+      float acq_timeout;
+    } readout;
+
+    // will hopefully eventually be implemented in didaq
+    struct
+    {
+        int auto_gain;
+        float target_rms;
+        uint8_t fixed_gain_codes[RNO_G_NUM_RADIANT_CHANNELS];
+        uint16_t full_scale_range_codes[DIDAQ_NUM_ADC];
+    } gain;
+
+    struct
+    {
+      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } coinc;
+      struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_DIDAQ_BEAMS) } phased;
+    } thresholds;
+
+    struct
+    {
+      struct
+      {
+        int enable;
+        uint16_t phased_scaler_goals[RNO_G_NUM_DIDAQ_BEAMS];
+        float servo_thresh_frac;
+        float servo_thresh_offset;
+        float scaler_update_interval;
+        float servo_interval;
+        float P;
+        float I;
+        float D;
+      } phased;
+
+      struct {
+        int enable;
+        int subtract_gated;
+        uint16_t scaler_goals[RNO_G_NUM_RADIANT_CHANNELS];
+        float scaler_update_interval;
+        float servo_interval;
+        float max_dthreshold;
+        float max_tolerated_error;
+        float P;
+        float I;
+        float D;
+      } coinc;
+
+    } servo;
+
+
+    struct
+    {
+      struct
+      {
+        int enabled;
+        int use_exponential_distribution;
+        float interval;
+        float interval_jitter;
+      } soft;
+
+      struct
+      {
+        int enabled;
+      } pps;
+
+      struct
+      {
+        int enabled;
+      } ext;
+
+      struct
+      {
+        int enable;
+        int enable_readout;
+        int quad_mode;
+        int num_required;
+        int window;
+        int exclude_mask;
+      } coinc[2];
+
+      struct
+      {
+        int enable;
+        int enable_readout;
+        int require_consecutive;
+        int divide_by_2;
+        int channel_exclude_mask;
+        int beam_exclude_mask;
+      } phased;
+
+    } trigger;
+
+  } didaq;
+
   //radiant-specific things
   struct
   {
@@ -24,34 +192,13 @@ typedef struct acq_config
     struct
     {
       int use_pps;  //use pps, otherwise period is used
-      float period ; //period in seconds if not using pps
+      float period; //period in seconds if not using pps
       uint8_t prescal_m1[RNO_G_NUM_RADIANT_CHANNELS];  //the prescaler minus 1 for this channe
     } scalers;
 
-    struct
-    {
-      int load_from_threshold_file;
-      float initial[RNO_G_NUM_RADIANT_CHANNELS];
-      float max;
-      float min;
-    } thresholds;
+    struct { RNO_G_THRESHOLD_RANGE_FIELDS(RNO_G_NUM_RADIANT_CHANNELS) } thresholds;
 
-    struct
-    {
-      int enable;
-      int use_log;
-      float log_offset;
-      float scaler_update_interval;
-      float servo_interval;
-      int nscaler_periods_per_servo_period[NUM_SERVO_PERIODS];
-      float period_weights [NUM_SERVO_PERIODS];
-      float scaler_goals[RNO_G_NUM_RADIANT_CHANNELS]; // Scaler goals for each channel
-      float max_thresh_change;
-      float max_sum_err;
-      float P;
-      float I;
-      float D;
-    } servo;
+    rno_g_radiant_servo_config_t servo;
 
     struct
     {
@@ -63,7 +210,6 @@ typedef struct acq_config
         float interval_jitter;
         int output_enabled;
       } soft;
-
 
       struct
       {
@@ -178,17 +324,17 @@ typedef struct acq_config
       {
         int enable_rf_coinc_trigger;
         int rf_coinc_channel_mask;
-        int vpp ;
+        int vpp;
         int min_coincidence;
         int window;
-      }coinc;
+      } coinc;
 
       struct
       {
         int enable_rf_phased_trigger;
         int rf_phased_beam_mask;
         int rf_phased_threshold_offset;
-      }phased;
+      } phased;
 
       int enable_rf_trigger_sma_out;
       int enable_rf_trigger_sys_out;
@@ -233,26 +379,15 @@ typedef struct acq_config
 
     struct
     {
-      int auto_gain;
-      float target_rms;
-      uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
+        int auto_gain;
+        float target_rms;
+        uint8_t fixed_gain_codes[RNO_G_NUM_LT_CHANNELS];
     } gain;
 
     struct
     {
-      struct
-      {
-        int enable;
-        int nsecs_rf;
-        int nforce;
-      } at_finish;
-
-      struct
-      {
-        int enable;
-        int nsecs_rf;
-        int nforce;
-      } at_start;
+      rno_g_take_waveforms_t at_finish;
+      rno_g_take_waveforms_t at_start;
 
       int skip_runs;
       int length;
@@ -312,6 +447,13 @@ typedef struct acq_config
 
 } acq_config_t;
 
+
+/** Round the didaq readout settings down to something the hardware accepts (see
+ *  DIDAQ_SAMPLE_ALIGN / _MAX above), complaining on stderr if they had to
+ *  change anything. Return the usable value. num_samples == 0 is left alone and
+ *  means "use the libdidaq default". */
+uint32_t didaq_sanitize_sample_offset(uint32_t sample_offset);
+uint32_t didaq_sanitize_num_samples(uint32_t num_samples);
 
 /** Fill in some reasonable defaults for the acq_config_t */
 int init_acq_config(acq_config_t * cfg);

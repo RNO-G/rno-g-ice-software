@@ -247,20 +247,23 @@ int mv_file(const char *oldpath, const char *newpath)
        return -ENOENT; 
      }
 
-     int new_fd = open(newpath,O_WRONLY | O_CREAT); 
-     if (new_fd < 0) 
-     {
-       fprintf(stderr,"Could not open %s for writing\n", newpath); 
-       return -ENOENT; 
-     }
-
-
      struct stat st; 
      if (fstat(old_fd,&st)) 
      {
        fprintf(stderr,"Could not stat %s\n",oldpath); 
+       close(old_fd);
        return -ENOENT;
      }
+
+
+     int new_fd = open(newpath,O_WRONLY | O_CREAT, st.st_mode); 
+     if (new_fd < 0) 
+     {
+       fprintf(stderr,"Could not open %s for writing\n", newpath); 
+       close(old_fd);
+       return -ENOENT; 
+     }
+
 
      off_t sz = st.st_size; 
      off_t wr = 0; 

@@ -3,14 +3,42 @@ SHELL:=/bin/bash
 BUILD_DIR=build
 RNO_G_INSTALL_DIR?=/rno-g/
 PREFIX?=$(RNO_G_INSTALL_DIR)
-CFLAGS=-Og -fPIC -Wall -Wextra -g -std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
+CFLAGS?=-Og -fPIC -Wall -Wextra -pedantic -g -fanalyzer
+CFLAGS+=-std=gnu11 -I$(RNO_G_INSTALL_DIR)/include
 BINDIR=bin
 
+ON_DIDAQ?=no
+YOCTO=no
 
-LDFLAGS=-L$(RNO_G_INSTALL_DIR)/lib
-LIBS=-lz -pthread -lrno-g -lradiant -lrno-g-cal -lconfig -lflower -lm -lsystemd
+#check if on revn board
+ifneq (,$(shell grep RevN /proc/device-tree/model 2> /dev/null))
+$(info We are on the DiDAQ)
+ON_DIDAQ=yes
+endif
+
+#check if inside rno-g-revn yocto build
+ifneq (,$(filter ${MACHINE},rno-g-revn))
+$(info We are inside yocto)
+ON_DIDAQ=yes
+YOCTO=yes
+endif
+
+LDFLAGS+=-L$(RNO_G_INSTALL_DIR)/lib
+LIBS=-lz -pthread -lrno-g -lrno-g-cal -lconfig -lm -lsystemd
 
 INCLUDES=src/ice-config.h src/ice-buf.h src/ice-common.h
+
+ifeq ($(ON_DIDAQ),yes)
+CFLAGS += -DON_DIDAQ
+LIBS += -ldidaq -lrno-g-didaq -lgpios
+else
+LIBS += -lradiant -lflower
+endif
+
+SERVO_DEBUG?=no
+ifeq ($(SERVO_DEBUG),yes)
+CFLAGS += -DSERVO_DEBUG
+endif
 
 .PHONY: all clean install uninstall setup cfg-update cfg-install cfg-compare cppcheck service-install sudoers-install polkit-install cfg-round-trip-check FORCE
 
@@ -28,11 +56,11 @@ $(BINDIR)/update-rno-g-config:  $(BINDIR)/check-rno-g-config
 
 $(BINDIR)/%: src/%.c $(INCLUDES) $(OBJS) Makefile | $(BINDIR)
 	@echo Compiling $@
-	@cc -o $@ $(CFLAGS) $< $(OBJS) $(LDFLAGS) $(LIBS)
+	@$(CC) -o $@ $(CFLAGS) $< $(OBJS) $(LDFLAGS) $(LIBS)
 
 $(BUILD_DIR)/%.o: src/%.c $(INCLUDES) | $(BUILD_DIR)
 	@echo Compiling $@
-	@cc -c -o $@ $(CFLAGS) $<
+	@$(CC) -c -o $@ $(CFLAGS) $<
 
 # Auto-generated git hash. FORCE makes it always considered out of date so the
 # hash is re-checked on every build, but the file (and hence its mtime) is only
@@ -56,28 +84,23 @@ clean:
 	rm -rf $(BINDIR)
 
 setup:
-	mkdir -p $(PREFIX)/run
-	chown rno-g:rno-g $(PREFIX)/run
-	mkdir -p $(PREFIX)/var
-	chown rno-g:rno-g $(PREFIX)/var
-	mkdir -p $(PREFIX)/cfg
-	chown rno-g:rno-g $(PREFIX)/cfg
-	mkdir -p $(PREFIX)/bin
-	chown rno-g:rno-g $(PREFIX)/bin
-	mkdir -p /data/daq
-	chown rno-g:rno-g /data/daq
-	mkdir -p /data/timing
-	chown rno-g:rno-g /data/timing
-	mkdir -p /data/power
-	chown rno-g:rno-g /data/power
-	touch $(PREFIX)/var/calib_channel.state
-	chown rno-g:rno-g $(PREFIX)/var/calib_channel.state
-
-
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/run
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/var
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/cfg/default
+	install -d -o rno-g -g rno-g $(DESTDIR)$(PREFIX)/bin
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/daq
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/timing
+	install -d -o rno-g -g rno-g $(DESTDIR)/data/power
+	touch $(DESTDIR)$(PREFIX)/var/calib_channel.state
+	chown rno-g:rno-g $(DESTDIR)$(PREFIX)/var/calib_channel.state
 
 install: $(BINS) setup
-	install $(BINS) $(PREFIX)/bin
-	install scripts/rno-g-* $(PREFIX)/bin
+	install $(BINS) $(DESTDIR)$(PREFIX)/bin
+	install scripts/rno-g-* $(DESTDIR)$(PREFIX)/bin
+	install scripts/calibration/rno-g-apply-calib scripts/calibration/apply_acq_overrides.py $(DESTDIR)$(PREFIX)/bin
+	install -m 644 scripts/calibration/overrides.json $(DESTDIR)$(PREFIX)/cfg
+	install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/default/acq-.cfg
+	install cfg/acq-*.cfg $(DESTDIR)$(PREFIX)/cfg/default/
 
 cfg-update: $(BINDIR)/update-rno-g-config
 	@ echo "Updating acq configs"
@@ -88,11 +111,11 @@ cfg-install:
 	@ echo "Installing configuration..."
 	@ if [ -f cfg/acq-${STATION_NUMBER}.cfg ] ; \
 	then \
-		echo "Using station-specific file cfg/acq-${STATION_NUMBER}.cfg" ; install cfg/acq-${STATION_NUMBER}.cfg $(PREFIX)/cfg/acq.cfg ;\
+		echo "Using station-specific file cfg/acq-${STATION_NUMBER}.cfg" ; install cfg/acq-${STATION_NUMBER}.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg ;\
 	else \
-		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(PREFIX)/cfg/acq.cfg ; \
+		echo "Using default cfg/acq.cfg" ; install cfg/acq.cfg $(DESTDIR)$(PREFIX)/cfg/acq.cfg ; \
 	fi
-	@mkdir -p ${PREFIX}/cfg/acq.cfg.once
+	@mkdir -p $(DESTDIR)${PREFIX}/cfg/acq.cfg.once
 
 cfg-compare:
 	@ echo "Compare config files repo -> installed (hide comments)"
@@ -106,12 +129,15 @@ cppcheck:
 	cppcheck --enable=portability --enable=performance --enable=information  src
 
 polkit-install:
-	install polkit/rno-g.rules /etc/polkit-1/rules.d/10-rno-g.rules
+	install -d ${DESTDIR}/etc/polkit-1/rules.d
+	install polkit/rno-g.rules ${DESTDIR}/etc/polkit-1/rules.d/10-rno-g.rules
+
+service-install: polkit-install
+	install systemd/*.service systemd/*.timer systemd/*.target ${DESTDIR}/etc/systemd/system
+ifeq ($(YOCTO),no)
+	systemctl daemon-reload
+endif
 
 sudoers-install:
 	install -m 0440 sudoers/rno-g-drop-caches /etc/sudoers.d/rno-g-drop-caches
 	visudo -cf /etc/sudoers.d/rno-g-drop-caches
-
-service-install: polkit-install sudoers-install
-	install systemd/*.service systemd/*.timer systemd/*.target /etc/systemd/system
-	systemctl daemon-reload
