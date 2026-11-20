@@ -748,7 +748,7 @@ static int do_bias_scan()
     usleep(1e6*cfg.radiant.bias_scan.sleep_time);
 
     feed_watchdog(0); //don't get killed by watchdog
-    radiant_compute_pedestals(radiant, 0xffffff, cfg.radiant.bias_scan.navg_per_step, &ped);
+    radiant_compute_pedestals(radiant, cfg.radiant.readout.readout_mask, cfg.radiant.bias_scan.navg_per_step, &ped);
 
     rno_g_pedestal_write(hbias, &ped);
   }
@@ -880,7 +880,7 @@ int radiant_initial_setup()
       pedestals = calloc(sizeof(rno_g_pedestal_t), 1);
     }
 
-    have_peds = !radiant_compute_pedestals(radiant, 0xffffff,
+    have_peds = !radiant_compute_pedestals(radiant, cfg.radiant.readout.readout_mask,
                                             cfg.radiant.pedestals.ntriggers_per_computation,
                                             pedestals);
 
